@@ -1,0 +1,8 @@
+{
+  "name": "Spare Parts Price Quiz & Inventory Suite",
+  "description": "Interactive quiz game and inventory browser for memorizing smartphone spare parts prices, screen compatibility, and live Google Sheets database synchronization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,1461 @@
+<!doctype html>
+<html lang="so">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0e14">
+<title>Reer Hassan — Spare Parts Suite</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0e14;
+    --bg-soft:#0d1218;
+    --surface:#131a24;
+    --surface-2:#1a2330;
+    --surface-3:#212c3c;
+    --border:#25303f;
+    --border-soft:#1d2733;
+    --text:#e9eef5;
+    --muted:#8896a7;
+    --faint:#5d6b7c;
+    --brand:#5b9dff;
+    --brand-2:#8b7bff;
+    --accent:#2dd4bf;
+    --price:#34d399;
+    --amber:#fbbf24;
+    --danger:#f87171;
+    --good:#34d399;
+    --radius:16px;
+    --radius-lg:22px;
+    --shadow:0 18px 48px -22px rgba(0,0,0,.85);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    font-family:'Inter',system-ui,sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(circle at 12% -8%, rgba(91,157,255,.13), transparent 42%),
+      radial-gradient(circle at 92% 4%, rgba(139,123,255,.10), transparent 40%),
+      radial-gradient(circle at 60% 120%, rgba(45,212,191,.07), transparent 46%),
+      var(--bg);
+    min-height:100vh;
+    min-height:100dvh;
+  }
+  h1,h2,h3,h4{font-family:'Space Grotesk',sans-serif; margin:0; letter-spacing:-.01em;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  ::-webkit-scrollbar{width:9px; height:9px;}
+  ::-webkit-scrollbar-thumb{background:var(--surface-3); border-radius:99px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+
+  .shell{max-width:940px; margin:0 auto; padding:16px 14px 120px; display:flex; flex-direction:column; gap:16px;}
+
+  /* ---- header ---- */
+  .appbar{
+    display:flex; align-items:center; gap:12px;
+    padding:6px 2px;
+  }
+  .logo{
+    width:44px; height:44px; border-radius:13px; flex:none;
+    background:linear-gradient(140deg, var(--brand), var(--brand-2));
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 10px 26px -10px rgba(91,157,255,.7);
+  }
+  .logo svg{width:23px; height:23px; color:#fff;}
+  .brand-txt{display:flex; flex-direction:column; min-width:0;}
+  .brand-txt h1{font-size:18px; font-weight:700; line-height:1.1;}
+  .brand-txt span{font-size:11.5px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase; margin-top:2px;}
+  .brand-badge{
+    margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--accent);
+    border:1px solid rgba(45,212,191,.3); background:rgba(45,212,191,.08);
+    padding:5px 11px; border-radius:99px; white-space:nowrap;
+  }
+
+  /* ---- tab nav ---- */
+  .tabs{
+    display:flex; gap:6px; padding:6px; background:var(--surface); border:1px solid var(--border);
+    border-radius:16px; position:sticky; top:10px; z-index:20; box-shadow:var(--shadow);
+    overflow-x:auto; scrollbar-width:none;
+  }
+  .tabs::-webkit-scrollbar{display:none;}
+  .tab{
+    flex:1; min-width:max-content; display:flex; align-items:center; justify-content:center; gap:8px;
+    padding:11px 14px; border-radius:11px; border:none; background:transparent; color:var(--muted);
+    font-size:13.5px; font-weight:600; white-space:nowrap; transition:background .18s, color .18s;
+  }
+  .tab svg{width:17px; height:17px;}
+  .tab:hover{color:var(--text);}
+  .tab.active{background:linear-gradient(140deg, var(--brand), var(--brand-2)); color:#fff; box-shadow:0 8px 20px -10px rgba(91,157,255,.8);}
+
+  .view{display:none; flex-direction:column; gap:14px; animation:fade .28s ease;}
+  .view.active{display:flex;}
+  @keyframes fade{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg);
+    padding:18px; box-shadow:var(--shadow);
+  }
+  .card.tight{padding:14px;}
+
+  label.fld{font-size:11.5px; color:var(--muted); font-weight:600; letter-spacing:.02em; display:block; margin:0 0 6px; text-transform:uppercase;}
+  .field{
+    width:100%; font-family:inherit; font-size:15px; color:var(--text);
+    background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:12px 14px;
+    -webkit-appearance:none; appearance:none; transition:border-color .15s, background .15s;
+  }
+  .field:focus{outline:none; border-color:var(--brand); background:var(--surface-3);}
+  select.field{
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238896a7' stroke-width='2.4'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 13px center; padding-right:38px; cursor:pointer;
+  }
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;}
+  @media (max-width:520px){ .grid3{grid-template-columns:1fr 1fr;} }
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+    font-size:14px; font-weight:600; padding:12px 16px; border-radius:12px; transition:.15s; min-height:46px;
+  }
+  .btn:hover{background:var(--surface-3); border-color:var(--surface-3);}
+  .btn:active{transform:scale(.98);}
+  .btn svg{width:16px; height:16px;}
+  .btn.primary{background:linear-gradient(140deg, var(--brand), var(--brand-2)); border:none; color:#fff; box-shadow:0 12px 26px -12px rgba(91,157,255,.8);}
+  .btn.primary:hover{filter:brightness(1.07);}
+  .btn.ghost{background:transparent;}
+  .btn.block{width:100%;}
+  .btn.sm{padding:9px 12px; min-height:0; font-size:13px;}
+  .btn.active{background:rgba(91,157,255,.16); border-color:var(--brand); color:var(--brand);}
+
+  .search-box{display:flex; align-items:center; gap:10px; background:var(--surface-2); border:1px solid var(--border); border-radius:13px; padding:11px 14px;}
+  .search-box:focus-within{border-color:var(--brand);}
+  .search-box svg{width:17px; height:17px; color:var(--muted); flex:none;}
+  .search-box input{flex:1; background:transparent; border:none; outline:none; color:var(--text); font-family:inherit; font-size:15px;}
+  .search-box input::placeholder{color:var(--faint);}
+
+  .hint{font-size:12px; color:var(--muted); line-height:1.5;}
+  .count{font-size:12px; color:var(--muted); margin:2px 0 10px;}
+  .count b{color:var(--text);}
+
+  /* ---- price table ---- */
+  .table-wrap{overflow:auto; border-radius:14px; border:1px solid var(--border-soft);}
+  table{width:100%; border-collapse:collapse; font-size:13.5px;}
+  thead th{
+    text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+    font-weight:700; padding:11px 12px; background:var(--surface-2); position:sticky; top:0; z-index:1;
+    border-bottom:1px solid var(--border);
+  }
+  tbody td{padding:11px 12px; border-bottom:1px solid var(--border-soft); vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover td{background:rgba(91,157,255,.04);}
+  td.rank{color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:11.5px; width:34px;}
+  td.name{font-weight:500; line-height:1.35;}
+  td.price{text-align:right; white-space:nowrap;}
+  .pill{font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--price); font-size:13.5px;}
+  .pill .u{color:var(--faint); font-weight:600; font-size:11px; margin-left:2px;}
+  .cat-tag{display:inline-block; font-size:10.5px; color:var(--muted); background:var(--surface-2); border:1px solid var(--border-soft); border-radius:99px; padding:2px 9px; margin-top:3px;}
+  .name-link{color:var(--text); text-decoration:none;}
+  .name-link:hover{color:var(--brand); text-decoration:underline;}
+
+  /* ---- profile ---- */
+  .chips{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
+  .chip{border:1px solid var(--border); background:var(--surface-2); color:var(--muted); border-radius:99px; padding:8px 14px; font-size:12.5px; font-weight:500; transition:.15s;}
+  .chip:hover{border-color:var(--brand); color:var(--text);}
+  .empty{text-align:center; color:var(--muted); padding:48px 20px; font-size:13.5px;}
+  .empty .ic{width:52px; height:52px; margin:0 auto 14px; color:var(--faint);}
+  .empty .ic svg{width:100%; height:100%;}
+  .prof-head{display:flex; align-items:center; gap:14px; margin-bottom:4px;}
+  .prof-avatar{width:54px; height:54px; border-radius:15px; flex:none; background:linear-gradient(140deg, var(--brand), var(--brand-2)); display:flex; align-items:center; justify-content:center; color:#fff;}
+  .prof-avatar svg{width:26px; height:26px;}
+  .prof-title{font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:700;}
+  .prof-sub{color:var(--muted); font-size:12.5px; margin-top:3px;}
+  .part-card{background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px 16px;}
+  .part-head{display:flex; align-items:center; gap:11px; margin-bottom:6px;}
+  .part-ic{width:36px; height:36px; border-radius:11px; background:var(--surface-2); border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; color:var(--brand); flex:none;}
+  .part-ic svg{width:19px; height:19px;}
+  .part-title{font-weight:700; font-size:14.5px; font-family:'Space Grotesk',sans-serif;}
+  .part-count{margin-left:auto; font-size:11px; color:var(--muted);}
+  .prow{display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--border-soft);}
+  .prow:first-of-type{border-top:none;}
+  .prow .pn{flex:1; font-size:13px; line-height:1.35;}
+  .prow .pp{text-align:right; white-space:nowrap;}
+  .prow .pp .big{font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--price); font-size:13.5px;}
+  .prow .pp .sm{display:block; color:var(--faint); font-size:10.5px; font-family:'JetBrains Mono',monospace;}
+  .missing{background:rgba(251,191,36,.06); border:1px dashed rgba(251,191,36,.32); border-radius:14px; padding:12px 15px; font-size:12px; color:var(--amber); line-height:1.5;}
+
+  /* ---- quiz ---- */
+  .seg{display:flex; gap:6px; background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:5px;}
+  .seg button{flex:1; border:none; background:transparent; color:var(--muted); font-weight:600; font-size:13px; padding:9px; border-radius:9px; transition:.15s;}
+  .seg button.active{background:var(--brand); color:#fff;}
+  .stat-row{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin-bottom:6px;}
+  .stat-row b{color:var(--text);}
+  .qname{font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:700; line-height:1.35; margin:4px 0 4px; word-break:break-word;}
+  .qask{font-size:13px; color:var(--amber); font-weight:600; margin-bottom:16px;}
+  .opts{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
+  @media (max-width:440px){ .opts{grid-template-columns:1fr;} }
+  .opt{
+    background:var(--surface-2); border:1px solid var(--border); border-radius:13px; padding:15px 16px;
+    font-size:15px; font-family:'JetBrains Mono',monospace; font-weight:600; text-align:center; color:var(--text);
+    transition:.14s; min-height:52px;
+  }
+  .opt:hover:not(:disabled){border-color:var(--brand);}
+  .opt:active:not(:disabled){transform:scale(.98);}
+  .opt.correct{background:rgba(52,211,153,.16); border-color:var(--good); color:#7ff0c2;}
+  .opt.wrong{background:rgba(248,113,113,.16); border-color:var(--danger); color:#ffb0b0;}
+  .opt:disabled{cursor:default;}
+  .feedback{margin-top:14px; font-size:13px; padding:11px 14px; border-radius:12px; line-height:1.5; display:none;}
+  .feedback.show{display:block;}
+  .feedback.good{background:rgba(52,211,153,.12); color:#7ff0c2;}
+  .feedback.bad{background:rgba(248,113,113,.12); color:#ffb0b0;}
+  .timer{text-align:center; font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px; color:var(--amber); margin-bottom:8px;}
+  .timer.low{color:var(--danger);}
+  .final{text-align:center; padding:8px 4px;}
+  .final .big{font-family:'Space Grotesk',sans-serif; font-size:46px; font-weight:700; margin:10px 0 4px; background:linear-gradient(135deg,var(--brand),var(--brand-2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .final .msg{color:var(--muted); font-size:13.5px; margin-bottom:16px;}
+  .wrong-list{text-align:left; margin-top:14px;}
+  .wrong-list h4{font-size:13px; color:var(--danger); margin-bottom:10px;}
+  .wrong-item{display:flex; justify-content:space-between; gap:10px; background:var(--surface-2); border:1px solid var(--border-soft); border-radius:11px; padding:10px 13px; margin-bottom:8px; font-size:12.5px;}
+  .wrong-item .wv{white-space:nowrap; text-align:right; color:var(--muted); font-family:'JetBrains Mono',monospace;}
+  .wrong-item .wv b{color:var(--good);}
+  .match-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .match-col{display:grid; gap:9px;}
+  .match-btn{background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:13px 12px; font-size:13px; text-align:left; color:var(--text); word-break:break-word; min-height:48px; transition:.14s;}
+  .match-btn.mono{font-family:'JetBrains Mono',monospace; font-weight:600; text-align:center;}
+  .match-btn.selected{border-color:var(--brand); background:rgba(91,157,255,.15);}
+  .match-btn.matched{background:rgba(52,211,153,.14); border-color:var(--good); color:#7ff0c2; opacity:.55;}
+  .match-btn.flash{background:rgba(248,113,113,.22); border-color:var(--danger);}
+  .tf-btns{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .tf-btn{padding:16px; border-radius:13px; font-weight:700; font-size:15px; border:1px solid var(--border);}
+  .tf-btn.t{background:rgba(52,211,153,.14); border-color:var(--good); color:#7ff0c2;}
+  .tf-btn.f{background:rgba(248,113,113,.14); border-color:var(--danger); color:#ffb0b0;}
+
+  /* ---- compare ---- */
+  .device{background:linear-gradient(180deg,#182130,#111823); border:1px solid var(--border); border-radius:24px; padding:14px; display:flex; flex-direction:column; gap:12px;}
+  .notch{width:52px; height:5px; background:#0a0f16; border-radius:99px; margin:0 auto;}
+  .shot{border-radius:18px; overflow:hidden; background:#0a0f16; border:1px solid var(--border-soft); aspect-ratio:3/4; max-height:74vh; display:flex; align-items:center; justify-content:center; position:relative; cursor:zoom-in;}
+  .shot img{width:100%; height:100%; object-fit:contain;}
+  .zoom-hint{position:absolute; bottom:9px; right:9px; background:rgba(10,15,22,.75); border:1px solid var(--border); border-radius:99px; padding:5px 10px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); display:flex; align-items:center; gap:5px;}
+  .zoom-hint svg{width:12px; height:12px;}
+  .cap{text-align:center;}
+  .cap .nm{font-family:'Space Grotesk',sans-serif; font-size:16px; font-weight:700;}
+  .cap .mt{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); margin-top:3px;}
+  .cmp-ctrls{display:grid; grid-template-columns:1fr 1.4fr 1fr; gap:9px;}
+  .tray{background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:11px; display:none;}
+  .tray.show{display:block;}
+  .tray-row{display:flex; align-items:center; gap:10px;}
+  .tray-thumbs{display:flex; gap:7px; flex:1; overflow-x:auto; padding-bottom:2px;}
+  .tray-thumb{position:relative; width:48px; height:48px; border-radius:11px; overflow:hidden; border:1px solid var(--border); flex:none; background:#0a0f16;}
+  .tray-thumb img{width:100%; height:100%; object-fit:contain;}
+  .tray-thumb .rm{position:absolute; top:0; right:0; width:17px; height:17px; background:rgba(248,113,113,.92); color:#180505; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; border-bottom-left-radius:7px;}
+  .cmp-search{margin-top:6px; max-height:0; overflow:hidden; transition:max-height .22s ease;}
+  .cmp-search.open{max-height:280px; margin-top:0;}
+  .cmp-results{margin-top:8px; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; max-height:210px; overflow-y:auto;}
+  .cmp-item{display:flex; justify-content:space-between; gap:10px; padding:11px 13px; font-size:13px; border-bottom:1px solid var(--border-soft);}
+  .cmp-item:last-child{border-bottom:none;}
+  .cmp-item:active{background:var(--surface-2);}
+  .cmp-item .bt{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted);}
+
+  .overlay{position:fixed; inset:0; background:rgba(6,9,13,.97); z-index:60; display:none; flex-direction:column; padding:16px;}
+  .overlay.show{display:flex;}
+  .ov-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .ov-head h2{font-size:17px;}
+  .cmp-grid{flex:1; min-height:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; overflow-y:auto;}
+  .cmp-cell{background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:9px; display:flex; flex-direction:column;}
+  .cmp-cell .cs{flex:1; min-height:150px; background:#0a0f16; border-radius:12px; overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:zoom-in;}
+  .cmp-cell .cs img{width:100%; height:100%; object-fit:contain;}
+  .cmp-cell .cn{text-align:center; font-family:'Space Grotesk',sans-serif; font-size:13px; font-weight:700; margin-top:9px;}
+  .cmp-cell .cb{text-align:center; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted); margin-top:2px;}
+  .img-broken{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; width:100%; height:100%; color:var(--faint); padding:10px; text-align:center;}
+  .img-broken svg{width:26px; height:26px; opacity:.6;}
+  .img-broken span{font-size:10.5px; line-height:1.4;}
+  .icon-btn{width:40px; height:40px; border-radius:12px; border:1px solid var(--border); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; flex:none;}
+  .icon-btn svg{width:18px; height:18px;}
+
+  .lightbox{position:fixed; inset:0; background:rgba(3,5,8,.98); z-index:90; display:none; align-items:center; justify-content:center; touch-action:none; overflow:hidden;}
+  .lightbox.show{display:flex;}
+  .lightbox img{max-width:94vw; max-height:88vh; user-select:none; -webkit-user-drag:none; will-change:transform;}
+  .lb-close{position:absolute; top:16px; right:16px; z-index:2;}
+  .lb-tip{position:absolute; bottom:18px; left:50%; transform:translateX(-50%); font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); background:rgba(10,15,22,.72); border:1px solid var(--border); padding:6px 13px; border-radius:99px;}
+
+  @media (min-width:760px){
+    .brand-txt h1{font-size:20px;}
+    .compare-2col{display:grid; grid-template-columns:1.15fr .85fr; gap:16px; align-items:start;}
+  }
+  .hidden{display:none !important;}
+  .pick-row{display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:9px; font-size:13.5px; cursor:pointer; user-select:none;}
+  .pick-row:hover{background:var(--surface-3);}
+  .pick-row.checked{background:rgba(91,157,255,.14);}
+  .pick-row input{accent-color:var(--brand); width:16px; height:16px; flex:none;}
+  .pick-row .pn{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .pick-row .pp{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); flex:none;}
+  .cat-chip{padding:8px 13px; border-radius:99px; border:1px solid var(--border); background:var(--surface); color:var(--muted); font-size:12.5px; cursor:pointer; user-select:none;}
+  .cat-chip.active{background:var(--brand); border-color:var(--brand); color:#fff;}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="appbar">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
+    </div>
+    <div class="brand-txt">
+      <h1>Spare Parts Suite</h1>
+      <span>Reer Hassan · LCD &amp; Parts</span>
+    </div>
+    <span class="brand-badge">LIVE PRICE</span>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="prolist">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Pro-List
+    </button>
+    <button class="tab" data-view="quiz">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
+      Quiz
+    </button>
+    <button class="tab" data-view="compare">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/></svg>
+      Compare
+    </button>
+  </nav>
+
+  <!-- ============ PRO-LIST (Liiska + Profile isku daran) ============ -->
+  <section class="view active" id="view-prolist">
+    <div class="card">
+      <div style="display:flex; gap:10px; margin-bottom:10px;">
+        <div class="search-box" style="flex:1;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="plSearch" type="text" placeholder="Raadi magaca product-ka (tusaale: 13 Pro Max, A54, Redmi Note 13)...">
+        </div>
+        <button class="btn primary sm" id="plSearchBtn" type="button" style="flex:none;">Raadi</button>
+      </div>
+      <div class="chips" id="plChips"></div>
+      <p class="hint" style="margin:10px 0 0;">Haddii aad qorto magaca product-ka, waxaad ka heli doontaa dhammaan noocyada (LCD, Battery, Flex Charger, Speaker, Flex Cable, Covers, Back Glass, iwm). Haddii aad ka bannaysid raadinta, waxaad isticmaali kartaa filter-yada hoose si aad liiska u eegto category ahaan.</p>
+    </div>
+
+    <div id="plProfileWrap" class="hidden">
+      <button class="btn sm ghost" id="plBackBtn" style="margin-bottom:12px;">← Dib</button>
+      <div id="plProfileResults"></div>
+    </div>
+
+    <div id="plBrowseWrap">
+      <div class="card">
+        <div class="grid3">
+          <div>
+            <label class="fld">Category</label>
+            <select class="field" id="listCat"></select>
+          </div>
+          <div>
+            <label class="fld">Kala qiimee/Kooxee (D ama $)</label>
+            <select class="field" id="listPrice">
+              <option value="USD">$ (USD)</option>
+              <option value="D">D</option>
+            </select>
+          </div>
+          <div>
+            <label class="fld">Kala hab</label>
+            <select class="field" id="listSort">
+              <option value="none">Sida uu yahay</option>
+              <option value="asc">Jaban → Qaali</option>
+              <option value="desc">Qaali → Jaban</option>
+              <option value="az">A → Z</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button class="btn sm" id="listGroupBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            Kooxee qiimaha
+          </button>
+          <div id="listGroupWrap" class="hidden" style="flex:1; min-width:150px;">
+            <select class="field" id="listGroup"></select>
+          </div>
+        </div>
+      </div>
+      <div class="card tight">
+        <div class="count" id="listCount"></div>
+        <p class="hint" style="margin:0 0 8px;">Riix magaca product-ka si aad u aragto dhammaan qaybaha kale ee uu leeyahay.</p>
+        <div class="table-wrap" style="max-height:560px;">
+          <table>
+            <thead><tr><th class="rank">#</th><th>Product</th><th style="text-align:right;">Price $ / Price D</th></tr></thead>
+            <tbody id="listBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card tight" id="plCompatCard">
+        <div class="count"><b id="plCompatCount"></b> Compatible LCD (LCD → model ku habboon)</div>
+        <div class="table-wrap" style="max-height:480px;">
+          <table><thead><tr><th class="rank">#</th><th>LCD</th><th>Waxay ku habboon tahay</th></tr></thead><tbody id="plCompatBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUIZ ============ -->
+  <section class="view" id="view-quiz">
+    <!-- setup -->
+    <div class="card" id="qSetup">
+      <div id="qFlowBlock">
+        <label class="fld">Habka</label>
+        <div class="seg" id="qFlowSeg" style="margin-bottom:14px;">
+          <button data-flow="quiz" class="active">Quiz toos</button>
+          <button data-flow="learn">Baro + Quiz</button>
+        </div>
+      </div>
+
+      <label class="fld">Nooca Quiz-ka</label>
+      <select class="field" id="qMode" style="margin-bottom:12px;">
+        <option value="mcq">Multiple Choice</option>
+        <option value="type">Qor jawaabta</option>
+        <option value="truefalse">True / False</option>
+        <option value="match">Matching</option>
+        <option value="samePrice">Same Price</option>
+        <option value="compat">Compatible LCD (isku dheelitir)</option>
+        <option value="changes">Cusub &amp; Isbeddel — Only LCD (ilaa 50)</option>
+      </select>
+
+      <div class="hidden" id="qChangeTypeWrap">
+        <label class="fld">Nooca su'aalaha (Cusub &amp; Isbeddel — Only LCD)</label>
+        <select class="field" id="qChangeType" style="margin-bottom:12px;">
+          <option value="mcq">Multiple Choice</option>
+          <option value="type">Qor jawaabta</option>
+          <option value="truefalse">True / False</option>
+          <option value="match">Matching</option>
+        </select>
+        <div class="hint" style="margin-bottom:12px;">Marka hore waxaad arki doontaa liiska (ilaa 50 LCD product) oo tusaya CUSUB ama ISBEDDELAY iyo qiimihii hore, kadibna Quiz-ka ayaad bilaabi.</div>
+      </div>
+
+      <div id="qCatBlock">
+        <label class="fld">Category (waxaad dooran kartaa hal ama dhowr)</label>
+        <div id="qCatChips" style="display:flex; flex-wrap:wrap; gap:7px; margin-bottom:6px;"></div>
+        <div class="hint" style="margin:0 0 12px;">Haddii aanad category dooranin, dhammaan ayaa isticmaali doonta.</div>
+      </div>
+
+      <div id="qSelBlock">
+        <label class="fld">Ka bilow meesha aad rabto</label>
+        <div class="seg" id="qSelSeg" style="margin-bottom:12px;">
+          <button data-selmode="random" class="active">Random</button>
+          <button data-selmode="range">Ka bilow # (range)</button>
+          <button data-selmode="custom">Dooro models-ka</button>
+        </div>
+
+        <!-- RANGE mode extra controls -->
+        <div class="grid2 hidden" id="qRangeWrap">
+          <div>
+            <label class="fld">Kala saarid</label>
+            <select class="field" id="qSortOrder">
+              <option value="cheap">Qiimaha: Ugu jaban → Ugu qaalisan</option>
+              <option value="expensive">Qiimaha: Ugu qaalisan → Ugu jaban</option>
+              <option value="az">Magaca: A → Z</option>
+            </select>
+          </div>
+          <div>
+            <label class="fld">Ka bilow lambarka #</label>
+            <input class="field mono" id="qStartFrom" type="number" min="1" value="1" placeholder="tusaale: 30">
+          </div>
+        </div>
+        <div class="hint hidden" id="qRangeHint" style="margin:-4px 0 12px;"></div>
+
+        <!-- CUSTOM mode: pick specific models -->
+        <div class="hidden" id="qCustomWrap" style="margin-bottom:12px;">
+          <div class="search-box" style="margin-bottom:8px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input id="qCustomSearch" type="text" placeholder="Raadi magaca model-ka...">
+          </div>
+          <div class="count" id="qCustomCount">0 model ayaa la doortay</div>
+          <div id="qCustomList" style="max-height:260px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; border:1px solid var(--border); border-radius:12px; padding:6px; background:var(--surface-2);"></div>
+        </div>
+      </div>
+
+      <div class="hidden" id="qCompatTypeWrap">
+        <label class="fld">Nooca Compatible LCD Quiz-ka</label>
+        <select class="field" id="qCompatType" style="margin-bottom:12px;">
+          <option value="match">Isku dheelitir (Matching)</option>
+          <option value="mcq">Multiple Choice</option>
+          <option value="truefalse">True / False</option>
+          <option value="type">Qor jawaabta (Fill in the blank)</option>
+        </select>
+      </div>
+
+      <div class="hint hidden" id="qCompatHint" style="margin-bottom:12px;">Waxaad isku dheelitiri doontaa LCD-yada iyo model-yada kale ee ay ku habboon yihiin (xogta "COMPATIBLE LCD"). Riix Bilow.</div>
+
+      <div class="grid2" id="qGridRow2">
+        <div id="qCountWrap">
+          <label class="fld" id="qCountLbl">Tirada su'aalaha</label>
+          <select class="field" id="qCount">
+            <option>10</option><option selected>20</option><option>30</option><option>40</option><option>50</option><option>80</option><option>100</option>
+          </select>
+        </div>
+        <div id="qPriceWrap">
+          <label class="fld">Nooca qiimaha</label>
+          <select class="field" id="qPrice">
+            <option value="both">Labadaba (D &amp; $)</option>
+            <option value="D">Price (D)</option>
+            <option value="USD">Price ($)</option>
+          </select>
+        </div>
+        <div id="qTimerWrap">
+          <label class="fld">Wakhtiga su'aal kasta</label>
+          <select class="field" id="qTimer">
+            <option value="0">Xad la'aan</option>
+            <option value="10">10 ilbiriqsi</option>
+            <option value="5">5 ilbiriqsi</option>
+            <option value="3">3 ilbiriqsi</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn primary block" id="qStart" style="margin-top:16px;">Bilow</button>
+      <div class="hint" id="qErr" style="color:var(--danger); margin-top:8px; display:none;"></div>
+    </div>
+
+    <!-- learn list -->
+    <div class="card hidden" id="qLearnList">
+      <div class="stat-row">
+        <span id="qBatchLbl"></span>
+        <button class="btn sm ghost" id="qLearnBack">← Dib</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px;">Marka hore baro koobkan, kadibna riix "Bilow Quiz".</div>
+      <div class="table-wrap" style="max-height:480px;">
+        <table><thead><tr><th class="rank">#</th><th>Product</th><th style="text-align:right;">Qiimaha</th></tr></thead><tbody id="qLearnBody"></tbody></table>
+      </div>
+      <button class="btn primary block" id="qLearnStart" style="margin-top:14px;">Bilow Quiz-ka Koobkan →</button>
+    </div>
+
+    <!-- runner -->
+    <div class="hidden" id="qRun">
+      <div class="stat-row">
+        <button class="btn sm ghost" id="qBack">← Dib</button>
+        <span>Score: <b id="qScore">0</b></span>
+      </div>
+      <div class="count" id="qProgress"></div>
+      <div class="timer hidden" id="qTimerBar"></div>
+
+      <!-- mcq -->
+      <div class="card hidden" id="qCardMcq">
+        <div class="qname" id="mcqName"></div>
+        <div class="qask" id="mcqAsk"></div>
+        <div class="opts" id="mcqOpts"></div>
+        <div class="feedback" id="mcqFb"></div>
+        <button class="btn primary block hidden" id="mcqNext" style="margin-top:14px;">Xiga →</button>
+      </div>
+
+      <!-- type -->
+      <div class="card hidden" id="qCardType">
+        <div class="qname" id="typeName"></div>
+        <div class="qask" id="typeAsk"></div>
+        <input class="field mono" id="typeInput" inputmode="decimal" placeholder="Qor qiimaha halkan..." style="font-size:17px; text-align:center;">
+        <div class="feedback" id="typeFb"></div>
+        <div style="display:flex; gap:10px; margin-top:14px;">
+          <button class="btn primary" style="flex:1;" id="typeSubmit">Xaqiiji</button>
+          <button class="btn hidden" style="flex:1;" id="typeNext">Xiga →</button>
+        </div>
+      </div>
+
+      <!-- truefalse -->
+      <div class="card hidden" id="qCardTf">
+        <div class="qname" id="tfName"></div>
+        <div class="qask" id="tfAsk" style="color:var(--text); font-size:15px;">Qiimahani ma sax baa?</div>
+        <div class="mono" id="tfPrice" style="font-size:28px; font-weight:700; color:var(--price); text-align:center; margin:8px 0 18px;"></div>
+        <div class="tf-btns">
+          <button class="tf-btn t" id="tfTrue">✓ SAX</button>
+          <button class="tf-btn f" id="tfFalse">✗ BEEN</button>
+        </div>
+        <div class="feedback" id="tfFb"></div>
+        <button class="btn primary block hidden" id="tfNext" style="margin-top:14px;">Xiga →</button>
+      </div>
+
+      <!-- match -->
+      <div class="card hidden" id="qCardMatch">
+        <div class="hint" id="matchHint" style="margin-bottom:10px;">Riix magaca product, kadibna riix qiimaha saxda ah.</div>
+        <div class="count" id="matchStat"></div>
+        <div class="match-grid">
+          <div class="match-col" id="matchNames"></div>
+          <div class="match-col" id="matchPrices"></div>
+        </div>
+      </div>
+
+      <!-- same price -->
+      <div class="card hidden" id="qCardSame">
+        <div class="hint" style="margin-bottom:10px;">Isku xidh laba product oo qiime isku mid ah leh.</div>
+        <div class="count" id="sameStat"></div>
+        <div class="match-grid">
+          <div class="match-col" id="sameLeft"></div>
+          <div class="match-col" id="sameRight"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- results -->
+    <div class="card hidden" id="qResult">
+      <div class="final">
+        <h3 id="qResTitle">Waad dhammaystay!</h3>
+        <div class="big" id="qResScore">0/0</div>
+        <div class="msg" id="qResMsg"></div>
+        <div class="wrong-list hidden" id="qWrongWrap">
+          <h4>Su'aalihii aad qaldantay:</h4>
+          <div id="qWrongItems"></div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:16px;">
+          <button class="btn" style="flex:1;" id="qRetry">Isku day mar kale</button>
+          <button class="btn primary hidden" style="flex:1;" id="qNextBatch">Koox xigta →</button>
+          <button class="btn primary" style="flex:1;" id="qNewQuiz">Quiz cusub</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMPARE ============ -->
+  <section class="view" id="view-compare">
+    <div class="compare-2col">
+      <div>
+        <div style="display:flex; gap:10px; margin-bottom:8px;">
+          <div class="search-box" style="flex:1;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input id="cmpSearch" type="text" placeholder="Raadi model (Redmi, Oppo A54)...">
+          </div>
+        </div>
+        <p class="hint" style="margin:0 0 12px;">Sawirada waxaa laga soo helaa Google Sheet-ka <b style="color:var(--text)">My Own Sheet / ALL BRANDS</b> (<span class="mono">53</span> model). Haddii sawir uu ka muuqdo "Sawir lama helin", waa in faylka/folder-ka Drive-ka la dhigo <b style="color:var(--text)">"Anyone with the link"</b>.</p>
+        <div class="cmp-results hidden" id="cmpResults"></div>
+        <div class="device">
+          <div class="notch"></div>
+          <div class="shot" id="cmpShot">
+            <img id="cmpImg" referrerpolicy="no-referrer" src="" alt="LCD packaging">
+            <div class="img-broken" id="cmpImgFallback" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/><line x1="3" y1="3" x2="21" y2="21"/></svg><span>Sawir lama helin<br>(faylka Drive-ka waa gaar — fadlan "Anyone with the link")</span></div>
+            <div class="zoom-hint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg> Zoom</div>
+          </div>
+          <div class="cap">
+            <div class="nm" id="cmpName">—</div>
+            <div class="mt" id="cmpMeta">—</div>
+          </div>
+        </div>
+        <div class="cmp-ctrls" style="margin-top:12px;">
+          <button class="btn" id="cmpPrev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg> Hore</button>
+          <button class="btn active" id="cmpAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/></svg> Isbarbardhig</button>
+          <button class="btn" id="cmpNext">Xiga <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg></button>
+        </div>
+      </div>
+      <div class="tray" id="cmpTray">
+        <div class="tray-row">
+          <div class="tray-thumbs" id="cmpThumbs"></div>
+        </div>
+        <button class="btn primary block" id="cmpOpen" style="margin-top:10px;" disabled>Fur Isbarbardhigga (0)</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- comparison overlay -->
+<div class="overlay" id="overlay">
+  <div class="ov-head">
+    <h2>Isbarbardhigga LCD-yada</h2>
+    <button class="icon-btn" id="ovClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  </div>
+  <div class="cmp-grid" id="cmpGrid"></div>
+</div>
+
+<!-- lightbox -->
+<div class="lightbox" id="lightbox">
+  <button class="icon-btn lb-close" id="lbClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  <img id="lbImg" referrerpolicy="no-referrer" src="" alt="Zoom">
+  <div class="lb-tip">Scroll / pinch = zoom · jiid = dhaqaaji</div>
+</div>
+
+<script>
+/* ============================================================
+   DATA  (from Google Sheet — [name, priceD, priceUSD, ...])
+   ============================================================ */
+const DATA = {"iPhone LCD":[["LCD IPHONE X8 +",17.5,4.97],["LCD IPHONE X7 +",17.5,5.0],["LCD IPHONE X7 G",16.2,5.0],["LCD IPHONE X8 G",16.2,5.0],["LCD IPHONE DD X13 PRO",117.0,32.6],["LCD IPHONE DD X13 PRO MAX",115.0,32.02],["LCD IPHONE DD X14 PRO MaX",121.0,33.65],["LCD IPHONE DD X15 PRO MaX",121.0,33.57],["LCD IPHONE DD X16 PRO MaX",134.0,37.1],["LCD IPHONE DD X17 PRO MaX",154.0,42.6],["LCD IPHONE GX X11",23.8,6.7],["LCD IPHONE GX X11 PRO",68.5,19.3],["LCD IPHONE GX X11 PRO MAX",81.0,22.75],["LCD IPHONE GX X12 PRO / X12",76.5,21.44],["LCD IPHONE GX X12 PRO MAX",105.0,29.3],["LCD IPHONE GX X13",89.0,24.9],["LCD IPHONE GX X13 PRO",96.0,26.8],["LCD IPHONE GX X13 PRO MAX",103.0,28.75],["LCD IPHONE GX X14 PRO",97.0,27.28],["LCD IPHONE GX X14",92.0,25.75],["LCD IPHONE GX X14 PRO MAX",97.0,27.1],["LCD IPHONE GX X15",97.0,27.1],["LCD IPHONE GX X15 PRO",94.0,26.5],["LCD IPHONE GX X15 PRO MAX",97.0,27.1],["LCD IPHONE GX X16 PRO MaX",134.0,37.4],["LCD IPHONE GX XR",23.8,6.7],["LCD IPHONE GX XS",58.5,16.8],["LCD IPHONE GX XS MaX",78.0,22.1],["LCD IPHONE JH X",35.8,10.6],["LCD IPHONE JH X11 PRO",47.5,13.8],["LCD IPHONE JH X11 PRO MAX",47.5,13.5],["LCD IPHONE JH X12 PRO",44.5,12.7],["LCD IPHONE JH X12 PRO MAX",62.5,17.7],["LCD IPHONE JH X13 PRO",52.0,15.0],["LCD IPHONE JH X13 PRO MAX",58.0,16.5],["LCD IPHONE JH X14 PRO MAX",65.5,18.45],["LCD IPHONE JH X16 PRO MAX",99.0,27.8],["LCD IPHONE JH XS MAX",44.0,12.7],["LCD IPHONE ZY X",23.5,6.6],["LCD IPHONE ZY X11 PRO",28.5,8.4],["LCD IPHONE ZY X11 PRO MAX",29.2,8.2],["LCD IPHONE ZY X12 PRO",29.0,8.6],["LCD IPHONE ZY X12 PRO MAX",32.5,9.06],["LCD IPHONE ZY X13",29.5,8.6],["LCD IPHONE ZY X13 PRO",37.5,11.1],["LCD IPHONE ZY X13 PRO MAX",43.0,11.9],["LCD IPHONE ZY X14",31.5,9.2],["LCD IPHONE ZY X14 pluse",38.0,10.95],["LCD IPHONE ZY X14 PRO",39.5,11.4],["LCD IPHONE ZY X14 PRO MAX",43.0,11.92],["LCD IPHONE ZY X15 PRO MAX",42.5,12.2],["LCD IPHONE ZY Xs",23.8,7.3],["LCD IPHONE ZY XS MAX",27.0,7.6],["LCD IPHONE DD X17 PRO",154.0,42.56]],"Samsung LCD":[["LCD SAM A175 INCEL Caa NF",19.4,5.5],["LCD SAM A155 INCEL WF BRAND",37.0,10.78],["LCD SAM A165 INCEL WF BRAND",41.0,11.8],["LCD SAM A175 INCEL WF BRAND",42.0,12.0],["LCD SAM A24 INCEL WF BRAND",37.0,10.78],["LCD SAM A345 INCEL WF BRAND",41.0,11.87],["LCD SAM A25 INCEL WF BRAND",39.0,11.2],["LCD SAM A17 INCEL WF",22.0,6.19],["LCD SAM M15 INCEL NF caa",19.4,5.5],["LCD SAM M15 WF caa",23.7,6.7],["LCD SAM M16 4G INCEL NF caa",19.4,5.5],["LCD SAM M16 4G INCEL wf caa",22.8,6.91],["LCD SAM M32 INCELCD WF Caa",22.8,6.4],["LCD SAM A155f/ A15 4G/5G wf",21.3,6.0],["LCD SAM A165 / A16 4G wf",21.5,6.06],["LCD SAM A20 / A205F / M10S",19.0,5.4],["LCD SAM A225f / A22 4G",20.7,5.8],["LCD SAM A245F / A24 4G",23.8,6.7],["LCD SAM A256B / A25 5G",23.0,6.5],["LCD SAM A266B / A26 5G",29.0,8.5],["LCD SAM A30 / A305F",21.5,6.01],["LCD SAM A307 / A307F",19.0,5.4],["LCD SAM A315F / A31",20.6,5.8],["LCD SAM A325F / A32 4G",21.3,6.0],["LCD SAM A336 / A33 5G",28.0,7.8],["LCD SAM A346B / A34 5G",27.6,7.7],["LCD SAM A356 / A35 5G",30.2,8.4],["LCD SAM A366B / A36 5G",33.0,9.8],["LCD SAM A515F / A51",21.5,6.06],["LCD SAM A525F / A52",26.5,7.4],["LCD SAM A536B / A53 5G",27.5,8.2],["LCD SAM A546B / A54 5G",31.5,8.8],["LCD SAM A556B / A55 5G",31.5,9.2],["LCD SAM A566B / A56 5G",37.0,10.7],["LCD SAM A70 / A705F",21.7,6.61],["LCD SAM A715F / A71",23.0,6.5],["LCD SAM A725f / A72 4G",28.0,8.2],["LCD SAM A736B / A73 5G",29.5,8.6],["LCD SAM A750F / A7 (TFT)",19.2,5.9],["LCD SAM J600F / J6",16.3,5.0],["LCD SAM A6 +",18.8,5.8],["LCD SAM J810F / J8",16.0,5.0],["LCD SAM M22 5F",22.5,6.33],["LCD SAM M30 / M30S",18.5,5.24],["LCD SAM A17 Orginal  4G",127.0,35.3],["LCD SAM A16 Orginal WF  4G",149.0,41.3],["LCD SAM A17 Orginal  5G",123.0,34.21]],"Redmi LCD":[["LCD Redmi 9",16.5,5.18],["LCD Redmi 9c",15.4,4.4],["LCD Redmi 12c",16.5,5.1],["LCD Redmi 13c",16.5,4.7],["LCD Redmi 14c",16.5,4.7],["LCD Redmi 9T",16.3,4.64],["LCD redmi a5",17.5,5.45],["LCD Redmi NOTE 8",15.9,5.18],["LCD Redmi a2 pLuse",16.0,5.21],["LCD Redmi 10c",16.5,5.2],["LCD Redmi NOTE 11e , redmi 10 5g",17.8,5.5],["LCD Redmi Note 10 4g",16.9,5.3],["LCD Redmi note 9 PRO",17.0,5.48],["LCD Redmi 12",18.0,5.1],["LCD redmi a3",17.0,5.31],["LCD Redmi 10",18.8,5.8],["LCD Redmi 15c Two cable",18.2,5.66],["LCD Redmi note 9",17.3,5.39],["LCD Redmi Note 10 5G",19.0,5.83],["LCD Redmi Note 10 PRO 4G",19.2,5.43],["LCD Redmi Note 13",19.4,5.49],["LCD redmi 13",18.5,5.89],["LCD Redmi Note 11S",18.5,5.72],["LCD Redmi Note 13 PRO",21.0,6.32],["LCD Redmi NOTE 12",19.2,5.43],["LCD Redmi 15c one cable",23.5,7.0],["LCD redmi a5 uk",23.5,7.08]],"iPhone Battery":[["BATTERY IPHONE X14",13.5,4.53],["BATTERY IPHONE X16 PRO MAX",27.0,7.96],["BATTERY IPHONE X13",11.8,3.82],["BATTERY IPHONE X",11.0,3.2],["BATTERY IPHONE X11",10.8,3.14],["BATTERY IPHONE X11 PRO MAX",16.5,4.7],["BATTERY IPHONE X11 PRO",14.8,4.88],["BATTERY IPHONE X12 PRO MAX",15.2,4.34],["BATTERY IPHONE X12PRO",11.0,3.2],["BATTERY IPHONE X13 PRO",16.5,5.2],["BATTERY IPHONE X13 PRO MAX",16.5,4.7],["BATTERY IPHONE X14 PRO MAX",17.3,4.91],["BATTERY IPHONE X14 PRO",16.2,5.26],["BATTERY IPHONE X15 PRO MAX",17.5,5.37],["BATTERY IPHONE X6+",7.7,2.95],["BATTERY IPHONE X6S",7.7,2.95],["BATTERY IPHONE X7 +",7.5,2.24],["BATTERY IPHONE X7 G",7.5,2.89],["BATTERY IPHONE X8 +",7.7,2.3],["BATTERY IPHONE X8 G",7.7,2.95],["BATTERY IPHONE Xr",9.8,3.27],["BATTERY IPHONE Xs maX",11.5,3.33]],"Huawei LCD":[["LCD HUAWIE Y6 2019",15.8,5.16],["LCD HUAWIE P30 Lite",16.0,5.04],["LCD HUAWIE Y70",17.0,5.48],["LCD HUAWIE P40 Lite",17.8,5.7],["LCD HUAWIE P SMART 2019",15.5,4.87],["LCD HUAWIE P20 Lite",18.5,5.89],["LCD HUAWIE Y9 prime 2019",16.7,5.2],["LCD HUAWIE y7A 2020",17.0,5.48],["LCD HUAWIE Y9A",17.0,5.48],["LCD HUAWIE Y9 2019",17.2,5.29]],"Infinix / Tecno LCD":[["LCD INFINIX X665 , Hot 12i , SAM art 6",15.9,5.01],["LCD INFINIX X655",15.5,4.87],["LCD INFINIX X650",15.0,4.69],["LCD INFINIX X612",17.25,5.55],["LCD TECNO KM4 , hot 60i",18.2,5.66],["LCD TECNO KJ6 , Spark 20 PRO",18.5,5.89],["LCD TECNO KJ7 , Spark 20 PRO +",26.0,7.76],["LCD TECNO ki7",18.2,5.16],["LCD INFINIX X6725 , SAM ART 10",18.2,5.16],["LCD INFINIX X663",18.8,5.32],["LCD TECNO LC6",15.1,4.76],["LCD TECNO KL6",17.8,5.55],["LCD TECNO KL4",17.3,5.56],["LCD INFINIX KM7, SPARK 40 PRO , HOT 60 PRO +",30.0,8.17],["LCD ITEL A60",15.9,4.53],["LCD INFINIX X689",17.3,5.36],["LCD INFINIX X680",17.9,5.73],["LCD INFINIX X6720 , SAM art 9",18.2,5.16],["LCD INFINIX X657 , SMART 5",15.2,4.74],["LCD INFINIX X6525 , Smart 8 , bg6",16.8,4.78],["LCD INFINIX Bg6 caa",16.3,5.05],["LCD INFINIX X688",17.3,5.39],["LCD INFINIX X6517 , SMart 7",15.9,4.53],["LCD INFINIX X693",17.8,5.5],["LCD TECNO COMMON 15 X660",18.5,5.89],["LCD TECNO COMMON 15 PRO X660",17.2,5.37],["LCD TECNO CK6",21.0,6.57],["LCD TECNO BD4",15.9,4.93],["LCD INFINIX  SMART 20 / KN8 / SPARK 50",20.3,6.13],["LCD INFINIX X682",19.0,6.03],["LCD TECNO KL7 , hote 50 pro",80.5,22.63],["LCD TECNO Km7 , hote 40 pro pluse",17.3,5.56],["LCD TECNO KL6 / x6882",17.8,5.55],["LCD INFINIX X6720 , Smart 9",18.2,5.16]],"Honor LCD":[["LCD HONOR 50 LITE 4G / NOVA 8I",20.0,6.1],["LCD HONOR X5c",17.5,5.45],["LCD HONOR X6 5G",16.5,5.35],["LCD HONOR X6A",16.1,5.07],["LCD HONOR X6B",16.1,5.24],["LCD HONOR X6C",18.2,5.61],["LCD HONOR X7",17.2,5.39],["LCD HONOR X7A",17.4,5.34],["LCD HONOR X7B",21.5,6.71],["LCD HONOR X7C",18.2,5.64],["LCD HONOR X8",17.2,5.29],["LCD HONOR X8A / 90 lite",17.3,5.39]],"Motorola LCD":[["LCD MOTOROLA E13",17.1,5.34],["LCD MOTOROLA E20",17.0,5.31],["LCD MOTOROLA e22",17.5,5.42],["LCD MOTOROLA E40",18.7,5.95],["LCD MOTOROLA G PLAY",21.0,6.37],["LCD MOTOROLA G22",18.3,5.84],["LCD MOTOROLA G23 , G13",18.0,5.55],["LCD MOTOROLA G24",17.8,5.53],["LCD MOTOROLA G pure",19.3,5.94],["LCD MOTOROLA G30",17.4,5.44],["LCD MOTOROLA e15",19.0,5.86],["LCD MOTOROLA G31",19.5,6.16],["LCD MOTOROLA G32",20.7,6.29],["LCD MOTOROLA G34",19.3,5.94],["LCD MOTOROLA G40",18.7,5.95],["LCD MOTOROLA G53",18.7,5.95],["LCD MOTOROLA G54",22.0,6.59],["LCD MOTOROLA G64",19.56,6.18],["LCD MOTOROLA G8 power",24.0,7.39],["LCD MOTOROLA G84",23.5,7.01],["LCD MOTOROLA e7 power",17.2,5.54],["LCD MOTOROLA G06",21.1,6.43]],"Oppo LCD":[["LCD Oppo A15 2020",15.5,4.42],["LCD Oppo A16 2020",15.8,4.51],["LCD oppo A17",16.6,4.72],["LCD oppo A1K",15.3,5.02],["LCD oppo a52 4g 2020",16.5,5.15],["LCD oppo A53",15.8,4.91],["LCD Oppo A54 4G",16.7,5.2],["LCD Oppo A54 5G",19.3,5.86],["LCD oppo a76",17.0,5.48],["LCD oppo a78 , reno 8",19.3,5.46],["LCD Oppo A9 2020 / A31",15.5,5.07],["LCD Oppo A93 4G",22.0,6.19],["LCD Oppo A94 4G",17.3,4.91],["LCD Oppo A96",19.2,5.91],["LCD Oppo A98 5G , Realme c55",18.8,5.32],["LCD oppo F11",16.0,5.21],["LCD oppo F11 PRO",21.0,6.57],["LCD oppo F15",17.0,5.33],["LCD Oppo Reno 5",19.6,6.19]],"Samsung LCD (ORG)":[["LCD SAM A105",18.5,5.14],["LCD SAM A107",18.5,5.14],["LCD SAM A03 CORE",19.5,5.41],["LCD SAM A12",19.8,5.5],["LCD SAM A025",19.5,5.41],["LCD SAM A047",19.5,5.41],["LCD SAM A04E",19.5,5.41],["LCD SAM A135",19.8,5.5],["LCD SAM M127",20.0,5.55],["LCD SAM A145",22.4,6.2],["LCD SAM A217",20.3,5.63],["LCD SAM A11",21.0,5.82],["LCD SAM A146",21.0,5.82],["LCD SAM A055",21.0,5.82],["LCD SAM A235",21.5,5.96],["LCD SAM M336",21.5,5.96],["LCD SAM A065",21.8,6.04],["LCD SAM A07",22.8,6.31],["LCD SAM A057",23.0,6.37],["LCD SAM J4 +",20.5,5.7],["LCD SAM A207",22.4,6.2]],"Vivo / ZTE / Realme LCD":[["LCD VIVO Y04",18.0,5.55],["LCD VIVO Y03",16.5,5.1],["LCD VIVO V50",20.5,6.19],["LCD VIVO V80",37.0,10.68],["LCD VIVO Y20",16.0,4.96],["LCD VIVO Y21",15.7,4.88],["LCD VIVO Y29",22.5,6.78],["LCD ZTE A76/A56",19.5,5.99],["LCD ZTE C35e",18.7,5.78],["LCD ZTE V80 MAX",25.0,7.46],["LCD ZTE V50",20.5,6.44],["LCD ZTE C35",18.8,5.97],["LCD ZTE A55 / A35",18.7,5.7],["LCD REALMEC53",17.7,5.02],["LCD REALMEC35",15.4,4.8],["LCD REALMEC61",17.2,5.34],["LCD REALMEC21Y",16.1,4.99],["LCD REALMEC30",16.2,5.09],["LCD REALMEC21",15.9,4.93],["LCD REALMEC65",16.9,5.3],["LCD REALME9 PRO , 1+",21.0,6.57]],"Tools":[["CUTTER WEYN MY723",2.14,2.44],["HUUFAR A210 MaX",55.8,56.1],["MICROSCOBE MOS300",229.0,229.3],["ASTAANYO  GD900/7g",0.22,0.52],["KASHWIITO 8199 /Y0.6 / \uff0b1.5 / 0.8",0.8,1.1],["MYC210 SPARE",1.47,1.77],["CUTTER Mechanic PWR",11.0,11.3],["HEAT REMOVER Lanrui D6",2.2,2.5],["HEAT REMOVER SPARE Lanrui U8",3.15,3.45],["USB ROEVER Lanrui A98",1.35,1.65]],"iPhone Backglass":[["BACKGLASS IPHONE X14 PRO MAX",1.2,1.3],["BACKGLASS IPHONE X13 PRO MAX",1.2,1.3],["BACKGLASS IPHONE X12 PRO MAX",1.2,1.3],["BACKGLASS IPHONE X14",0.63,0.73],["BACKGLASS IPHONE XXS",0.55,0.65],["BACKGLASS IPHONE XXS MAX",0.65,0.75],["BACKGLASS IPHONE X11 PRO MAX",1.2,1.3],["BACKGLASS IPHONE X15 PRO",1.2,1.3],["BACKGLASS IPHONE X15",1.2,1.3],["BACKGLASS IPHONE X14 PRO",1.2,1.3],["BACKGLASS IPHONE X12 PRO",1.2,1.3],["BACKGLASS IPHONE X11 PRO",1.2,1.3],["BACKGLASS IPHONE X8+",0.53,0.63],["BACKGLASS IPHONE X13",0.63,0.73],["BACKGLASS IPHONE X12",0.63,0.73],["BACKGLASS IPHONE X11",0.63,0.73],["BACKGLASS IPHONE XXR",0.45,0.55],["BACKGLASS IPHONE X16 PRO MAX",1.2,1.3]],"Redmi Battery":[["BATTERY REDMI 13C",1.86,3.2],["BATTERY REDMI 10",1.86,3.2],["BATTERY INFINIX SAMART 8",1.86,3.2],["BATTERY HUAWIE Y7 2019",1.94,3.2],["BATTERY INFINIX SAMART 9",1.94,3.2],["BATTERY REDMI 9C",2.07,3.2],["BATTERY REDMI 9T",2.15,3.2],["BATTERY REDMI NOTE 10",2.15,3.2],["BATTERY HUAWIE Y9 PRIME",2.15,3.2],["BATTERY INFINIX SAMART 10",2.15,3.2],["BATTERY REDMI NOTE 12",2.15,3.2],["BATTERY REDMI 12",2.15,3.2],["BATTERY REDMI NOTE 10 PRO",5.32,3.2]],"Samsung Covers":[["COVER SAM  A022",0.62,0.75],["COVER SAM A10",0.62,0.75],["COVER SAM A2 CORE",0.62,0.75],["COVER SAM  A025",1.02,1.15],["COVER SAM A03 CORE",1.2,1.33],["COVER SAM A03",1.02,1.15],["COVER SAM A047",1.12,1.25],["COVER SAM A04E",1.15,1.28],["COVER SAM A11",0.99,1.12],["COVER SAM A12",1.1,1.23],["COVER SAM A14 4G",1.1,1.23],["COVER SAM A145P",1.1,1.23],["COVER SAM M12",1.12,1.25],["COVER SAM A16 4G",1.22,1.35],["COVER SAM A13 4G",1.2,1.33],["COVER SAM A107",1.38,1.51],["COVER SAM A217",1.8,1.93],["COVER SAM A057",1.99,2.12],["COVER SAM A05",1.9,2.03],["COVER SAM A06",1.99,2.12],["COVER SAM A07",2.22,2.35],["COVER SAM A32 4G",1.99,2.12],["COVER SAM A15 4G",2.1,2.23]],"USB (Samsung & Others)":[["USB BMB",0.01,0.04],["USB TECNO NEW",0.015,0.04],["USB A03 CORE",0.016,0.04],["USB A105",0.02,0.04],["USB RAYAN",0.05,0.07],["USB TECN T349",0.029,0.04],["USB A107",0.03,0.04],["USB BG6",0.048,0.06],["USB A12",0.06,0.07],["USB A11",0.077,0.085],["USB A057",0.12,0.015]],"iPhone Flex Charger":[["FLEX CHARGER IPHONE X14 PRO",6.5,6.5],["FLEX CHARGER IPHONE X12 PRO MAX",7.0,7.0],["FLEX CHARGER IPHONE X14 PRO MAX",7.0,7.0],["FLEX CHARGER IPHONE X13 PRO MAX",6.0,6.0],["FLEX CHARGER IPHONE X11 PRO MAX",13.0,13.0],["FLEX CHARGER IPHONE X11",3.0,3.0],["FLEX CHARGER IPHONE X15 PRO MAX",8.5,8.5],["FLEX CHARGER IPHONE X7+",2.0,2.0],["FLEX CHARGER IPHONE X15",5.0,5.0],["FLEX CHARGER IPHONE XXS MAX",3.0,3.0],["FLEX CHARGER IPHONE X14",4.0,4.0]],"iPhone Sensor / Speaker":[["SPEAKER IPHONE X 11PRO",3.53,4.0],["SPEAKER IPHONE XXS MAX",2.92,3.5],["SPEAKER IPHONE XXS",2.68,3.2],["SPEAKER IPHONE XXR",2.8,3.2],["SPEAKER IPHONE XX",2.61,3.2],["SENSOR 13 PRO MAX",2.65,3.5],["SENSOR +SPEAKER 13 PRO MAX",3.04,4.0],["SPEAKER IPHONE X12 PRO MAX",3.61,4.0],["SPEAKER IPHONE X11 PRO MAX",3.8,4.0],["SENSOR 15 PRO MAX",1.12,3.0]],"Samsung SIM Tray":[["SIM SAM A04E",0.15,0.28],["SIM SAM A25",0.15,0.28],["SIM SAM A14",0.15,0.28],["SIM SAM A11",0.15,0.28],["SIM SAM A13",0.15,0.28],["SIM SAM A56",0.15,0.28],["SIM SAM A26",0.15,0.28],["SIM SAM A23",0.15,0.28],["SIM SAM A55",0.15,0.28],["SIM SAM A17",0.15,0.28],["SIM SAM A057",0.15,0.28],["SIM SAM A15",0.15,0.28],["SIM SAM A73",0.15,0.28],["SIM SAM A31",0.15,0.28],["SIM SAM A217",0.15,0.28],["SIM SAM A53",0.15,0.28],["SIM SAM A70",0.15,0.28],["SIM SAM A71",0.15,0.28],["SIM SAM M33",0.15,0.28],["SIM SAM A72",0.15,0.28],["SIM SAM A107",0.15,0.28],["SIM SAM A105",0.15,0.28],["SIM SAM A03 CORE",0.15,0.28],["SIM SAM A12",0.15,0.28],["BIRTA SWICH SAM A12",0.22,0.28],["BIRTA SWICH SAM 15",0.22,0.28],["MIC CHINES",0.02,0.28]],"Samsung Battery":[["BATTERY SAM  A34",1.86,2.4],["BATTERY SAM  A16",1.86,2.4],["BATTERY SAM  A20",1.86,2.4],["BATTERY SAM  M13",1.86,2.4],["BATTERY SAM  A26",1.86,2.4],["BATTERY SAM  A56",1.86,2.4],["BATTERY SAM  M32",1.86,2.4],["BATTERY SAM  A70",1.86,2.4],["BATTERY SAM  A17",1.86,2.4],["BATTERY SAM  A10",1.86,2.4],["BATTERY SAM  A04",1.86,2.4],["BATTERY SAM  A057",1.86,2.4],["BATTERY SAM  A05",1.86,2.4],["BATTERY SAM  A12",1.86,2.4],["BATTERY SAM  A31",1.86,2.4],["BATTERY SAM  A025",1.86,2.4],["BATTERY SAM  A15",1.86,2.4],["BATTERY SAM  A51",1.86,2.4],["BATTERY SAM  A107",1.86,2.4],["BATTERY SAM  A13",1.86,2.4],["BATTERY SAM  A146B",1.86,2.4],["BATTERY SAM  A06",1.86,2.4]],"Samsung Cable":[["CABLE SAM A32",0.5,0.7],["CABLE SAM A55",0.5,0.7],["CABLE SAM A50",0.5,0.7],["CABLE SAM A22",0.5,0.7],["CABLE SAM A71",0.5,0.7],["CABLE SAM A16",1.8,1.8],["CABLE SAM A51",1.8,0.7],["CABLE SAM A17",0.5,0.7],["CABLE SAM A31",0.5,0.7],["CABLE SAM A34",0.5,0.7],["SALATORE HOVER",1.6,0.7],["GACAN HOVER",2.6,0.7],["CABLE SAM A15",1.75,1.75],["CABLE SAM A53",2.0,2.0],["CABLE SAM A52",1.8,1.8]],"Charging Pins (Mini)":[["BMB 15 PIN",0.65,1.1],["BMB 3310",1.0,1.1],["RUMAAN 14 PIN",1.0,1.1],["TECNO T302",2.25,0.71],["BMB 230",1.15,1.1],["BMB 310 17PIN",1.0,1.1],["TECNO T528",1.05,1.1],["HORMUUD 18PIN",1.0,1.1],["SAHAL 16 PIN",1.0,1.1],["RAYAN 20 PIN",1.0,1.1],["BMB 330 37PIN",1.0,1.1],["TECNO T349 16PIN",0.65,0.7],["TECNO 20PIN",0.65,1.1],["TECNO T402",0.82,0.9]],"Samsung Switch / Finger":[["FINGER  SAM A16",1.56,1.56],["FINGER  SAM A057",1.3,1.3],["FINGER  SAM A23",0.4,0.4],["FINGER  SAM A15",0.36,0.36],["FINGER  SAM A12",1.15,0.32],["SWICH SAM A16",0.19,0.19],["SWICH SAM A037",0.18,0.18],["SWICH SAM A14",0.18,0.18],["FINGER  SAM A14",0.18,0.18],["SWICH SAM A03 CORE",0.18,0.18],["SWICH SAM A107",0.18,0.18],["SWICH SAM A025",0.18,0.18],["SWICH SAM A105",0.18,0.18],["SWICH SAM A207",0.18,0.18],["VOLUME A107",0.18,0.18],["SWICH SAM A217",0.18,0.18],["VOLUMEN A207",0.18,0.18],["SWICH SMART 8",0.29,0.18],["SWICH SMART 9",0.3,0.18],["SWICH SMART 7",0.3,0.18]],"Samsung Flex Charger":[["FLEX CHARGER A72",3.87,4.0],["FLEX CHARGER A70",1.83,1.96],["FLEX CHARGER A26",0.61,0.74],["FLEX CHARGER A25",0.5,0.63],["FLEX CHARGER A73",3.47,3.6],["FLEX CHARGER A04",0.47,0.6],["FLEX CHARGER A52",4.37,4.5],["FLEX CHARGER A73 NORMAL",3.47,3.6],["FLEX CHARGER SAM  A11",0.56,0.56],["FLEX CHARGER SAM  A107 M16",0.56,0.56],["FLEX CHARGER SAM  A107 M15",0.56,0.56],["FLEX CHARGER SAM  A307",0.56,0.56],["FLEX CHARGER SAM  A057",0.6,0.6],["FLEX CHARGER SAM  A02",0.6,0.6],["FLEX CHARGER SAM  A04E",0.6,0.6],["FLEX CHARGER SAM  A03 CORE",0.6,0.6],["FLEX CHARGER SAM  A03",0.6,0.6],["FLEX CHARGER SAM  A025",0.6,0.6],["FLEX CHARGER SAM  A047",0.6,0.6],["FLEX CHARGER SAM  A31",0.6,0.6],["FLEX CHARGER SAM  A22",0.6,0.6],["FLEX CHARGER SAM  M13",0.6,0.6],["FLEX CHARGER SAM  A207 M14",0.6,0.6],["FLEX CHARGER SAM  A207 M12",0.6,0.6],["FLEX CHARGER SAM  A30",0.6,0.6],["FLEX CHARGER SAM  A146B",0.6,0.6],["FLEX CHARGER SAM  A145P",0.6,0.6],["FLEX CHARGER SAM  A20",0.6,0.6],["FLEX CHARGER SAM  A15",0.6,0.6],["FLEX CHARGER SAM  A13",0.6,0.6],["FLEX CHARGER SAM  A12",2.25,0.43],["FLEX CHARGER SAM  A32 4G",0.6,0.6],["FLEX CHARGER SAM  A32 5G",0.61,0.61],["FLEX CHARGER SAM  A05",0.62,0.62],["FLEX CHARGER SAM  A25",0.63,0.63],["FLEX CHARGER SAM  A17 UK",0.67,0.67],["FLEX CHARGER SAM  A06 UK",0.67,0.67],["FLEX CHARGER SAM  A51",0.73,0.73],["FLEX CHARGER SAM  A16 UK",0.73,0.73],["FLEX CHARGER SAM  A107 UK",0.77,0.77],["FLEX CHARGER SAM  A33",0.9,0.9],["FLEX CHARGER SAM  A34",0.91,0.91],["FLEX CHARGER SAM  A35",0.93,0.93],["FLEX CHARGER SAM  A23",1.66,1.66],["FLEX CHARGER SAM  A72",4.0,4.0],["FLEX CHARGER SAM A57",12.0,1.86],["FLEX CHARGER SAM A37",11.5,1.79],["FLEX CHARGER SAM A56",11.0,1.72],["FLEX CHARGER SAM A55",5.7,0.94],["FLEX CHARGER SAM  A10",2.2,0.42],["FLEX CHARGER SAM M32 4G",4.5,0.76],["FLEX CHARGER SAM A24",3.8,0.66],["FLEX CHARGER SAM A22 5G",3.7,0.64]]};
+
+/* compare image dataset injected from original file */
+let ITEMS = [{"img":"img01","name":"LCD Redmi 10c","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=19daFbXna2DOPjsMqxa7XEbnf4U-wG763&sz=w1000"},{"img":"img02","name":"LCD Redmi 12c","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1kCIW-8-4s1KBq1S7eqcWcNHnWOruG3AZ&sz=w1000"},{"img":"img03","name":"LCD Redmi 13c","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1OPzPrRLr47k7iQK41DSPdzLBUDGl04dY&sz=w1000"},{"img":"img04","name":"LCD Redmi 14c","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=19jHBJnIUUc8LPm6u64nnRrx7ngUENBMy&sz=w1000"},{"img":"img05","name":"LCD Redmi 15c","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1PNu_jINBiSN6FRUNM1Ub3R05y8nSFFRg&sz=w1000"},{"img":"img06","name":"LCD Redmi a2 pLuse","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1OPzPrRLr47k7iQK41DSPdzLBUDGl04dY&sz=w1000"},{"img":"img07","name":"LCD redmi a3","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1PXyccN-LmCUMbOknMy-iRP2mBxraOb6_&sz=w1000"},{"img":"img08","name":"LCD redmi a5","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=10NMtmfhGkOww37fmPK2huLrBUcCORhxp&sz=w1000"},{"img":"img09","name":"LCD ZTE C35","brand":"Zte","url":"https://drive.google.com/thumbnail?id=1zrKRjz-2hwo_qjXpB5nujjzpD-nDX6GC&sz=w1000"},{"img":"img10","name":"LCD Mota E20","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1O0z1oh5Tsgx27RSFzJkjakLWftaHwx5U&sz=w1000"},{"img":"img11","name":"LCD Mota E13","brand":"Mota","url":"https://drive.google.com/thumbnail?id=12vyzQL_dgoC_jfJUhfsa1V3cADYI2lWX&sz=w1000"},{"img":"img12","name":"LCD Mota G8 POWER","brand":"Mota","url":"https://drive.google.com/thumbnail?id=14QYXlK6wSEgPjLwMf7k8TT1F7uKEIdkM&sz=w1000"},{"img":"img13","name":"LCD Mota G22","brand":"Mota","url":"https://drive.google.com/thumbnail?id=14Tseo-WmAq14WNH_mvmpqwtRxpMY_rgF&sz=w1000"},{"img":"img14","name":"LCD Mota G32","brand":"Mota","url":"https://drive.google.com/thumbnail?id=17aGVn8hcTfp2aOTUas51YbbNy18quYt9&sz=w1000"},{"img":"img15","name":"LCD Mota G64","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1gP42pnNwp7lNrMEvxsPO5RCgKHLEsYyR&sz=w1000"},{"img":"img16","name":"LCD Motarola e7 power","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1mwH-3Plr6CE2LdG06sGDn02TEhLPCSfe&sz=w1000"},{"img":"img17","name":"LCD Mota G54","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1OMdGq8A4eqZcEVkMMHFIdsvCRWemtOz8&sz=w1000"},{"img":"img18","name":"LCD Mota G53","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1qNwLEbcCnFMocE4zQvRJUIZgSzNMMHWX&sz=w1000"},{"img":"img19","name":"LCD Mota G PLAY","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1qzIGbWucUocGh6SU_J8KmDrJgXY02OqM&sz=w1000"},{"img":"img20","name":"LCD Mota G31","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1rNsTrKXQps8ROnAWu12rDapbBCGrGyIT&sz=w1000"},{"img":"img21","name":"LCD Mota e22","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1RvLy1zd7_GGxivjwmZTxqgMy7EFsreea&sz=w1000"},{"img":"img22","name":"LCD Mota G30","brand":"Mota","url":"https://drive.google.com/thumbnail?id=1t_rfcNUDNvqC4t0DDkwtW28VX4IMZ6an&sz=w1000"},{"img":"img23","name":"LCD Redmi Note 10 5G","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=16fk1p8F6tcBxkbpey-4GCM8bsB_MicJx&sz=w1000"},{"img":"img24","name":"LCD Redmi Note 10 pro 4G","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1abCHDQZoAOY6CIBmTwEdNejOyg7NNeek&sz=w1000"},{"img":"img25","name":"LCD Redmi Note 11S","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1hzpFFKtKAS7bJ35oarHCvg8O-Vp3sfcD&sz=w1000"},{"img":"img26","name":"LCD Redmi Note 13","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=18nTskxR8E2XXhTkBdY8EG9pBTmOJrDuT&sz=w1000"},{"img":"img27","name":"LCD Redmi note 9 pro","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=13bI_w47b8StOAAlxoPdVfCw1caB5uVw5&sz=w1000"},{"img":"img28","name":"LCD oppo F15","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1_krDHJH2QkpEvuiutusvcu_C5qxBSlQV&sz=w1000"},{"img":"img29","name":"LCD oppo F11 PRO","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=18tjjYiayBzZ8U7ngnzFXeipLKbyElKhV&sz=w1000"},{"img":"img30","name":"LCD Oppo A98 5G , Realme c55","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1L0YHg02ttnPjNjbCBqNIS8mcHBEYM9Mm&sz=w1000"},{"img":"img31","name":"LCD Oppo A96","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=15LwxOXmR260wfpVH9_xn54f9BGiELmx7&sz=w1000"},{"img":"img32","name":"LCD Oppo A94 4G","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1Vt2DwS8PmxvGirw13a5z9_E6u6X-kV4-&sz=w1000"},{"img":"img33","name":"LCD Oppo A93 4G","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1dFYX6JfQtaMJ-M794vsOqhUbBf0sjbHZ&sz=w1000"},{"img":"img34","name":"LCD oppo a78 , reno 8","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1dMj2NHuSZiPKjlkOh56cBofp-mnzHtfH&sz=w1000"},{"img":"img35","name":"LCD oppo a76","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1B7Ll7CaZppng58rP5yzOOEFHH1UlDaJI&sz=w1000"},{"img":"img36","name":"LCD Oppo A54 5G","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1F9IwybqURUq0HYN2ojI1kq_SwTOi3VTq&sz=w1000"},{"img":"img37","name":"LCD Oppo A54 4G","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1QcDUlnIhnGgEBDJTwJS6Dw9R3qTST0pW&sz=w1000"},{"img":"img38","name":"LCD oppo A53","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1DTU_aU-fRYdd_eH93tyJoR6787jVJc14&sz=w1000"},{"img":"img39","name":"LCD Huawie P30 Lite","brand":"Huawie","url":"https://drive.google.com/thumbnail?id=1nMTdDOZYjlqSo_yDUWo8j2Wvq4rgEBEX&sz=w1000"},{"img":"img40","name":"LCD huawie P20 Lite","brand":"Huawie","url":"https://drive.google.com/thumbnail?id=1GtE89iOET3fO0RTkgaozdyDgdIfcx8Nv&sz=w1000"},{"img":"img41","name":"LCD huawie P40 Lite","brand":"Huawie","url":"https://drive.google.com/thumbnail?id=1oShQ0DUPxKdZQBQGFeG5M7KPDiOele0E&sz=w1000"},{"img":"img42","name":"LCD Redmi 10","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1Pal7ancH99NxCsFo1rJVZMT5pwJqx9If&sz=w1000"},{"img":"img43","name":"LCD Redmi 12","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1x_zU436tYcgTCTANu2osRQ7cMZ5oDah_&sz=w1000"},{"img":"img44","name":"LCD redmi 13","brand":"Radmi","url":"https://drive.google.com/thumbnail?id=1MSZPtmGwS4FIMYdsdwIy--i3PuI2a6Y7&sz=w1000"},{"img":"img45","name":"LCD ZTE V50","brand":"Zte","url":"https://drive.google.com/thumbnail?id=1tK-D6kRuMt8a494NZ0ogZuogBnpR-ANo&sz=w1000"},{"img":"img46","name":"LCD Honor x6 5G","brand":"Honor","url":"https://drive.google.com/thumbnail?id=1tpu155QLwiy1qz-sV288e_-_o7BjdpYm&sz=w1000"},{"img":"img47","name":"LCD Honor x6A","brand":"Honor","url":"https://drive.google.com/thumbnail?id=1dRDPG1MxwTkYRU8XHJjlFkJj83HslDUa&sz=w1000"},{"img":"img48","name":"LCD Honor x7","brand":"Honor","url":"https://drive.google.com/thumbnail?id=1pj45273xlWopyOvRvOBfTu0M9TbzEjmb&sz=w1000"},{"img":"img49","name":"LCD Honor x7C","brand":"Honor","url":"https://drive.google.com/thumbnail?id=1TeDhc0xDW4Du_8pLRGJVG8LDoHnoZf1F&sz=w1000"},{"img":"img50","name":"LCD ZTE A76/A56","brand":"Zte","url":"https://drive.google.com/thumbnail?id=1pvFAsiQyWsUrVoLenAtOCOdgB0zN8fMn&sz=w1000"},{"img":"img51","name":"LCD oppo a52 4g 2020","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1rtWf6DOJhwIkD4K4XXZb5obUksAVNH7Y&sz=w1000"},{"img":"img52","name":"LCD Oppo A16 2020","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1bxmTjkI007x53hFca5SnCGkKewUZMq7r&sz=w1000"},{"img":"img53","name":"LCD Oppo A15 2020","brand":"Oppo","url":"https://drive.google.com/thumbnail?id=1PlC0NiDL2okSeCm98h0KxCntDvW9FwZI&sz=w1000"}];
+const COMPAT = [{"lcd":"Realme NOTE 60","fits":"REALME C61"},{"lcd":"INFINIX HOT 60i","fits":"TECNO KM4 / SPARK GO 2"},{"lcd":"INFINIX X6517","fits":"Ki5 / Spark 10 / itel A60 / Smart 7"},{"lcd":"OPPO A60","fits":"Realme c65"},{"lcd":"OPPO a58","fits":"OPPO a98 / Realme c55"},{"lcd":"REDMI NOTE 10 pro","fits":"REDMI NOTE 13"},{"lcd":"MOTOROLA G24","fits":"Motorola G14 / Motorola G04"},{"lcd":"infinix X663","fits":"infinix Hot 30i"},{"lcd":"REDMI 9A","fits":"REDMI 9c"},{"lcd":"MOTOROLA G34","fits":"MOTOROLA G45"},{"lcd":"MOTOROLA G14","fits":"MOTOROLA G54"},{"lcd":"MOTOROLA G23","fits":"MOTOROLA G13"},{"lcd":"REDMI A1+","fits":"REDMI A2+"},{"lcd":"INFINIX X660","fits":"Common 15 pro"},{"lcd":"MOTOROLA E20","fits":"MOTOROLA G30"},{"lcd":"COMMOM 20","fits":"CK6"},{"lcd":"OPPO a74","fits":"OPPO A94"},{"lcd":"Tecno KL6","fits":"Infinix Hote 50 4g / X6882"},{"lcd":"Redmi Note 10 4G","fits":"Redmi Note 11 pro"},{"lcd":"Realme 9 pro / 8i","fits":"OPPO a96"},{"lcd":"OPPO a53","fits":"Realme .7i"},{"lcd":"Motorola G24","fits":"Motorala G04 / Motorola E14"},{"lcd":"Tecno KJ6 , X6832","fits":"Infinix hote 40 pro / Infinix X6836 / X6832 / Spark 20 pro"},{"lcd":"infinix x665","fits":"Infinix hote 12i / Smart 6"},{"lcd":"Tecno kj7","fits":"Spark 20 pro +"},{"lcd":"Tecno ki7","fits":"Spark 10 pro"},{"lcd":"Tecno kl4","fits":"tecno Pop 9"},{"lcd":"Tecno kl7","fits":"infinix Hote 50 pro"},{"lcd":"Tecno km7","fits":"infinix Hote 50 pro +"},{"lcd":"Smart 9","fits":"infinix X6720"},{"lcd":"Smart 5","fits":"infinix x657"},{"lcd":"Smart 8","fits":"infinix X6525"},{"lcd":"infinix x660","fits":"Common 15 Pro"},{"lcd":"Tecno Ck6","fits":"Commom 20"}];
+const CHANGES = [["iPhone LCD","LCD IPHONE DD X17 PRO","new",null,null],["Samsung LCD","LCD SAM A17 Orginal  4G","new",null,null],["Samsung LCD","LCD SAM A16 Orginal WF  4G","new",null,null],["Samsung LCD","LCD SAM A17 Orginal  5G","new",null,null],["Infinix / Tecno LCD","LCD TECNO KL7 , hote 50 pro","new",null,null],["Infinix / Tecno LCD","LCD TECNO Km7 , hote 40 pro pluse","new",null,null],["Infinix / Tecno LCD","LCD TECNO KL6 / x6882","new",null,null],["Infinix / Tecno LCD","LCD INFINIX X6720 , Smart 9","new",null,null],["Motorola LCD","LCD MOTOROLA G06","new",null,null],["Samsung LCD (ORG)","LCD SAM J4 +","new",null,null],["Samsung LCD (ORG)","LCD SAM A207","new",null,null],["Samsung Cable","CABLE SAM A15","new",null,null],["Samsung Cable","CABLE SAM A53","new",null,null],["Samsung Cable","CABLE SAM A52","new",null,null],["Samsung Switch / Finger","SWICH SMART 8","new",null,null],["Samsung Switch / Finger","SWICH SMART 9","new",null,null],["Samsung Switch / Finger","SWICH SMART 7","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM A57","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM A37","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM A56","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM A55","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM  A10","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM M32 4G","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM A24","new",null,null],["Samsung Flex Charger","FLEX CHARGER SAM A22 5G","new",null,null],["Samsung Switch / Finger","FINGER  SAM A12","chg",0.3,0.3],["Samsung Flex Charger","FLEX CHARGER SAM  A12","chg",0.6,0.6],["Samsung Cable","CABLE SAM A16","chg",0.5,0.7],["Samsung Cable","CABLE SAM A51","chg",0.5,0.7],["Charging Pins (Mini)","TECNO T302","chg",0.78,0.85],["Vivo / ZTE / Realme LCD","LCD REALME9 PRO , 1+","chg",46280.2,21.0],["Motorola LCD","LCD MOTOROLA G8 power","chg",18.6,5.92],["Infinix / Tecno LCD","LCD TECNO KL6","chg",20.3,6.38],["Samsung LCD (ORG)","LCD SAM A145","chg",20.0,5.55],["Samsung LCD","LCD SAM A17 INCEL WF","chg",23.5,6.6],["iPhone LCD","LCD IPHONE GX X14 PRO","chg",102.0,28.6],["Samsung LCD","LCD SAM A165 / A16 4G wf","chg",22.5,6.3],["Samsung LCD","LCD SAM A515F / A51","chg",22.5,6.3],["Samsung LCD","LCD SAM A70 / A705F","chg",22.5,6.7],["Huawei LCD","LCD HUAWIE P30 Lite","chg",15.5,4.9],["Infinix / Tecno LCD","LCD TECNO ki7","chg",18.8,5.32],["Samsung LCD","LCD SAM A155f/ A15 4G/5G wf","chg",22.0,6.2],["Samsung LCD","LCD SAM A325F / A32 4G","chg",22.0,6.2],["Samsung LCD","LCD SAM M16 4G INCEL wf caa","chg",23.5,7.1],["iPhone LCD","LCD IPHONE X8 +","chg",17.0,4.8],["Motorola LCD","LCD MOTOROLA G24","chg",17.3,5.39],["Samsung LCD","LCD SAM A155 INCEL WF BRAND","chg",38.0,11.0],["Samsung LCD","LCD SAM A24 INCEL WF BRAND","chg",38.0,11.0],["Samsung LCD","LCD SAM M30 / M30S","chg",19.0,5.4],["Samsung LCD","LCD SAM A345 INCEL WF BRAND","chg",42.0,12.0],["Samsung LCD","LCD SAM A30 / A305F","chg",21.0,5.9],["Honor LCD","LCD HONOR X7","chg",16.9,5.21],["iPhone LCD","LCD IPHONE DD X14 PRO MaX","chg",119.0,33.1],["iPhone LCD","LCD IPHONE DD X15 PRO MaX","chg",119.0,33.0],["Redmi LCD","LCD Redmi 15c Two cable","chg",18.5,5.74],["Samsung LCD (ORG)","LCD SAM A12","chg",19.5,5.41],["iPhone LCD","LCD IPHONE ZY X12 PRO MAX","chg",33.0,9.2],["Redmi LCD","LCD Redmi 10c","chg",16.3,5.29],["Infinix / Tecno LCD","LCD INFINIX X6525 , Smart 8 , bg6","chg",17.0,4.83],["iPhone LCD","LCD IPHONE ZY X14 PRO MAX","chg",43.5,12.1],["Motorola LCD","LCD MOTOROLA G30","chg",17.6,5.65],["Redmi LCD","LCD Redmi NOTE 12","chg",19.0,5.83],["iPhone LCD","LCD IPHONE DD X13 PRO MAX","chg",114.0,31.7],["iPhone LCD","LCD IPHONE GX X12 PRO / X12","chg",76.0,21.3],["iPhone LCD","LCD IPHONE GX X11 PRO MAX","chg",81.0,22.8],["iPhone LCD","LCD IPHONE GX X13 PRO MAX","chg",103.0,28.7],["iPhone LCD","LCD IPHONE GX X14","chg",92.0,25.7],["iPhone LCD","LCD IPHONE JH X14 PRO MAX","chg",65.5,18.4],["iPhone LCD","LCD IPHONE ZY X14 pluse","chg",38.0,11.0],["Samsung LCD","LCD SAM M22 5F","chg",22.5,6.8],["Redmi LCD","LCD Redmi Note 10 4g","chg",16.9,5.45],["Infinix / Tecno LCD","LCD TECNO KM4 , hot 60i","chg",18.2,5.57],["Oppo LCD","LCD Oppo A16 2020","chg",15.8,5.16],["Oppo LCD","LCD oppo F15","chg",17.0,5.23],["Vivo / ZTE / Realme LCD","LCD REALMEC65","chg",16.9,5.45]];
+
+/* ---------- SVG icon set ---------- */
+const ICONS = {
+  screen:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><line x1="10" y1="18" x2="14" y2="18"/></svg>',
+  battery:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="17" height="10" rx="2"/><line x1="22" y1="11" x2="22" y2="13"/><line x1="6" y1="11" x2="6" y2="13"/><line x1="10" y1="11" x2="10" y2="13"/></svg>',
+  glass:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><circle cx="9" cy="7" r="1.4"/></svg>',
+  port:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v6a5 5 0 0 0 10 0V4"/><line x1="12" y1="15" x2="12" y2="21"/></svg>',
+  speaker:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>',
+  box:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/></svg>'
+};
+const PART_CFG = {
+  "iPhone LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Samsung LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Samsung LCD (ORG)":{icon:ICONS.screen,label:"LCD Screen (ORG)"},
+  "Redmi LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Huawei LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Honor LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Infinix / Tecno LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Motorola LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Oppo LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Vivo / ZTE / Realme LCD":{icon:ICONS.screen,label:"LCD Screen"},
+  "Mini LCD":{icon:ICONS.screen,label:"Mini LCD"},
+  "iPhone Batteries":{icon:ICONS.battery,label:"Battery"},
+  "Redmi Batteries":{icon:ICONS.battery,label:"Battery"},
+  "Samsung Batteries":{icon:ICONS.battery,label:"Battery"},
+  "iPhone Back-glass":{icon:ICONS.glass,label:"Back Glass"},
+  "Samsung Covers":{icon:ICONS.glass,label:"Cover / Back"},
+  "iPhone COM / Flex / Speaker":{icon:ICONS.speaker,label:"COM / Flex / Speaker"},
+  "Samsung COM (small)":{icon:ICONS.speaker,label:"COM (small)"},
+  "Samsung Flex Charger":{icon:ICONS.port,label:"Flex Charger"},
+  "USB Charging Ports":{icon:ICONS.port,label:"Charging Port"},
+  "Cables":{icon:ICONS.port,label:"Cable"},
+  "Samsung SIM":{icon:ICONS.port,label:"SIM Reader"},
+  "Tools":{icon:ICONS.box,label:"Tool"},
+  "Switch / Fingerprint":{icon:ICONS.port,label:"Switch / Fingerprint"}
+};
+const KNOWN_LABELS=["LCD Screen","LCD Screen (ORG)","Mini LCD","Battery","Back Glass","Cover / Back","COM / Flex / Speaker","COM (small)","Flex Charger","Charging Port","Cable","SIM Reader","Tool","Switch / Fingerprint"];
+
+/* ---------- helpers ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const CATS=Object.keys(DATA);
+const fmt=n=>{n=Number(n);const r=Math.round(n*10)/10;return (r===0&&n!==0)?n.toFixed(2):r.toFixed(1);};
+function flatAll(){const o=[];CATS.forEach(c=>DATA[c].forEach(it=>o.push({cat:c,name:it[0],d:it[1],usd:it[2]})));return o;}
+const ALL=flatAll();
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+/* If a Drive image fails to load (usually because the file isn't shared
+   "Anyone with the link"), show a clear placeholder instead of a broken icon. */
+function onImgErr(img){
+  if(img.dataset.fallbackApplied)return;
+  img.dataset.fallbackApplied='1';
+  const ph=document.createElement('div');
+  ph.className='img-broken';
+  ph.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/><line x1="3" y1="3" x2="21" y2="21"/></svg><span>Sawir lama helin<br>(faylka Drive-ka waa gaar)</span>';
+  img.replaceWith(ph);
+}
+
+/* ---------- tabs ---------- */
+$$('#tabs .tab').forEach(t=>t.addEventListener('click',()=>{
+  $$('#tabs .tab').forEach(x=>x.classList.remove('active'));
+  $$('.view').forEach(v=>v.classList.remove('active'));
+  t.classList.add('active');
+  $('#view-'+t.dataset.view).classList.add('active');
+  if(t.dataset.view==='compare') renderCmp();
+}));
+
+/* populate category selects */
+function fillCat(sel,allLabel){sel.innerHTML='';const o=document.createElement('option');o.value='__all__';o.textContent=allLabel;sel.appendChild(o);CATS.forEach(c=>{const op=document.createElement('option');op.value=c;op.textContent=c;sel.appendChild(op);});}
+fillCat($('#listCat'),'Dhammaan categories');
+
+/* ============================================================
+   PRO-LIST (Liiska + Profile isku daran)
+   ============================================================ */
+const plSearch=$('#plSearch'),plSearchBtn=$('#plSearchBtn'),plProfileWrap=$('#plProfileWrap'),plProfileResults=$('#plProfileResults'),plBrowseWrap=$('#plBrowseWrap');
+const listCat=$('#listCat'),listPrice=$('#listPrice'),listSort=$('#listSort');
+const listGroupBtn=$('#listGroupBtn'),listGroupWrap=$('#listGroupWrap'),listGroup=$('#listGroup');
+let grouping=false;
+function priceOf(it,type){return type==='D'?it.d:it.usd;}
+function priceBoth(it){return '$'+fmt(it.usd)+' <span class="u">/</span> '+fmt(it.d)+'<span class="u"> D</span>';}
+function renderGroups(){
+  const type=listPrice.value;
+  const pool=listCat.value==='__all__'?ALL:ALL.filter(i=>i.cat===listCat.value);
+  const buckets={};
+  pool.forEach(i=>{const b=Math.floor(priceOf(i,type));(buckets[b]=buckets[b]||[]).push(i);});
+  const keys=Object.keys(buckets).map(Number).sort((a,b)=>a-b);
+  listGroup.innerHTML='';
+  keys.forEach((k,idx)=>{const op=document.createElement('option');op.value=k;const sym=type==='D'?'D':'$';op.textContent='Group '+String.fromCharCode(65+idx%26)+'  ('+sym+k+'–'+sym+(k)+'.99)  · '+buckets[k].length;op.dataset.bucket=k;listGroup.appendChild(op);});
+}
+listGroupBtn.addEventListener('click',()=>{
+  grouping=!grouping;
+  listGroupBtn.classList.toggle('active',grouping);
+  listGroupWrap.classList.toggle('hidden',!grouping);
+  if(grouping)renderGroups();
+  renderList();
+});
+function renderList(){
+  const type=listPrice.value,other=type==='D'?'USD':'D';
+  let pool=listCat.value==='__all__'?ALL.slice():ALL.filter(i=>i.cat===listCat.value);
+  if(grouping&&listGroup.value!==''){const b=Number(listGroup.value);pool=pool.filter(i=>Math.floor(priceOf(i,type))===b);}
+  const s=listSort.value;
+  if(s==='asc')pool.sort((a,b)=>priceOf(a,type)-priceOf(b,type));
+  else if(s==='desc')pool.sort((a,b)=>priceOf(b,type)-priceOf(a,type));
+  else if(s==='az')pool.sort((a,b)=>a.name.localeCompare(b.name));
+  $('#listCount').innerHTML='<b>'+pool.length+'</b> shay';
+  const showCat=listCat.value==='__all__';
+  $('#listBody').innerHTML=pool.map((i,idx)=>
+    '<tr><td class="rank">'+(idx+1)+'</td><td class="name"><a href="#" class="name-link" data-n="'+esc(i.name)+'">'+esc(i.name)+'</a>'+(showCat?'<br><span class="cat-tag">'+esc(i.cat)+'</span>':'')+'</td>'+
+    '<td class="price"><span class="pill">'+priceBoth(i)+'</span></td></tr>'
+  ).join('')||'<tr><td colspan="3" style="text-align:center; color:var(--muted); padding:30px;">Wax lama helin.</td></tr>';
+  $$('#listBody .name-link').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();plSearch.value=a.dataset.n;runProlistSearch();}));
+}
+[listCat,listPrice,listSort].forEach(el=>el.addEventListener('input',()=>{if(grouping&&(el===listCat||el===listPrice))renderGroups();renderList();}));
+listGroup.addEventListener('change',renderList);
+renderList();
+
+
+/* ---------- Compatible LCD: full list + search ---------- */
+function renderCompatList(){
+  $('#plCompatCount').textContent=COMPAT.length;
+  $('#plCompatBody').innerHTML=COMPAT.map((c,i)=>'<tr><td class="rank">'+(i+1)+'</td><td class="name">'+esc(c.lcd)+'</td><td class="name">'+esc(c.fits)+'</td></tr>').join('');
+}
+renderCompatList();
+
+/* ---------- search: cross-category "Profile" style breakdown ---------- */
+["13 Pro Max","12 Pro Max","A54","A12","Redmi Note 13","G32"].forEach(p=>{
+  const c=document.createElement('button');c.className='chip';c.type='button';c.textContent=p;
+  c.addEventListener('click',()=>{plSearch.value=p;runProlistSearch();});
+  $('#plChips').appendChild(c);
+});
+function guessIcon(q){q=q.toLowerCase();if(q.includes('iphone')||/\bx\d|pro max|\bipp\b|\bip\b/.test(q))return ICONS.screen;if(/^a\d|a\d/.test(q))return ICONS.screen;return ICONS.box;}
+function runProlistSearch(){
+  const query=plSearch.value.trim();
+  if(!query){
+    plProfileWrap.classList.add('hidden');plProfileResults.innerHTML='';
+    plBrowseWrap.classList.remove('hidden');
+    return;
+  }
+  plBrowseWrap.classList.add('hidden');
+  plProfileWrap.classList.remove('hidden');
+  const kw=query.toLowerCase(),groups=[];
+  CATS.forEach(cat=>{const m=DATA[cat].filter(it=>it[0].toLowerCase().includes(kw));if(m.length)groups.push({cat,m});});
+  const compatHits=COMPAT.filter(c=>(c.lcd+' '+c.fits).toLowerCase().includes(kw));
+  if(!groups.length&&!compatHits.length){plProfileResults.innerHTML='<div class="empty"><div class="ic">'+ICONS.box+'</div>Wax lama helin "'+esc(query)+'". Isku day "13 Pro Max" ama "A12".</div>';return;}
+  const found=new Set(groups.map(g=>(PART_CFG[g.cat]||{label:g.cat}).label));
+  const missing=KNOWN_LABELS.filter(l=>!found.has(l));
+  let total=groups.reduce((s,g)=>s+g.m.length,0);
+  let h='<div class="card" style="margin-bottom:14px;"><div class="prof-head"><div class="prof-avatar">'+guessIcon(query)+'</div>'+
+    '<div><div class="prof-title">'+esc(query)+'</div><div class="prof-sub">'+groups.length+' nooc qayb ah · '+total+' shay oo la helay</div></div></div></div>';
+  h+='<div style="display:flex; flex-direction:column; gap:12px;">';
+  groups.forEach(g=>{
+    const cfg=PART_CFG[g.cat]||{icon:ICONS.box,label:g.cat};
+    h+='<div class="part-card"><div class="part-head"><div class="part-ic">'+cfg.icon+'</div><div class="part-title">'+cfg.label+'</div><div class="part-count">'+g.m.length+' shay</div></div>';
+    g.m.forEach(it=>{h+='<div class="prow"><div class="pn">'+esc(it[0])+'</div><div class="pp"><span class="big">$'+fmt(it[2])+'</span><span class="sm">'+fmt(it[1])+' D</span></div></div>';});
+    h+='</div>';
+  });
+  h+='</div>';
+  if(compatHits.length){h+='<div class="part-card" style="margin-top:12px;"><div class="part-head"><div class="part-title">Compatible LCD</div><div class="part-count">'+compatHits.length+' shay</div></div>';compatHits.forEach(c=>{h+='<div class="prow"><div class="pn">'+esc(c.lcd)+'</div><div class="pp"><span class="sm">'+esc(c.fits)+'</span></div></div>';});h+='</div>';}
+  if(missing.length)h+='<div class="missing" style="margin-top:12px;">Xogta hadda laguma hayo: '+missing.join(', ')+' — haddii sheet-ka lagu daro, waa la cusboonaysiin karaa.</div>';
+  plProfileResults.innerHTML=h;
+}
+plSearch.addEventListener('input',runProlistSearch);
+plSearchBtn.addEventListener('click',runProlistSearch);
+plSearch.addEventListener('keydown',e=>{if(e.key==='Enter')runProlistSearch();});
+$('#plBackBtn').addEventListener('click',()=>{plSearch.value='';runProlistSearch();});
+
+/* ============================================================
+   QUIZ
+   ============================================================ */
+let flow='quiz';
+function updateCountLbl(){
+  if(flow==='learn')$('#qCountLbl').textContent='Tirada koox kasta (batch)';
+  else if(qSelMode==='custom')$('#qCountLbl').textContent="Tirada su'aalaha (lama isticmaalo — dhammaan models-ka la doortay ayaa la isticmaali doonaa)";
+  else $('#qCountLbl').textContent="Tirada su'aalaha";
+}
+$$('#qFlowSeg button').forEach(b=>b.addEventListener('click',()=>{
+  $$('#qFlowSeg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');flow=b.dataset.flow;
+  updateCountLbl();
+}));
+function updateModeVisibility(){
+  const isCompat=$('#qMode').value==='compat';
+  const compatType=$('#qCompatType').value;
+  const isCompatMatch=isCompat&&compatType==='match';
+  const isChanges=$('#qMode').value==='changes';
+  $('#qChangeTypeWrap').classList.toggle('hidden',!isChanges);
+  $('#qFlowBlock').classList.toggle('hidden',isCompat||isChanges);
+  $('#qCatBlock').classList.toggle('hidden',isCompat||isChanges);
+  $('#qSelBlock').classList.toggle('hidden',isCompat||isChanges);
+  $('#qCompatTypeWrap').classList.toggle('hidden',!isCompat);
+  $('#qCompatHint').classList.toggle('hidden',!isCompat);
+  if(isCompat){
+    $('#qCompatHint').textContent =
+      compatType==='match' ? 'Waxaad isku dheelitiri doontaa LCD-yada iyo model-yada kale ee ay ku habboon yihiin (xogta "COMPATIBLE LCD"). Riix Bilow.' :
+      compatType==='mcq' ? 'Waxaad dooran doontaa model-ka saxda ah ee ku habboon (compatible) LCD-ga la tusay.' :
+      compatType==='truefalse' ? 'Waxaad sheegi doontaa in run tahay iyo in kale in model-kan uu ku habboon yahay LCD-ga la tusay.' :
+      'Waxaad qori doontaa magaca model-ka ku habboon (compatible) LCD-ga la tusay.';
+  }
+  $('#qCountWrap').classList.toggle('hidden',isCompatMatch||isChanges);
+  $('#qPriceWrap').classList.toggle('hidden',isCompat);
+  $('#qTimerWrap').classList.toggle('hidden',isCompatMatch);
+}
+$('#qMode').addEventListener('change',updateModeVisibility);
+$('#qCompatType').addEventListener('change',updateModeVisibility);
+updateModeVisibility();
+const Q={pool:[],batches:[],batchIdx:0,mode:'mcq',priceType:'both',timer:0,
+  order:[],idx:0,score:0,wrong:[],curPriceKind:'USD',answered:false,tId:null,tLeft:0};
+
+/* ---------- quiz starting-point (selection mode) ---------- */
+let qSelMode='random';
+let qCatsSelected=new Set(); // empty = all categories
+let qCustomPicked=[]; // array of ALL item refs the user hand-picked
+function pKey(it){return it.cat+'␟'+it.name;}
+function isPicked(it){return qCustomPicked.some(x=>pKey(x)===pKey(it));}
+renderCatChips();
+
+$$('#qSelSeg button').forEach(b=>b.addEventListener('click',()=>{
+  $$('#qSelSeg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
+  qSelMode=b.dataset.selmode;
+  $('#qRangeWrap').classList.toggle('hidden',qSelMode!=='range');
+  $('#qRangeHint').classList.toggle('hidden',qSelMode!=='range');
+  $('#qCustomWrap').classList.toggle('hidden',qSelMode!=='custom');
+  if(qSelMode==='range')updateRangeHint();
+  if(qSelMode==='custom')renderCustomList($('#qCustomSearch').value);
+  updateCountLbl();
+}));
+function catPool(){
+  if(!qCatsSelected.size)return ALL.slice();
+  return ALL.filter(i=>qCatsSelected.has(i.cat));
+}
+function renderCatChips(){
+  $('#qCatChips').innerHTML=CATS.map(c=>
+    '<button type="button" class="cat-chip'+(qCatsSelected.has(c)?' active':'')+'" data-cat="'+esc(c).replace(/"/g,'&quot;')+'">'+esc(c)+'</button>'
+  ).join('');
+  $$('#qCatChips .cat-chip').forEach(chip=>chip.addEventListener('click',()=>{
+    const c=chip.dataset.cat;
+    if(qCatsSelected.has(c))qCatsSelected.delete(c);else qCatsSelected.add(c);
+    chip.classList.toggle('active');
+    if(qSelMode==='range')updateRangeHint();
+    if(qSelMode==='custom')renderCustomList($('#qCustomSearch').value);
+  }));
+}
+function orderPool(arr,order){
+  const key=Q.priceType==='D'?'d':'usd';
+  const a=arr.slice();
+  if(order==='cheap')a.sort((x,y)=>x[key]-y[key]);
+  else if(order==='expensive')a.sort((x,y)=>y[key]-x[key]);
+  else if(order==='az')a.sort((x,y)=>x.name.localeCompare(y.name));
+  return a;
+}
+function updateRangeHint(){
+  Q.priceType=$('#qPrice').value;
+  const total=catPool().length;
+  const start=Math.max(1,Number($('#qStartFrom').value)||1);
+  const n=Number($('#qCount').value);
+  const end=Math.min(total,start+n-1);
+  const hint=$('#qRangeHint');
+  hint.classList.remove('hidden');
+  if(start>total){hint.style.color='var(--danger)';hint.textContent='Lambarkan waa ka weyn yahay tirada category-gan ('+total+' shay ayaa jira).';}
+  else{hint.style.color='';hint.textContent='Waxaad ka bilaabaysaa #'+start+' ilaa #'+end+' ('+total+' shay ayaa ku jira category-gan, marka la kala saaro).';}
+}
+$('#qStartFrom').addEventListener('input',updateRangeHint);
+$('#qSortOrder').addEventListener('change',updateRangeHint);
+$('#qCount').addEventListener('change',()=>{if(qSelMode==='range')updateRangeHint();});
+$('#qCustomSearch').addEventListener('input',e=>renderCustomList(e.target.value));
+
+function renderCustomList(filter){
+  const q=(filter||'').trim().toLowerCase();
+  let pool=catPool();
+  if(q)pool=pool.filter(i=>i.name.toLowerCase().includes(q));
+  pool=pool.slice(0,300); // keep the list snappy
+  $('#qCustomList').innerHTML=pool.length?pool.map(i=>{
+    const key=pKey(i).replace(/"/g,'&quot;');
+    const checked=isPicked(i)?'checked':'';
+    return '<label class="pick-row'+(checked?' checked':'')+'" data-key="'+key+'">'+
+      '<input type="checkbox" '+checked+'>'+
+      '<span class="pn">'+esc(i.name)+'</span>'+
+      '<span class="pp">$'+fmt(i.usd)+'</span>'+
+      '</label>';
+  }).join(''):'<div class="empty" style="padding:14px;">Wax lama helin.</div>';
+  $$('#qCustomList .pick-row').forEach(row=>{
+    row.addEventListener('click',e=>{
+      e.preventDefault();
+      const it=ALL.find(x=>pKey(x)===row.dataset.key);
+      if(!it)return;
+      const pos=qCustomPicked.findIndex(x=>pKey(x)===pKey(it));
+      if(pos>=0)qCustomPicked.splice(pos,1);else qCustomPicked.push(it);
+      row.classList.toggle('checked',pos<0);
+      row.querySelector('input').checked=pos<0;
+      $('#qCustomCount').textContent=qCustomPicked.length+' model ayaa la doortay';
+    });
+  });
+}
+$('#qCustomCount').textContent='0 model ayaa la doortay';
+
+/* Build the working pool for the quiz, respecting the chosen starting point */
+function buildQuizPool(){
+  if(qSelMode==='custom'){
+    if(qCustomPicked.length<4)return {error:"Ugu yaraan 4 model ayaad u baahan tahay inaad doorato."};
+    return {pool:qCustomPicked.slice()};
+  }
+  if(qSelMode==='range'){
+    const total=catPool();
+    if(total.length<4)return {error:"Category-gan wax ku filan ma laha. Dooro mid kale."};
+    const sorted=orderPool(total,$('#qSortOrder').value);
+    const start=Math.max(1,Number($('#qStartFrom').value)||1);
+    if(start>sorted.length)return {error:'Lambarka "Ka bilow" waa ka weyn yahay tirada category-gan ('+sorted.length+' shay).'};
+    const n=Number($('#qCount').value);
+    const slice=sorted.slice(start-1,start-1+n);
+    return {pool:slice};
+  }
+  const pool=catPool();
+  if(pool.length<4)return {error:"Category-gan wax ku filan ma laha. Dooro mid kale."};
+  return {pool};
+}
+
+function qShow(id){['qSetup','qLearnList','qRun','qResult'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id));}
+function qCard(id){['qCardMcq','qCardType','qCardTf','qCardMatch','qCardSame'].forEach(x=>$('#'+x).classList.add('hidden'));if(id)$('#'+id).classList.remove('hidden');}
+
+$('#qStart').addEventListener('click',startQuiz);
+$('#qBack').addEventListener('click',()=>{clearTimer();qShow('qSetup');});
+$('#qLearnBack').addEventListener('click',()=>{clearTimer();qShow('qSetup');});
+$('#qNewQuiz').addEventListener('click',()=>{clearTimer();qShow('qSetup');});
+$('#qRetry').addEventListener('click',()=>{if(flow==='learn'||Q.fromChanges)startBatchQuiz();else beginRun(Q.pool);});
+$('#qLearnStart').addEventListener('click',startBatchQuiz);
+$('#qNextBatch').addEventListener('click',()=>{Q.batchIdx++;showBatchList();});
+
+function startQuiz(){
+  Q.mode=$('#qMode').value;Q.priceType=$('#qPrice').value;Q.timer=Number($('#qTimer').value);
+  const n=Number($('#qCount').value);
+  if(Q.mode==='compat'){
+    if(COMPAT.length<4){qErr("Xogta Compatible LCD wax ku filan ma laha.");return;}
+    Q.compatType=$('#qCompatType').value;
+    $('#qErr').style.display='none';
+    if(Q.compatType==='match'){
+      Q.pool=COMPAT.slice();
+    }else{
+      Q.pool=shuffle(COMPAT).slice(0,Math.min(n,COMPAT.length));
+    }
+    beginRun(Q.pool);
+    return;
+  }
+  if(Q.mode==='changes'){
+    const pool=changeItems();
+    if(pool.length<4){qErr("Wax LCD ah oo cusub ama isbeddelay lama helin.");return;}
+    Q.mode=$('#qChangeType').value;Q.fromChanges=true;
+    $('#qErr').style.display='none';
+    Q.batches=[];for(let i=0;i<pool.length;i+=50)Q.batches.push(pool.slice(i,i+50));
+    Q.batchIdx=0;showBatchList();
+    return;
+  }
+  Q.fromChanges=false;
+  const built=buildQuizPool();
+  if(built.error){qErr(built.error);return;}
+  const pool=built.pool;
+  $('#qErr').style.display='none';
+  if(flow==='learn'){
+    Q.batches=[];
+    if(qSelMode==='random'){
+      const sh=shuffle(pool);for(let i=0;i<sh.length;i+=n)Q.batches.push(sh.slice(i,i+n));
+    }else{
+      // range/custom: keep the chosen order, just chunk it into batches
+      for(let i=0;i<pool.length;i+=n)Q.batches.push(pool.slice(i,i+n));
+    }
+    Q.batchIdx=0;showBatchList();
+  }else{
+    Q.pool=qSelMode==='random'?shuffle(pool).slice(0,n):shuffle(pool.slice());
+    beginRun(Q.pool);
+  }
+}
+function changeItems(){
+  const idx={};ALL.forEach(i=>{idx[i.cat+'|'+i.name]=i;});
+  return CHANGES.filter(c=>/LCD/i.test(c[0])).map(c=>{const it=idx[c[0]+'|'+c[1]];return it?Object.assign({},it,{status:c[2],oldD:c[3],oldUsd:c[4]}):null;}).filter(Boolean);
+}
+function qErr(m){$('#qErr').textContent=m;$('#qErr').style.display='block';}
+function showBatchList(){
+  if(Q.batchIdx>=Q.batches.length){qShow('qResult');$('#qResTitle').textContent='Waad dhammaystay dhammaan koox-yada!';$('#qResScore').textContent=Q.batches.length+'/'+Q.batches.length;$('#qResMsg').textContent='Si fiican ayaad u baratay category-gan.';$('#qWrongWrap').classList.add('hidden');$('#qNextBatch').classList.add('hidden');$('#qRetry').classList.add('hidden');return;}
+  const b=Q.batches[Q.batchIdx];qShow('qLearnList');
+  $('#qBatchLbl').innerHTML='Koox <b>'+(Q.batchIdx+1)+'</b> / '+Q.batches.length+' · '+b.length+' shay';
+  $('#qLearnBody').innerHTML=b.map((i,idx)=>{
+    let badge='',oldp='';
+    if(i.status==='new')badge=' <span class="cat-tag" style="color:#34d399;">CUSUB</span>';
+    else if(i.status==='chg'){badge=' <span class="cat-tag" style="color:#fbbf24;">ISBEDDELAY</span>';oldp='<div style="font-size:11px;color:var(--muted);text-decoration:line-through;">$'+fmt(i.oldUsd)+' / '+fmt(i.oldD)+' D</div>';}
+    return '<tr><td class="rank">'+(idx+1)+'</td><td class="name">'+esc(i.name)+badge+'</td><td class="price"><span class="pill">$'+fmt(i.usd)+'<span class="u"> / '+fmt(i.d)+' D</span></span>'+oldp+'</td></tr>';
+  }).join('');
+}
+function startBatchQuiz(){beginRun(Q.batches[Q.batchIdx]);}
+
+function beginRun(pool){
+  Q.order=shuffle(pool);Q.idx=0;Q.score=0;Q.wrong=[];$('#qScore').textContent='0';$('#qRetry').classList.remove('hidden');
+  qShow('qRun');
+  if(Q.mode==='match'){renderMatch(pool);return;}
+  if(Q.mode==='samePrice'){renderSame(pool);return;}
+  if(Q.mode==='compat'&&Q.compatType==='match'){renderCompatMatch(pool);return;}
+  nextQuestion();
+}
+function pickKind(){return Q.priceType==='both'?(Math.random()<.5?'D':'USD'):Q.priceType;}
+function priceVal(it,k){return k==='D'?it.d:it.usd;}
+function priceStr(it,k){return (k==='D'?'':'$')+fmt(priceVal(it,k))+(k==='D'?' D':'');}
+function bothStr(it){return '$'+fmt(it.usd)+' / '+fmt(it.d)+' D';}
+
+function clearTimer(){if(Q.tId){clearInterval(Q.tId);Q.tId=null;}$('#qTimerBar').classList.add('hidden');cancelAutoAdvance();}
+function startTimer(onEnd){
+  clearTimer();if(!Q.timer)return;Q.tLeft=Q.timer;const bar=$('#qTimerBar');bar.classList.remove('hidden','low');bar.textContent='⏱ '+Q.tLeft+'s';
+  Q.tId=setInterval(()=>{Q.tLeft--;bar.textContent='⏱ '+Q.tLeft+'s';bar.classList.toggle('low',Q.tLeft<=3);if(Q.tLeft<=0){clearTimer();onEnd();}},1000);
+}
+function progress(){$('#qProgress').innerHTML='Su\'aal <b>'+(Q.idx+1)+'</b> / '+Q.order.length;}
+
+function nextQuestion(){
+  clearTimer();
+  if(Q.idx>=Q.order.length){finishRun();return;}
+  Q.answered=false;progress();
+  const it=Q.order[Q.idx];
+  if(Q.mode==='compat'){
+    if(Q.compatType==='mcq')renderCompatMcq(it);
+    else if(Q.compatType==='truefalse')renderCompatTf(it);
+    else if(Q.compatType==='type')renderCompatType(it);
+    return;
+  }
+  Q.curPriceKind=pickKind();
+  if(Q.mode==='mcq')renderMcq(it);
+  else if(Q.mode==='type')renderType(it);
+  else if(Q.mode==='truefalse')renderTf(it);
+}
+
+/* MCQ */
+function renderMcq(it){
+  qCard('qCardMcq');
+  $('#mcqName').textContent=it.name;
+  $('#mcqAsk').textContent='Waa maxay qiimaha '+(Q.curPriceKind==='D'?'(D)':'($)')+'?';
+  const correct=priceStr(it,Q.curPriceKind);
+  const set=new Set([correct]);const opts=[correct];
+  const pool=shuffle(ALL);
+  for(const o of pool){if(opts.length>=4)break;const s=priceStr(o,Q.curPriceKind);if(!set.has(s)){set.add(s);opts.push(s);}}
+  const fin=shuffle(opts);
+  $('#mcqOpts').innerHTML=fin.map(o=>'<button class="opt">'+o+'</button>').join('');
+  $('#mcqFb').className='feedback';$('#mcqNext').classList.add('hidden');
+  $$('#mcqOpts .opt').forEach(btn=>btn.addEventListener('click',()=>{
+    if(Q.answered)return;Q.answered=true;clearTimer();
+    const ok=btn.textContent===correct;
+    $$('#mcqOpts .opt').forEach(b=>{b.disabled=true;if(b.textContent===correct)b.classList.add('correct');else if(b===btn)b.classList.add('wrong');});
+    fb('mcqFb',ok,it,bothStr(it));if(ok)inc();else Q.wrong.push([it.name,bothStr(it)]);
+    $('#mcqNext').classList.remove('hidden');
+  }));
+  startTimer(()=>{if(Q.answered)return;Q.answered=true;$$('#mcqOpts .opt').forEach(b=>{b.disabled=true;if(b.textContent===correct)b.classList.add('correct');});fb('mcqFb',false,it,bothStr(it),true);Q.wrong.push([it.name,bothStr(it)]);$('#mcqNext').classList.remove('hidden');});
+}
+$('#mcqNext').addEventListener('click',manualNext);
+
+/* TYPE */
+function renderType(it){
+  qCard('qCardType');
+  $('#typeName').textContent=it.name;
+  $('#typeAsk').textContent='Qor qiimaha '+(Q.curPriceKind==='D'?'(D)':'($)')+':';
+  const inp=$('#typeInput');inp.value='';inp.disabled=false;inp.inputMode='decimal';inp.placeholder='Qor qiimaha halkan...';inp.focus();
+  $('#typeFb').className='feedback';$('#typeSubmit').classList.remove('hidden');$('#typeNext').classList.add('hidden');
+  const correct=priceVal(it,Q.curPriceKind);
+  function submit(){
+    if(Q.answered)return;Q.answered=true;clearTimer();inp.disabled=true;
+    const val=parseFloat(inp.value.replace(',','.'));
+    const ok=!isNaN(val)&&Math.abs(val-correct)<0.011;
+    fb('typeFb',ok,it,bothStr(it));if(ok)inc();else Q.wrong.push([it.name,bothStr(it)]);
+    $('#typeSubmit').classList.add('hidden');$('#typeNext').classList.remove('hidden');
+  }
+  $('#typeSubmit').onclick=submit;
+  inp.onkeydown=e=>{if(e.key==='Enter'&&!e.nativeEvent?.isComposing&&e.keyCode!==229)submit();};
+  startTimer(()=>{if(Q.answered)return;Q.answered=true;inp.disabled=true;fb('typeFb',false,it,bothStr(it),true);Q.wrong.push([it.name,bothStr(it)]);$('#typeSubmit').classList.add('hidden');$('#typeNext').classList.remove('hidden');});
+}
+$('#typeNext').addEventListener('click',manualNext);
+
+/* TRUE / FALSE */
+function renderTf(it){
+  qCard('qCardTf');
+  $('#tfName').textContent=it.name;
+  $('#tfAsk').textContent='Qiimahani ma sax baa?';
+  const real=priceVal(it,Q.curPriceKind);
+  const isTrue=Math.random()<.5;
+  let shown=real;
+  if(!isTrue){const others=ALL.map(o=>priceVal(o,Q.curPriceKind)).filter(v=>Math.abs(v-real)>0.05);shown=others.length?others[Math.floor(Math.random()*others.length)]:real*1.3;}
+  $('#tfPrice').textContent=(Q.curPriceKind==='D'?'':'$')+fmt(shown)+(Q.curPriceKind==='D'?' D':'');
+  $('#tfFb').className='feedback';$('#tfNext').classList.add('hidden');
+  const correctStr=bothStr(it);
+  function ans(userSaysTrue){
+    if(Q.answered)return;Q.answered=true;clearTimer();
+    const ok=userSaysTrue===isTrue;
+    $('#tfTrue').disabled=$('#tfFalse').disabled=true;
+    fb('tfFb',ok,it,correctStr);if(ok)inc();else Q.wrong.push([it.name,correctStr]);
+    $('#tfNext').classList.remove('hidden');
+  }
+  $('#tfTrue').disabled=$('#tfFalse').disabled=false;
+  $('#tfTrue').onclick=()=>ans(true);$('#tfFalse').onclick=()=>ans(false);
+  startTimer(()=>{if(Q.answered)return;Q.answered=true;$('#tfTrue').disabled=$('#tfFalse').disabled=true;fb('tfFb',false,it,correctStr,true);Q.wrong.push([it.name,correctStr]);$('#tfNext').classList.remove('hidden');});
+}
+$('#tfNext').addEventListener('click',manualNext);
+
+function fb(id,ok,it,correct,timeout){
+  const el=$('#'+id);el.className='feedback show '+(ok?'good':'bad');
+  el.textContent=ok?'✓ Sax! Qiimaha waa '+correct:(timeout?'⏱ Waqtigii wuu dhamaaday. ':'✗ Qalad. ')+'Qiimaha saxda ah: '+correct;
+  scheduleAutoAdvance(ok);
+}
+function inc(){Q.score++;$('#qScore').textContent=Q.score;}
+/* auto-advance to the next question: quick after a correct answer, slower (5s) after a wrong one */
+let autoAdvId=null;
+function cancelAutoAdvance(){if(autoAdvId){clearTimeout(autoAdvId);autoAdvId=null;}}
+function scheduleAutoAdvance(ok){
+  cancelAutoAdvance();
+  autoAdvId=setTimeout(()=>{autoAdvId=null;manualNext();},ok?1500:5000);
+}
+function manualNext(){cancelAutoAdvance();Q.idx++;nextQuestion();}
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  const btns=[$('#mcqNext'),$('#tfNext'),$('#typeNext')];
+  const visible=btns.find(b=>b&&!b.classList.contains('hidden'));
+  if(visible){e.preventDefault();visible.click();}
+});
+
+/* MATCHING */
+let matchSel=null,matchDone=0,matchTotal=0;
+function renderMatch(pool){
+  qCard('qCardMatch');clearTimer();
+  $('#matchHint').textContent='Riix magaca product, kadibna riix qiimaha saxda ah.';
+  const k=Q.priceType==='both'?'USD':Q.priceType;Q.curPriceKind=k;
+  const picks=shuffle(pool).slice(0,Math.min(6,pool.length));
+  matchTotal=picks.length;matchDone=0;matchSel=null;
+  $('#matchStat').innerHTML='La xidhay <b>0</b> / '+matchTotal;
+  $('#matchNames').innerHTML=shuffle(picks).map(p=>'<button class="match-btn" data-key="'+esc(p.name)+'">'+esc(p.name)+'</button>').join('');
+  $('#matchPrices').innerHTML=shuffle(picks).map(p=>'<button class="match-btn mono" data-key="'+esc(p.name)+'">'+bothStr(p)+'</button>').join('');
+  $$('#matchNames .match-btn').forEach(b=>b.addEventListener('click',()=>{if(b.classList.contains('matched'))return;$$('#matchNames .match-btn').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');matchSel=b;}));
+  $$('#matchPrices .match-btn').forEach(b=>b.addEventListener('click',()=>{
+    if(!matchSel||b.classList.contains('matched'))return;
+    if(b.dataset.key===matchSel.dataset.key){b.classList.add('matched');matchSel.classList.add('matched');matchSel.classList.remove('selected');matchSel=null;matchDone++;$('#matchStat').innerHTML='La xidhay <b>'+matchDone+'</b> / '+matchTotal;if(matchDone===matchTotal){Q.score=matchTotal;Q.order={length:matchTotal};finishRun(true);}}
+    else{const sel=matchSel;b.classList.add('flash');sel.classList.add('flash');setTimeout(()=>{b.classList.remove('flash');sel.classList.remove('flash');sel.classList.remove('selected');},450);matchSel=null;}
+  }));
+}
+
+/* COMPATIBLE LCD (matching) */
+function renderCompatMatch(pool){
+  qCard('qCardMatch');clearTimer();
+  $('#matchHint').textContent='Riix magaca LCD-ga, kadibna riix model-ka uu ku habboon yahay (compatible).';
+  const picks=shuffle(pool).slice(0,Math.min(8,pool.length));
+  matchTotal=picks.length;matchDone=0;matchSel=null;
+  $('#matchStat').innerHTML='La xidhay <b>0</b> / '+matchTotal;
+  $('#matchNames').innerHTML=shuffle(picks).map(p=>'<button class="match-btn" data-key="'+esc(p.lcd)+'">'+esc(p.lcd)+'</button>').join('');
+  $('#matchPrices').innerHTML=shuffle(picks).map(p=>'<button class="match-btn" data-key="'+esc(p.lcd)+'">'+esc(p.fits)+'</button>').join('');
+  $$('#matchNames .match-btn').forEach(b=>b.addEventListener('click',()=>{if(b.classList.contains('matched'))return;$$('#matchNames .match-btn').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');matchSel=b;}));
+  $$('#matchPrices .match-btn').forEach(b=>b.addEventListener('click',()=>{
+    if(!matchSel||b.classList.contains('matched'))return;
+    if(b.dataset.key===matchSel.dataset.key){b.classList.add('matched');matchSel.classList.add('matched');matchSel.classList.remove('selected');matchSel=null;matchDone++;$('#matchStat').innerHTML='La xidhay <b>'+matchDone+'</b> / '+matchTotal;if(matchDone===matchTotal){Q.score=matchTotal;Q.order={length:matchTotal};finishRun(true);}}
+    else{const sel=matchSel;b.classList.add('flash');sel.classList.add('flash');setTimeout(()=>{b.classList.remove('flash');sel.classList.remove('flash');sel.classList.remove('selected');},450);matchSel=null;}
+  }));
+}
+
+/* COMPATIBLE LCD (multiple choice) */
+function renderCompatMcq(it){
+  qCard('qCardMcq');
+  $('#mcqName').textContent=it.lcd;
+  $('#mcqAsk').textContent='Kee baa ku habboon (compatible) LCD-gan?';
+  const correct=it.fits;
+  const set=new Set([correct]);const opts=[correct];
+  const pool=shuffle(COMPAT);
+  for(const o of pool){if(opts.length>=4)break;if(!set.has(o.fits)){set.add(o.fits);opts.push(o.fits);}}
+  const fin=shuffle(opts);
+  $('#mcqOpts').innerHTML=fin.map(o=>'<button class="opt">'+esc(o)+'</button>').join('');
+  $('#mcqFb').className='feedback';$('#mcqNext').classList.add('hidden');
+  $$('#mcqOpts .opt').forEach(btn=>btn.addEventListener('click',()=>{
+    if(Q.answered)return;Q.answered=true;clearTimer();
+    const ok=btn.textContent===correct;
+    $$('#mcqOpts .opt').forEach(b=>{b.disabled=true;if(b.textContent===correct)b.classList.add('correct');else if(b===btn)b.classList.add('wrong');});
+    fb('mcqFb',ok,it,correct);if(ok)inc();else Q.wrong.push([it.lcd,correct]);
+    $('#mcqNext').classList.remove('hidden');
+  }));
+  startTimer(()=>{if(Q.answered)return;Q.answered=true;$$('#mcqOpts .opt').forEach(b=>{b.disabled=true;if(b.textContent===correct)b.classList.add('correct');});fb('mcqFb',false,it,correct,true);Q.wrong.push([it.lcd,correct]);$('#mcqNext').classList.remove('hidden');});
+}
+
+/* COMPATIBLE LCD (true / false) */
+function renderCompatTf(it){
+  qCard('qCardTf');
+  $('#tfName').textContent=it.lcd;
+  $('#tfAsk').textContent='Model-kani ma waxa uu ku habboon yahay (compatible) LCD-gan?';
+  const isTrue=Math.random()<.5;
+  let shown=it.fits;
+  if(!isTrue){
+    const others=COMPAT.map(o=>o.fits).filter(f=>f!==it.fits);
+    shown=others.length?others[Math.floor(Math.random()*others.length)]:it.fits;
+  }
+  $('#tfPrice').textContent=shown;
+  $('#tfFb').className='feedback';$('#tfNext').classList.add('hidden');
+  const correctStr=it.fits;
+  function ans(userSaysTrue){
+    if(Q.answered)return;Q.answered=true;clearTimer();
+    const ok=userSaysTrue===isTrue;
+    $('#tfTrue').disabled=$('#tfFalse').disabled=true;
+    fb('tfFb',ok,it,correctStr);if(ok)inc();else Q.wrong.push([it.lcd,correctStr]);
+    $('#tfNext').classList.remove('hidden');
+  }
+  $('#tfTrue').disabled=$('#tfFalse').disabled=false;
+  $('#tfTrue').onclick=()=>ans(true);$('#tfFalse').onclick=()=>ans(false);
+  startTimer(()=>{if(Q.answered)return;Q.answered=true;$('#tfTrue').disabled=$('#tfFalse').disabled=true;fb('tfFb',false,it,correctStr,true);Q.wrong.push([it.lcd,correctStr]);$('#tfNext').classList.remove('hidden');});
+}
+
+/* COMPATIBLE LCD (fill in the blank) */
+function renderCompatType(it){
+  qCard('qCardType');
+  $('#typeName').textContent=it.lcd;
+  $('#typeAsk').textContent='Qor magaca model-ka ku habboon (compatible) LCD-gan:';
+  const inp=$('#typeInput');inp.value='';inp.disabled=false;inp.inputMode='text';inp.placeholder='Qor magaca model-ka...';inp.focus();
+  $('#typeFb').className='feedback';$('#typeSubmit').classList.remove('hidden');$('#typeNext').classList.add('hidden');
+  const correct=it.fits;
+  function norm(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
+  function submit(){
+    if(Q.answered)return;Q.answered=true;clearTimer();inp.disabled=true;
+    const val=norm(inp.value);
+    const cn=norm(correct);
+    const ok=val.length>=2&&(cn.includes(val)||val.includes(cn));
+    fb('typeFb',ok,it,correct);if(ok)inc();else Q.wrong.push([it.lcd,correct]);
+    $('#typeSubmit').classList.add('hidden');$('#typeNext').classList.remove('hidden');
+  }
+  $('#typeSubmit').onclick=submit;
+  inp.onkeydown=e=>{if(e.key==='Enter'&&!e.nativeEvent?.isComposing&&e.keyCode!==229)submit();};
+  startTimer(()=>{if(Q.answered)return;Q.answered=true;inp.disabled=true;fb('typeFb',false,it,correct,true);Q.wrong.push([it.lcd,correct]);$('#typeSubmit').classList.add('hidden');$('#typeNext').classList.remove('hidden');});
+}
+
+/* SAME PRICE */
+let sameSel=null,sameDone=0,sameTotal=0;
+function renderSame(pool){
+  qCard('qCardSame');clearTimer();
+  const k=Q.priceType==='both'?'USD':Q.priceType;
+  const byPrice={};pool.forEach(p=>{const v=fmt(priceVal(p,k));(byPrice[v]=byPrice[v]||[]).push(p);});
+  const pairs=[];Object.values(byPrice).forEach(arr=>{const s=shuffle(arr);for(let i=0;i+1<s.length;i+=2)pairs.push([s[i],s[i+1]]);});
+  const chosen=shuffle(pairs).slice(0,Math.min(5,pairs.length));
+  if(!chosen.length){$('#qCardSame').innerHTML='<div class="empty">Category-gan kuma jiraan alaab qiime isku mid ah leh. Dooro "Same Price" category kale ama isku dar dhammaan.</div>';return;}
+  sameTotal=chosen.length;sameDone=0;sameSel=null;
+  $('#sameStat').innerHTML='Labo isku mid <b>0</b> / '+sameTotal;
+  const left=chosen.map(p=>p[0]),right=chosen.map(p=>p[1]);
+  const mk=p=>'<button class="match-btn" data-p="'+fmt(priceVal(p,k))+'">'+esc(p.name)+'</button>';
+  $('#sameLeft').innerHTML=shuffle(left).map(mk).join('');
+  $('#sameRight').innerHTML=shuffle(right).map(mk).join('');
+  const handler=(col,other)=>{$$('#'+col+' .match-btn').forEach(b=>b.addEventListener('click',()=>{
+    if(b.classList.contains('matched'))return;
+    if(!sameSel){$$('#sameLeft .match-btn,#sameRight .match-btn').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');sameSel={btn:b,col};return;}
+    if(sameSel.btn===b){b.classList.remove('selected');sameSel=null;return;}
+    if(sameSel.col===col){$$('#'+col+' .match-btn').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');sameSel={btn:b,col};return;}
+    if(b.dataset.p===sameSel.btn.dataset.p){b.classList.add('matched');sameSel.btn.classList.add('matched');sameSel.btn.classList.remove('selected');sameSel=null;sameDone++;$('#sameStat').innerHTML='Labo isku mid <b>'+sameDone+'</b> / '+sameTotal;if(sameDone===sameTotal){Q.score=sameTotal;Q.order={length:sameTotal};finishRun(true);}}
+    else{const s=sameSel.btn;b.classList.add('flash');s.classList.add('flash');setTimeout(()=>{b.classList.remove('flash');s.classList.remove('flash');s.classList.remove('selected');},450);sameSel=null;}
+  }));};
+  handler('sameLeft');handler('sameRight');
+}
+
+/* RESULTS */
+function finishRun(perfectSet){
+  clearTimer();qShow('qResult');
+  const total=Q.order.length;
+  $('#qResTitle').textContent='Waad dhammaystay!';
+  $('#qResScore').textContent=Q.score+'/'+total;
+  const pct=total?Math.round(Q.score/total*100):0;
+  $('#qResMsg').textContent=pct===100?'Buuxda! Aad ayaad u fiican tahay.':pct>=70?'Aad u wanaagsan — sii wad.':pct>=40?'Fiican, laakiin wali baro.':'Baro mar kale, waad awoodaa.';
+  if(Q.wrong&&Q.wrong.length){$('#qWrongWrap').classList.remove('hidden');$('#qWrongItems').innerHTML=Q.wrong.map(w=>'<div class="wrong-item"><span>'+esc(w[0])+'</span><span class="wv">Sax: <b>'+esc(w[1])+'</b></span></div>').join('');}
+  else $('#qWrongWrap').classList.add('hidden');
+  const isLearn=flow==='learn'||Q.fromChanges;
+  $('#qNextBatch').classList.toggle('hidden',!isLearn);
+  $('#qNextBatch').textContent=(Q.batchIdx+1>=Q.batches.length)?'Dhammaad ✓':'Koox xigta →';
+}
+
+/* ============================================================
+   COMPARE (image browse + compare + lightbox)
+   ============================================================ */
+let cIndex=0,compareSet=[];
+const cmpImg=$('#cmpImg'),cmpName=$('#cmpName'),cmpMeta=$('#cmpMeta'),cmpAdd=$('#cmpAdd');
+function hasItems(){return Array.isArray(ITEMS)&&ITEMS.length;}
+function renderCmp(){
+  if(!hasItems()){$('#view-compare').querySelector('.device').innerHTML='<div class="empty">Sawirada isbarbardhigga lama helin.</div>';return;}
+  const it=ITEMS[cIndex];
+  cmpImg.style.display='';
+  $('#cmpImgFallback').style.display='none';
+  cmpImg.onerror=()=>{cmpImg.style.display='none';$('#cmpImgFallback').style.display='flex';};
+  cmpImg.src=it.url;
+  cmpName.textContent=it.name;
+  cmpMeta.textContent=(it.brand||'').toUpperCase()+' · '+(cIndex+1)+'/'+ITEMS.length;
+  cmpAdd.classList.toggle('active',compareSet.some(x=>x.img===it.img));
+}
+$('#cmpPrev').addEventListener('click',()=>{cIndex=(cIndex-1+ITEMS.length)%ITEMS.length;renderCmp();});
+$('#cmpNext').addEventListener('click',()=>{cIndex=(cIndex+1)%ITEMS.length;renderCmp();});
+cmpAdd.addEventListener('click',()=>{
+  const it=ITEMS[cIndex];const pos=compareSet.findIndex(x=>x.img===it.img);
+  if(pos>=0)compareSet.splice(pos,1);else{if(compareSet.length>=4)compareSet.shift();compareSet.push(it);}
+  renderCmp();renderTray();
+});
+function renderTray(){
+  const tray=$('#cmpTray');
+  if(!compareSet.length){tray.classList.remove('show');$('#cmpOpen').disabled=true;$('#cmpOpen').textContent='Fur Isbarbardhigga (0)';return;}
+  tray.classList.add('show');
+  $('#cmpThumbs').innerHTML='';
+  compareSet.forEach(it=>{
+    const t=document.createElement('div');t.className='tray-thumb';
+    t.innerHTML='<img src="'+it.url+'" onerror="onImgErr(this)"><div class="rm">×</div>';
+    t.querySelector('.rm').addEventListener('click',e=>{e.stopPropagation();compareSet=compareSet.filter(x=>x.img!==it.img);renderTray();renderCmp();});
+    $('#cmpThumbs').appendChild(t);
+  });
+  $('#cmpOpen').textContent='Fur Isbarbardhigga ('+compareSet.length+')';
+  $('#cmpOpen').disabled=compareSet.length<2;
+}
+$('#cmpOpen').addEventListener('click',()=>{
+  if(compareSet.length<2)return;
+  $('#cmpGrid').innerHTML='';
+  compareSet.forEach(it=>{
+    const c=document.createElement('div');c.className='cmp-cell';
+    c.innerHTML='<div class="cs"><img src="'+it.url+'" onerror="onImgErr(this)"></div><div class="cn">'+esc(it.name)+'</div><div class="cb">'+esc((it.brand||'').toUpperCase())+'</div>';
+    c.querySelector('.cs').addEventListener('click',()=>openLb(it.url));
+    $('#cmpGrid').appendChild(c);
+  });
+  $('#overlay').classList.add('show');
+});
+$('#ovClose').addEventListener('click',()=>$('#overlay').classList.remove('show'));
+
+/* compare search */
+const cmpSearch=$('#cmpSearch'),cmpResults=$('#cmpResults');
+cmpSearch.addEventListener('input',()=>{
+  const q=cmpSearch.value.trim().toLowerCase();
+  if(!q||!hasItems()){cmpResults.classList.add('hidden');cmpResults.innerHTML='';return;}
+  const m=ITEMS.filter(it=>it.name.toLowerCase().includes(q)||(it.brand||'').toLowerCase().includes(q)).slice(0,8);
+  cmpResults.classList.remove('hidden');
+  cmpResults.innerHTML=m.length?m.map(it=>'<div class="cmp-item" data-img="'+it.img+'"><span>'+esc(it.name)+'</span><span class="bt">'+esc(it.brand||'')+'</span></div>').join(''):'<div class="cmp-item"><span style="color:var(--muted)">Wax lama helin.</span></div>';
+  $$('#cmpResults .cmp-item[data-img]').forEach(r=>r.addEventListener('click',()=>{cIndex=ITEMS.findIndex(x=>x.img===r.dataset.img);renderCmp();cmpResults.classList.add('hidden');cmpSearch.value='';}));
+});
+
+/* lightbox with pan/zoom */
+const lb=$('#lightbox'),lbImg=$('#lbImg');let lbScale=1,lbX=0,lbY=0;
+function applyLb(){lbImg.style.transform='translate('+lbX+'px,'+lbY+'px) scale('+lbScale+')';}
+function openLb(url){lbScale=1;lbX=0;lbY=0;applyLb();lbImg.onerror=()=>onImgErr(lbImg);lbImg.src=url;lb.classList.add('show');}
+function closeLb(){lb.classList.remove('show');}
+$('#lbClose').addEventListener('click',closeLb);
+$('#cmpShot').addEventListener('click',()=>{if(hasItems())openLb(ITEMS[cIndex].url);});
+lb.addEventListener('click',e=>{if(e.target===lb)closeLb();});
+lb.addEventListener('wheel',e=>{e.preventDefault();lbScale=Math.min(6,Math.max(1,lbScale-e.deltaY*0.0018));if(lbScale===1){lbX=0;lbY=0;}applyLb();},{passive:false});
+let drag=false,sx=0,sy=0,pinch=0;
+lbImg.addEventListener('pointerdown',e=>{if(lbScale<=1)return;drag=true;sx=e.clientX-lbX;sy=e.clientY-lbY;lbImg.setPointerCapture(e.pointerId);});
+lbImg.addEventListener('pointermove',e=>{if(!drag)return;lbX=e.clientX-sx;lbY=e.clientY-sy;applyLb();});
+lbImg.addEventListener('pointerup',()=>drag=false);
+lb.addEventListener('touchmove',e=>{if(e.touches.length===2){e.preventDefault();const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);if(pinch)lbScale=Math.min(6,Math.max(1,lbScale*(d/pinch)));pinch=d;applyLb();}},{passive:false});
+lb.addEventListener('touchend',()=>{pinch=0;});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeLb();$('#overlay').classList.remove('show');}});
+
+/* init compare on first paint if data present */
+if(hasItems())renderCmp();
+
+/* ============================================================
+   LIVE SYNC — "My Own Sheet" Google Sheet, tab "ALL BRANDS"
+   ------------------------------------------------------------
+   Paste your Apps Script Web App URL below (see setup notes) to
+   make the Compare tab always pull the newest photos/names from
+   the sheet. If left empty, or if the fetch fails (offline, not
+   deployed yet, wrong URL, etc.), the app quietly keeps using the
+   snapshot above so Compare still works without breaking anything.
+   ============================================================ */
+const LIVE_SHEET_URL = ""; // <- paste your Apps Script /exec URL here
+async function loadLiveItems(){
+  if(!LIVE_SHEET_URL) return;
+  try{
+    const res = await fetch(LIVE_SHEET_URL, {cache:'no-store'});
+    if(!res.ok) throw new Error('bad status '+res.status);
+    const rows = await res.json();
+    if(!Array.isArray(rows) || !rows.length) throw new Error('empty response');
+    const fresh = rows.map((r,i)=>({
+      img:'live'+i,
+      name:(r.name||'').trim(),
+      brand:(r.brand||'').trim(),
+      url:r.url||''
+    })).filter(it=>it.name && it.url);
+    if(fresh.length){
+      ITEMS = fresh;
+      cIndex = 0;
+      compareSet = [];
+      renderCmp();
+      renderTray();
+    }
+  }catch(err){
+    console.warn('Live sheet sync failed, using built-in snapshot:', err);
+  }
+}
+loadLiveItems();
+</script>
+</body>
+</html>
