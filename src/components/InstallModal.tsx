@@ -76,17 +76,17 @@ export const InstallModal: React.FC<InstallModalProps> = ({ isOpen, onClose }) =
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold text-white">
-                Install on Android & Windows PC
+                Download & Install App (Mobile & Laptop)
               </h3>
               <p className="text-xs text-slate-400 font-normal">
-                Setup guide to run Reer Hassan Suite standalone like a native app
+                Install Do or Die Suite directly on your smartphone, tablet, or laptop PC
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -97,19 +97,19 @@ export const InstallModal: React.FC<InstallModalProps> = ({ isOpen, onClose }) =
           <div className="p-4 bg-gradient-to-r from-cyan-950/60 to-indigo-950/60 border border-cyan-500/40 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="text-center sm:text-left">
               <span className="font-bold text-sm text-cyan-200 block">
-                Direct One-Click Install Ready!
+                Direct One-Click Download & Install Ready!
               </span>
               <span className="text-xs text-slate-300 font-normal">
-                Click the button to immediately install this app onto your device.
+                Click to immediately install this app onto your mobile or laptop.
               </span>
             </div>
             <button
               type="button"
               onClick={handle1ClickInstall}
-              className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition-all shrink-0 flex items-center gap-2"
+              className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition-all shrink-0 flex items-center gap-2 cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>Install Now</span>
+              <span>Download & Install Now</span>
             </button>
           </div>
         )}
@@ -117,7 +117,7 @@ export const InstallModal: React.FC<InstallModalProps> = ({ isOpen, onClose }) =
         {isInstalled && (
           <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl text-xs text-emerald-300 font-semibold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Standalone App Mode Active: This app is installed and running on your system!</span>
+            <span>Standalone App Active: Do or Die is installed and running on your system!</span>
           </div>
         )}
 
@@ -126,27 +126,27 @@ export const InstallModal: React.FC<InstallModalProps> = ({ isOpen, onClose }) =
           <button
             type="button"
             onClick={() => { sound.playTick(); setActiveTab('android'); }}
-            className={`py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+            className={`py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
               activeTab === 'android'
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             <Smartphone className="w-4 h-4 text-emerald-400" />
-            <span>Android Phone</span>
+            <span>Mobile (Phone)</span>
           </button>
 
           <button
             type="button"
             onClick={() => { sound.playTick(); setActiveTab('windows'); }}
-            className={`py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+            className={`py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
               activeTab === 'windows'
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             <Laptop className="w-4 h-4 text-cyan-400" />
-            <span>Windows PC</span>
+            <span>Laptop / PC</span>
           </button>
 
           <button
@@ -234,7 +234,7 @@ export const InstallModal: React.FC<InstallModalProps> = ({ isOpen, onClose }) =
                 <div className="flex items-start gap-2">
                   <span className="font-bold text-cyan-400 font-mono">03.</span>
                   <span>
-                    Click <strong className="text-white">"Install"</strong> to install Reer Hassan Suite.
+                    Click <strong className="text-white">"Install"</strong> to install Do or Die Suite.
                   </span>
                 </div>
                 <div className="flex items-start gap-2">

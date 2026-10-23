@@ -15,7 +15,9 @@ import {
   ChevronUp,
   Database,
   Upload,
-  RotateCcw
+  RotateCcw,
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 import { SparePartItem, CompatItem, PART_CATEGORY_GROUPS, calculatePricing } from '../data/initialData';
 import { sound } from '../services/soundService';
@@ -39,12 +41,17 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showFormulaBar, setShowFormulaBar] = useState(false);
   const [showAllCatalog, setShowAllCatalog] = useState(false);
+  const [recentlyAddedPart, setRecentlyAddedPart] = useState<SparePartItem | null>(null);
 
   // New Part Form State
   const [newPartName, setNewPartName] = useState('');
   const [newPartCat, setNewPartCat] = useState('iPhone LCD');
+  const [customCatInput, setCustomCatInput] = useState('');
   const [newPartD, setNewPartD] = useState('');
-  const [newPartExpense, setNewPartExpense] = useState('1.0');
+  const [newPartYuan, setNewPartYuan] = useState('');
+  const [newPartUsd, setNewPartUsd] = useState('');
+  const [newPartSalesPrice, setNewPartSalesPrice] = useState('');
+  const [newPartExpense, setNewPartExpense] = useState('');
 
   // Categories list for Add Part modal
   const categories = useMemo(() => {
@@ -121,29 +128,107 @@ export const ProListView: React.FC<ProListViewProps> = ({
     return result;
   }, [parts, searchTerm]);
 
+  // Synchronize prices when user types Dirham (1 / 3.67 = 0.27 USD, (1/3.67)*7.23 = 1.97 Yuan)
+  const handleDirhamChange = (val: string) => {
+    setNewPartD(val);
+    const d = parseFloat(val);
+    if (!isNaN(d) && d >= 0) {
+      const exp = parseFloat(newPartExpense) || 0;
+      const pricing = calculatePricing(d, exp);
+      setNewPartYuan(String(pricing.yuan));
+      setNewPartUsd(String(pricing.costUsd));
+      setNewPartSalesPrice(String(pricing.salesPrice));
+    }
+  };
+
+  // Synchronize prices when user types Yuan
+  const handleYuanChange = (val: string) => {
+    setNewPartYuan(val);
+    const y = parseFloat(val);
+    if (!isNaN(y) && y >= 0) {
+      const baseUsd = y / 7.23;
+      const d = Number((baseUsd * 3.67).toFixed(2));
+      const exp = parseFloat(newPartExpense) || 0;
+      const costUsd = Number((baseUsd + exp).toFixed(2));
+      const sales = Number((costUsd * 1.30).toFixed(2));
+      setNewPartD(String(d));
+      setNewPartUsd(String(costUsd));
+      setNewPartSalesPrice(String(sales));
+    }
+  };
+
+  // Synchronize prices when user types USD+
+  const handleUsdChange = (val: string) => {
+    setNewPartUsd(val);
+    const u = parseFloat(val);
+    if (!isNaN(u) && u >= 0) {
+      const exp = parseFloat(newPartExpense) || 0;
+      const baseUsd = Math.max(0, u - exp);
+      const d = Number((baseUsd * 3.67).toFixed(2));
+      const yuan = Number((baseUsd * 7.23).toFixed(2));
+      const sales = Number((u * 1.30).toFixed(2));
+      setNewPartD(String(d));
+      setNewPartYuan(String(yuan));
+      setNewPartSalesPrice(String(sales));
+    }
+  };
+
+  const handleSalesPriceChange = (val: string) => {
+    setNewPartSalesPrice(val);
+  };
+
+  const handleExpenseChange = (expVal: string) => {
+    setNewPartExpense(expVal);
+    const exp = parseFloat(expVal) || 0;
+    const d = parseFloat(newPartD);
+    if (!isNaN(d) && d >= 0) {
+      const pricing = calculatePricing(d, exp);
+      setNewPartUsd(String(pricing.costUsd));
+      setNewPartSalesPrice(String(pricing.salesPrice));
+    }
+  };
+
   const handleCreatePart = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPartName.trim() || !newPartD) return;
+    if (!newPartName.trim()) return;
+
+    const finalCat = newPartCat === '__custom__' && customCatInput.trim()
+      ? customCatInput.trim()
+      : newPartCat;
 
     const dirham = parseFloat(newPartD) || 0;
-    const exp = parseFloat(newPartExpense) || 1.0;
+    const exp = parseFloat(newPartExpense) || 0;
     const pricing = calculatePricing(dirham, exp);
 
-    onAddPart({
+    const yuan = newPartYuan ? (parseFloat(newPartYuan) || pricing.yuan) : pricing.yuan;
+    const usd = newPartUsd ? (parseFloat(newPartUsd) || pricing.costUsd) : pricing.costUsd;
+    const salesPrice = newPartSalesPrice ? (parseFloat(newPartSalesPrice) || pricing.salesPrice) : pricing.salesPrice;
+
+    const createdPart: SparePartItem = {
+      id: `custom-${Date.now()}`,
       name: newPartName.trim(),
-      cat: newPartCat,
+      cat: finalCat,
       d: dirham,
-      usd: pricing.costUsd,
-      yuan: pricing.yuan,
-      salesPrice: pricing.salesPrice,
-      salesPriceD: pricing.salesPriceD,
+      usd,
+      yuan,
+      salesPrice,
+      salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
       expense: exp,
       isCustom: true
-    });
+    };
+
+    onAddPart(createdPart);
 
     sound.playVictory();
+    setRecentlyAddedPart(createdPart);
+    setShowAllCatalog(true);
+    setSearchTerm('');
     setNewPartName('');
     setNewPartD('');
+    setNewPartYuan('');
+    setNewPartUsd('');
+    setNewPartSalesPrice('');
+    setCustomCatInput('');
     setShowAddModal(false);
   };
 
@@ -228,19 +313,19 @@ export const ProListView: React.FC<ProListViewProps> = ({
               <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
                 <span className="text-xs text-slate-400 block font-sans font-medium">USD+ (Cost in USD):</span>
                 <span className="text-emerald-400 font-bold text-sm sm:text-base">
-                  (Price D / 3.67) + Expense
+                  Price D / 3.67 (1 D = $0.27)
                 </span>
                 <span className="text-[11px] text-slate-400 block font-sans font-normal mt-0.5">
-                  Standard exchange rate 1$ = 3.67 AED + shipping cost.
+                  Exact exchange rate: 1 USD = 3.67 AED (1 AED = 0.27 USD).
                 </span>
               </div>
               <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
                 <span className="text-xs text-slate-400 block font-sans font-medium">Yuan ¥ (China RMB):</span>
                 <span className="text-amber-300 font-bold text-sm sm:text-base">
-                  (Price D / 3.67) * 7.23
+                  (Price D / 3.67) * 7.23 (1 D = ¥1.97)
                 </span>
                 <span className="text-[11px] text-slate-400 block font-sans font-normal mt-0.5">
-                  Direct Guangzhou factory market rate.
+                  Direct Guangzhou factory market rate: 1 USD = 7.23 RMB.
                 </span>
               </div>
               <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
@@ -256,6 +341,91 @@ export const ProListView: React.FC<ProListViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* RECENTLY ADDED ITEM CONFIRMATION BANNER */}
+      {recentlyAddedPart && (
+        <div className="bg-[#0b1626] border-2 border-emerald-500/60 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 animate-in slide-in-from-top-2 duration-150">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-800">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Saved to Database (Row #1)
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    Persisted in Local Storage & App Catalog
+                  </span>
+                </div>
+                <h4 className="text-lg font-bold text-white mt-1 flex items-center gap-2">
+                  <span>{recentlyAddedPart.name}</span>
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">
+                    {recentlyAddedPart.cat}
+                  </span>
+                </h4>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTick();
+                  setSearchTerm(recentlyAddedPart.name);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Search className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Search This Part</span>
+              </button>
+              {onOpenDbModal && (
+                <button
+                  type="button"
+                  onClick={() => onOpenDbModal()}
+                  className="px-3 py-1.5 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-700 text-xs font-semibold text-cyan-300 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Google Sheets DB</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setRecentlyAddedPart(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Pricing Confirmation Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
+            <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+              <span className="text-[11px] font-sans text-slate-400 block">Dirham (AED)</span>
+              <span className="text-cyan-300 font-bold text-sm sm:text-base">{formatNum(recentlyAddedPart.d)} D</span>
+            </div>
+            <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+              <span className="text-[11px] font-sans text-slate-400 block">Guangzhou Yuan (¥)</span>
+              <span className="text-amber-300 font-bold text-sm sm:text-base">¥{formatNum(recentlyAddedPart.yuan ?? ((recentlyAddedPart.d / 3.67) * 7.23))}</span>
+            </div>
+            <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+              <span className="text-[11px] font-sans text-slate-400 block">USD+ Cost</span>
+              <span className="text-emerald-400 font-bold text-sm sm:text-base">${formatNum(recentlyAddedPart.usd)}</span>
+            </div>
+            <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+              <span className="text-[11px] font-sans text-slate-400 block">Customer Sales Price</span>
+              <span className="text-violet-300 font-bold text-sm sm:text-base">${formatNum(recentlyAddedPart.salesPrice)}</span>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            ✓ Available immediately below in the catalog table (Row #1), in the Quiz Practice pool, and auto-synced or backed up in the Google Sheets database.
+          </p>
+        </div>
+      )}
 
       {/* DEVICE PROFILE DRILLDOWN (When user types a model) */}
       {isProfileMode && profileData && (
@@ -491,23 +661,38 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    filteredParts.map((item, idx) => (
+                    filteredParts.map((item, idx) => {
+                      const isRecentlyAdded = recentlyAddedPart && (item.id === recentlyAddedPart.id || (idx === 0 && item.name === recentlyAddedPart.name));
+                      return (
                       <tr 
                         key={item.id} 
-                        className="hover:bg-slate-800/60 transition-colors cursor-pointer group"
+                        className={`transition-colors cursor-pointer group ${
+                          isRecentlyAdded 
+                            ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-l-4 border-l-emerald-400' 
+                            : 'hover:bg-slate-800/60'
+                        }`}
                         onClick={() => {
                           sound.playTick();
                           setSearchTerm(item.name);
                         }}
                       >
-                        <td className="py-3.5 px-4 text-center font-mono text-xs text-slate-500 font-normal tabular-nums">
-                          {idx + 1}
+                        <td className="py-3.5 px-4 text-center font-mono text-xs font-normal tabular-nums">
+                          {isRecentlyAdded ? (
+                            <span className="font-bold text-emerald-400">1 ★</span>
+                          ) : (
+                            <span className="text-slate-500">{idx + 1}</span>
+                          )}
                         </td>
                         <td className="py-3.5 px-5">
-                          <span className="font-semibold text-white group-hover:text-cyan-300 transition-colors text-base">
+                          <span className={`font-semibold transition-colors text-base ${isRecentlyAdded ? 'text-emerald-200 group-hover:text-white' : 'text-white group-hover:text-cyan-300'}`}>
                             {item.name}
                           </span>
-                          {item.isCustom && (
+                          {isRecentlyAdded && (
+                            <span className="ml-2 text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-lg border border-emerald-500/40 inline-flex items-center gap-1">
+                              <Sparkles className="w-2.5 h-2.5" /> JUST ADDED
+                            </span>
+                          )}
+                          {item.isCustom && !isRecentlyAdded && (
                             <span className="ml-2 text-[10px] font-semibold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-lg border border-indigo-500/30">
                               CUSTOM
                             </span>
@@ -531,7 +716,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                           ${formatNum(item.salesPrice)}
                         </td>
                       </tr>
-                    ))
+                    );})
                   )}
                 </tbody>
               </table>
@@ -544,19 +729,32 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   No spare parts found matching "{searchTerm}".
                 </div>
               ) : (
-                filteredParts.map((item) => (
+                filteredParts.map((item, idx) => {
+                  const isRecentlyAdded = recentlyAddedPart && (item.id === recentlyAddedPart.id || (idx === 0 && item.name === recentlyAddedPart.name));
+                  return (
                   <div
                     key={item.id}
                     onClick={() => {
                       sound.playTick();
                       setSearchTerm(item.name);
                     }}
-                    className="p-4 hover:bg-slate-850/60 transition-colors active:bg-slate-800"
+                    className={`p-4 transition-colors active:bg-slate-800 ${
+                      isRecentlyAdded
+                        ? 'bg-emerald-950/30 border-l-4 border-l-emerald-400'
+                        : 'hover:bg-slate-850/60'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="font-semibold text-white text-base leading-tight">
-                        {item.name}
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-white text-base leading-tight">
+                          {item.name}
+                        </span>
+                        {isRecentlyAdded && (
+                          <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-lg border border-emerald-500/40 inline-flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" /> JUST ADDED
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] font-medium text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 shrink-0">
                         {item.cat}
                       </span>
@@ -581,7 +779,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       </div>
                     </div>
                   </div>
-                ))
+                );})
               )}
             </div>
 
@@ -606,8 +804,8 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
             <form onSubmit={handleCreatePart} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 uppercase mb-1">
-                  Product Name
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
+                  Product Name *
                 </label>
                 <input
                   type="text"
@@ -615,87 +813,167 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   value={newPartName}
                   onChange={(e) => setNewPartName(e.target.value)}
                   placeholder="e.g. LCD IPHONE 16 PRO MAX"
-                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-3 text-sm text-white font-medium outline-none"
+                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-3 text-sm text-white font-medium outline-none transition-colors"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 uppercase mb-1">
-                    Category
-                  </label>
+              {/* Select Category + Custom Category */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  Select Category *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <select
                     value={newPartCat}
                     onChange={(e) => setNewPartCat(e.target.value)}
-                    className="w-full bg-[#070c18] border border-slate-700 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none"
+                    className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none"
                   >
                     {categories.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
+                    <option value="__custom__">+ Create New Category...</option>
                   </select>
+
+                  {newPartCat === '__custom__' && (
+                    <input
+                      type="text"
+                      required
+                      value={customCatInput}
+                      onChange={(e) => setCustomCatInput(e.target.value)}
+                      placeholder="Type custom category name..."
+                      className="w-full bg-[#070c18] border border-cyan-500/70 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* 4 Currency Options: Dirham, Yuan, USD+, Sales Price MUST */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-xs font-semibold text-cyan-400 uppercase mb-1 flex items-center justify-between">
+                    <span>Dirham Option (Price D)</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="any"
+                      inputMode="decimal"
+                      value={newPartD}
+                      onChange={(e) => handleDirhamChange(e.target.value)}
+                      placeholder="e.g. 1.0"
+                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-3.5 text-xs font-bold text-cyan-400 font-mono pointer-events-none">
+                      AED
+                    </span>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 uppercase mb-1">
-                    Price D (Dirham)
+                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 flex items-center justify-between">
+                    <span>Yuan Option (¥)</span>
                   </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    required
-                    value={newPartD}
-                    onChange={(e) => setNewPartD(e.target.value)}
-                    placeholder="e.g. 115.0"
-                    className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-3 text-sm text-white font-mono font-medium outline-none"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="any"
+                      inputMode="decimal"
+                      value={newPartYuan}
+                      onChange={(e) => handleYuanChange(e.target.value)}
+                      placeholder="e.g. 1.97"
+                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-3.5 text-xs font-bold text-amber-400 font-mono pointer-events-none">
+                      RMB
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-emerald-400 uppercase mb-1 flex items-center justify-between">
+                    <span>USD+ Option (Cost)</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="any"
+                      inputMode="decimal"
+                      value={newPartUsd}
+                      onChange={(e) => handleUsdChange(e.target.value)}
+                      placeholder="e.g. 0.27"
+                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-slate-700 focus:border-emerald-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-3.5 text-xs font-bold text-emerald-400 font-mono pointer-events-none">
+                      USD
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-1 rounded-2xl bg-violet-950/30 border-2 border-violet-500/70 shadow-lg shadow-violet-950/40">
+                  <label className="block text-xs font-bold text-violet-300 uppercase mb-1 flex items-center justify-between px-1.5">
+                    <span>Sales Price (MUST) *</span>
+                    <span className="text-[10px] bg-violet-500 text-slate-950 px-1.5 py-0.2 rounded font-black">
+                      MUST
+                    </span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="any"
+                      inputMode="decimal"
+                      required
+                      value={newPartSalesPrice}
+                      onChange={(e) => handleSalesPriceChange(e.target.value)}
+                      placeholder="e.g. 0.35"
+                      className="w-full h-10 sm:h-11 bg-[#070c18] border border-violet-500/80 focus:border-violet-400 rounded-xl pl-3 pr-10 text-sm sm:text-base text-violet-200 font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-3 text-xs font-bold text-violet-400 font-mono pointer-events-none">
+                      $
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-300 uppercase mb-1">
-                  Expense $ (Shipping / Handling)
-                </label>
+              {/* Expense Option (Optional) */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300">
+                <div>
+                  <span className="font-semibold text-slate-300 block">Optional Expense $ (Shipping / Customs):</span>
+                  <span className="text-[11px] text-slate-400 font-normal">Leave 0 for pure 1/3.67 exchange rate</span>
+                </div>
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   value={newPartExpense}
-                  onChange={(e) => setNewPartExpense(e.target.value)}
-                  placeholder="1.0"
-                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-3 text-sm text-white font-mono font-medium outline-none"
+                  onChange={(e) => handleExpenseChange(e.target.value)}
+                  placeholder="0.0"
+                  className="w-20 bg-[#070c18] border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-mono text-right outline-none"
                 />
               </div>
 
-              {newPartD && (
-                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 font-mono text-xs space-y-1">
-                  <div className="text-slate-400 font-sans font-normal">Calculated Preview:</div>
-                  <div className="flex justify-between text-cyan-300 font-bold">
-                    <span>USD+:</span>
-                    <span>${formatNum((parseFloat(newPartD) / 3.67) + (parseFloat(newPartExpense) || 1.0))}</span>
-                  </div>
-                  <div className="flex justify-between text-amber-300 font-bold">
-                    <span>Yuan ¥:</span>
-                    <span>¥{formatNum(((parseFloat(newPartD) / 3.67) * 7.23))}</span>
-                  </div>
-                  <div className="flex justify-between text-violet-300 font-bold">
-                    <span>Sales $:</span>
-                    <span>${formatNum(((parseFloat(newPartD) / 3.67) + (parseFloat(newPartExpense) || 1.0)) * 1.30)}</span>
-                  </div>
-                </div>
-              )}
+              {/* Google Sheets Backup Status */}
+              <div className="p-3 rounded-xl bg-cyan-950/20 border border-cyan-500/30 text-xs text-slate-300 flex items-center justify-between">
+                <span className="text-cyan-300 font-semibold flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Google Sheet Backup:</span>
+                </span>
+                <span className="text-emerald-400 font-mono font-bold">
+                  Auto-Sync Enabled
+                </span>
+              </div>
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-semibold text-xs"
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs shadow-md"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-cyan-950/50 cursor-pointer transition-all"
                 >
-                  Save Product
+                  Save & Add Product
                 </button>
               </div>
             </form>

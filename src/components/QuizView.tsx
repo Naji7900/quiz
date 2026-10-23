@@ -16,7 +16,8 @@ import {
   Search,
   Check,
   Tag,
-  DollarSign
+  DollarSign,
+  Plus
 } from 'lucide-react';
 import { SparePartItem, CompatItem, ChangeItem } from '../data/initialData';
 import { sound } from '../services/soundService';
@@ -63,6 +64,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [pricePracticeTarget, setPricePracticeTarget] = useState<PricePracticeTarget>('all');
   const [timerDuration, setTimerDuration] = useState<number>(0);
 
+  // Category green box preview state
+  const [previewCategory, setPreviewCategory] = useState<string>('Honor LCD');
+  const [previewSearch, setPreviewSearch] = useState<string>('');
+
   // Custom model picker state
   const [customSearch, setCustomSearch] = useState('');
   const [customPickedIds, setCustomPickedIds] = useState<Set<string>>(new Set());
@@ -100,6 +105,49 @@ export const QuizView: React.FC<QuizViewProps> = ({
     parts.forEach(p => set.add(p.cat));
     return Array.from(set).sort();
   }, [parts]);
+
+  const categoryProducts = useMemo(() => {
+    let list = parts;
+    if (previewCategory && previewCategory !== '__all__') {
+      list = list.filter(p => p.cat.toLowerCase() === previewCategory.toLowerCase());
+    } else if (selectedCats.length > 0) {
+      list = list.filter(p => selectedCats.includes(p.cat));
+    }
+    if (previewSearch.trim()) {
+      const q = previewSearch.trim().toLowerCase();
+      list = list.filter(p => p.name.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q));
+    }
+    return list;
+  }, [parts, previewCategory, selectedCats, previewSearch]);
+
+  const customFilteredProducts = useMemo(() => {
+    if (!customSearch.trim()) return parts;
+    const q = customSearch.trim().toLowerCase();
+    return parts.filter(p => p.name.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q));
+  }, [parts, customSearch]);
+
+  const handlePracticeSinglePart = (part: SparePartItem) => {
+    sound.playVictory();
+    const targetKind: 'D' | 'costUsd' | 'salesPrice' = pricePracticeTarget === 'all' ? 'D' : (pricePracticeTarget as any);
+    const q: QuestionItem = {
+      id: `q-single-${part.id}`,
+      title: part.name,
+      subtitle: `Category: ${part.cat}`,
+      correctVal: getTargetPrice(part, targetKind),
+      priceKind: targetKind,
+      rawItem: part,
+      breakdownStr: getBreakdown(part)
+    };
+    setCurrentQuestions([q]);
+    setCurrentIndex(0);
+    setScore(0);
+    setStreak(0);
+    setQuizPhase('running');
+    setIsAnswered(false);
+    setSelectedOption(null);
+    setTypeInputValue('');
+    setFeedback(null);
+  };
 
   const fmt = (num: number) => {
     const r = Math.round(num * 10) / 10;
@@ -311,6 +359,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
   };
 
   const handleStartQuiz = () => {
+    if (selMode === 'custom' && customPickedIds.size === 0) {
+      alert("Please select at least one product using the checkboxes below before starting the quiz.");
+      return;
+    }
     const rawPool = buildPool();
     if (rawPool.length === 0) {
       alert("Please select at least one product category or model.");
@@ -609,50 +661,198 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </div>
           </div>
 
-          {/* STEP 3: CATEGORY SELECTION & SCOPE */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
+          {/* STEP 3: PRODUCT & CATEGORY SELECTION */}
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
-                3. Choose Parts Category:
+                3. Select Products to Include in Quiz:
               </label>
-              <div className="flex gap-2">
+
+              {/* Mode Toggle: Categories vs Custom Picked Products */}
+              <div className="flex items-center p-1 bg-slate-900 rounded-xl border border-slate-700/80 w-max">
                 <button
                   type="button"
-                  onClick={() => setSelectedCats([])}
-                  className="text-xs font-semibold text-cyan-400 hover:underline"
+                  onClick={() => {
+                    sound.playTick();
+                    setSelMode('random');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    selMode !== 'custom'
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
                 >
-                  All Categories ({parts.length})
+                  By Category ({selectedCats.length > 0 ? selectedCats.length : 'All'})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setSelMode('custom');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    selMode === 'custom'
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Choose Specific Products ({customPickedIds.size})</span>
                 </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {availableCategories.map(cat => {
-                const isSelected = selectedCats.includes(cat);
-                const count = parts.filter(p => p.cat === cat).length;
-                return (
+            {/* Sub-mode A: Category Buttons */}
+            {selMode !== 'custom' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>Click category buttons to practice or preview:</span>
                   <button
-                    key={cat}
                     type="button"
                     onClick={() => {
                       sound.playTick();
-                      if (isSelected) {
-                        setSelectedCats(selectedCats.filter(c => c !== cat));
-                      } else {
-                        setSelectedCats([...selectedCats, cat]);
-                      }
+                      setSelectedCats([]);
+                      setPreviewCategory('__all__');
                     }}
-                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
-                      isSelected
-                        ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md'
-                        : 'bg-[#070c18] border-slate-700/80 text-slate-300 hover:border-slate-500'
-                    }`}
+                    className="text-xs font-semibold text-cyan-400 hover:underline cursor-pointer"
                   >
-                    {cat} ({count})
+                    Select All Categories ({parts.length})
                   </button>
-                );
-              })}
-            </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {availableCategories.map(cat => {
+                    const isSelected = selectedCats.includes(cat);
+                    const isPreview = previewCategory === cat;
+                    const count = parts.filter(p => p.cat === cat).length;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setPreviewCategory(cat);
+                          if (isSelected) {
+                            setSelectedCats(selectedCats.filter(c => c !== cat));
+                          } else {
+                            setSelectedCats([...selectedCats, cat]);
+                          }
+                        }}
+                        className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
+                          isSelected || isPreview
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md ring-1 ring-cyan-300 font-bold'
+                            : 'bg-[#070c18] border-slate-700/80 text-slate-300 hover:border-slate-500'
+                        }`}
+                      >
+                        {cat} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Sub-mode B: Choose Specific Products Picker (Point 6) */}
+            {selMode === 'custom' && (
+              <div className="bg-[#070c18] border border-cyan-500/40 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                      Pick The Products You Want In Quiz:
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-xs font-bold border border-cyan-500/40">
+                      {customPickedIds.size} Selected
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sound.playTick();
+                        const allFilteredIds = new Set(customPickedIds);
+                        customFilteredProducts.forEach(p => allFilteredIds.add(p.id));
+                        setCustomPickedIds(allFilteredIds);
+                      }}
+                      className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 px-2 py-1 rounded-md bg-slate-900 border border-slate-700 cursor-pointer"
+                    >
+                      Select All Filtered ({customFilteredProducts.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sound.playTick();
+                        setCustomPickedIds(new Set());
+                      }}
+                      className="text-xs font-semibold text-slate-400 hover:text-white px-2 py-1 rounded-md bg-slate-900 border border-slate-700 cursor-pointer"
+                    >
+                      Clear Selection
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search Box */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-cyan-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={customSearch}
+                    onChange={(e) => setCustomSearch(e.target.value)}
+                    placeholder="Search specific models to add to quiz (e.g. DD X13, A15, Hot 60i, Realme)..."
+                    className="w-full pl-10 pr-4 py-2 text-xs sm:text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+
+                {/* Multi-Select Products List */}
+                <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
+                  {customFilteredProducts.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      No products match your search.
+                    </div>
+                  ) : (
+                    customFilteredProducts.map((p) => {
+                      const isPicked = customPickedIds.has(p.id);
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            sound.playTick();
+                            const next = new Set(customPickedIds);
+                            if (isPicked) {
+                              next.delete(p.id);
+                            } else {
+                              next.add(p.id);
+                            }
+                            setCustomPickedIds(next);
+                          }}
+                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                            isPicked 
+                              ? 'bg-cyan-500/20 border-cyan-400 text-white' 
+                              : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isPicked}
+                              onChange={() => {}} // handled by parent div
+                              className="w-4 h-4 rounded text-cyan-500 border-slate-700 bg-slate-950 focus:ring-cyan-400 shrink-0 pointer-events-none"
+                            />
+                            <span className="font-semibold text-xs sm:text-sm truncate">{p.name}</span>
+                            <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">({p.cat})</span>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0 font-mono text-xs">
+                            <span className="text-cyan-400 font-bold">{fmt(p.d)} D</span>
+                            <span className="text-emerald-400">${fmt(p.salesPrice)}</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* STEP 4: QUESTION COUNT & TIMER */}
@@ -667,7 +867,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     key={cnt}
                     type="button"
                     onClick={() => setQuestionCount(cnt)}
-                    className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
+                    className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
                       questionCount === cnt
                         ? 'bg-cyan-500 text-slate-950 border-cyan-400'
                         : 'bg-[#070c18] border-slate-700 text-slate-300 hover:border-slate-500'
@@ -694,7 +894,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     key={t.sec}
                     type="button"
                     onClick={() => setTimerDuration(t.sec)}
-                    className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
+                    className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
                       timerDuration === t.sec
                         ? 'bg-cyan-500 text-slate-950 border-cyan-400'
                         : 'bg-[#070c18] border-slate-700 text-slate-300 hover:border-slate-500'
@@ -718,6 +918,154 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* ================= GREEN BOX: CATEGORY PRODUCTS VIEWER ================= */}
+      {quizPhase === 'setup' && (
+        <div className="border-2 border-emerald-500 rounded-3xl p-5 sm:p-7 bg-[#07131b]/95 shadow-2xl shadow-emerald-950/40 space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-emerald-500/30">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                <Check className="w-5 h-5 text-emerald-400 stroke-[2.5]" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    Category Products Viewer
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/40">
+                    {categoryProducts.length} {categoryProducts.length === 1 ? 'Product' : 'Products'}
+                  </span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                  {previewCategory === '__all__' ? 'All Categories' : previewCategory || 'Select a Category'}
+                </h3>
+              </div>
+            </div>
+
+            {/* Search filter within active category + Quiz selection shortcuts */}
+            <div className="flex items-center flex-wrap gap-2">
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-emerald-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={previewSearch}
+                  onChange={(e) => setPreviewSearch(e.target.value)}
+                  placeholder={`Search ${previewCategory === '__all__' ? 'all' : (previewCategory || 'category')} products...`}
+                  className="w-full pl-10 pr-4 py-2 text-xs sm:text-sm bg-slate-900/90 border border-emerald-500/40 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
+                />
+              </div>
+              {previewSearch && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewSearch('')}
+                  className="text-xs text-slate-400 hover:text-white px-2 py-1"
+                >
+                  Clear
+                </button>
+              )}
+
+              {categoryProducts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setSelMode('custom');
+                    setCustomPickedIds(prev => {
+                      const next = new Set(prev);
+                      categoryProducts.forEach(p => next.add(p.id));
+                      return next;
+                    });
+                  }}
+                  className="px-3 py-2 text-xs font-semibold rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 cursor-pointer transition-all flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add {categoryProducts.length} to Quiz</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Product Items Table */}
+          {categoryProducts.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 space-y-2">
+              <p className="text-sm font-medium">No products found for this category or filter.</p>
+              <p className="text-xs text-slate-500">Click any category button above (such as Honor LCD, Samsung LCD, Redmi LCD, etc.) to view its products.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-emerald-500/30 bg-slate-950/70">
+              <table className="w-full text-left text-xs sm:text-sm">
+                <thead className="bg-[#0b1c1e] text-slate-300 uppercase tracking-wider text-[11px] font-semibold border-b border-emerald-500/30">
+                  <tr>
+                    <th className="py-3 px-4">#</th>
+                    <th className="py-3 px-4">Product Name</th>
+                    <th className="py-3 px-4">Category</th>
+                    <th className="py-3 px-4 text-right">Price D (AED)</th>
+                    <th className="py-3 px-4 text-right">Yuan (¥)</th>
+                    <th className="py-3 px-4 text-right">USD+ (Cost)</th>
+                    <th className="py-3 px-4 text-right">Sales $ (Retail)</th>
+                    <th className="py-3 px-4 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono">
+                  {categoryProducts.map((p, idx) => (
+                    <tr key={p.id} className="hover:bg-emerald-500/10 transition-colors">
+                      <td className="py-3 px-4 text-slate-500 text-xs">{idx + 1}</td>
+                      <td className="py-3 px-4 font-sans font-semibold text-white whitespace-nowrap">{p.name}</td>
+                      <td className="py-3 px-4 font-sans text-slate-400 text-xs whitespace-nowrap">{p.cat}</td>
+                      <td className="py-3 px-4 text-right font-bold text-cyan-400">{fmt(p.d)} D</td>
+                      <td className="py-3 px-4 text-right text-amber-300">¥{fmt(p.yuan ?? 0)}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-emerald-400">${fmt(p.usd)}</td>
+                      <td className="py-3 px-4 text-right font-bold text-violet-300">${fmt(p.salesPrice)}</td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sound.playTick();
+                              setSelMode('custom');
+                              setCustomPickedIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(p.id)) {
+                                  next.delete(p.id);
+                                } else {
+                                  next.add(p.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            className={`px-2.5 py-1 text-xs font-sans font-semibold rounded-lg border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                              customPickedIds.has(p.id)
+                                ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold'
+                                : 'bg-slate-900 hover:bg-cyan-950 text-slate-300 hover:text-cyan-300 border-slate-700'
+                            }`}
+                            title={customPickedIds.has(p.id) ? 'Remove from custom quiz' : 'Select for custom quiz'}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={customPickedIds.has(p.id)}
+                              onChange={() => {}}
+                              className="w-3.5 h-3.5 rounded text-cyan-500 bg-slate-950 border-slate-600 pointer-events-none"
+                            />
+                            <span>{customPickedIds.has(p.id) ? 'Selected' : '+ Quiz'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handlePracticeSinglePart(p)}
+                            className="px-2.5 py-1 text-xs font-sans font-semibold rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition-all cursor-pointer whitespace-nowrap"
+                          >
+                            Practice
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

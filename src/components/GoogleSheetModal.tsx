@@ -102,8 +102,42 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   const [pasteText, setPasteText] = useState('');
   const [formatConfirmText, setFormatConfirmText] = useState('');
   const [resetConfirmText, setResetConfirmText] = useState('');
+  const [isBackingUp, setIsBackingUp] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleBackupToSheet = async () => {
+    if (!sheetUrl.trim()) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Please enter your Google Apps Script Web App URL first to enable cloud backup.'
+      });
+      return;
+    }
+
+    setIsBackingUp(true);
+    setStatusMessage(null);
+    try {
+      const res = await GoogleSheetsService.backupAllToGoogleSheet(sheetUrl, parts);
+      if (res.success) {
+        sound.playVictory();
+        setStatusMessage({
+          type: 'success',
+          text: `Backup complete! ${parts.length} products sent directly into your Google Sheets.`
+        });
+      } else {
+        throw new Error(res.message);
+      }
+    } catch (err) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: (err as Error).message || 'Failed to backup to Google Sheets.'
+      });
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
 
   const handleSync = async () => {
     if (!sheetUrl.trim()) {
@@ -561,15 +595,29 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                       placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv"
                       className="flex-1 bg-slate-950 border border-slate-700/80 focus:border-cyan-500 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 font-mono outline-none"
                     />
-                    <button
-                      type="button"
-                      onClick={handleSync}
-                      disabled={isLoading}
-                      className="px-6 py-3 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                      <span>{isLoading ? 'Syncing...' : 'Sync From Link'}</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSync}
+                        disabled={isLoading || isBackingUp}
+                        className="px-5 py-3 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
+                        title="Download latest data from Google Sheet into local app"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                        <span>{isLoading ? 'Syncing...' : 'Sync From Link'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleBackupToSheet}
+                        disabled={isLoading || isBackingUp}
+                        className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
+                        title="Backup all local app products into Google Sheet tabs"
+                      >
+                        <Upload className={`w-4 h-4 ${isBackingUp ? 'animate-bounce' : ''}`} />
+                        <span>{isBackingUp ? 'Backing up...' : 'Backup to Sheet'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 

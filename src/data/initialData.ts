@@ -15,6 +15,32 @@ export interface CompatItem {
   id: string;
   lcd: string;
   fits: string;
+  note?: string;
+}
+
+export interface PhotoItem {
+  id: string;
+  name: string;
+  url: string;
+  link?: string;
+  description: string;
+  brand?: string;
+  createdAt?: string;
+}
+
+export interface PriceChangeRecord {
+  id: string;
+  name: string;
+  cat: string;
+  oldD: number;
+  newD: number;
+  oldUsd: number;
+  newUsd: number;
+  type: 'increase' | 'decrease' | 'new';
+  deltaD: number;
+  percentage: number;
+  date: string;
+  note?: string;
 }
 
 export interface ChangeItem {
@@ -32,21 +58,21 @@ export interface CompareItem {
   url: string;
 }
 
-// Pricing formula:
-// USD+ = (Price D / 3.67) + Expense
-// Yuan ¥ = (Price D / 3.67) * 7.23
-// Sales $ = USD+ * 1.30 (30% markup)
-export function calculatePricing(dirhamPrice: number, customExpense?: number, customMarkupPercent: number = 30): {
+// Official Exchange Rate: 1 USD = 3.67 AED, 1 USD = 7.23 RMB (Yuan)
+// Exact formula: USD+ = Price D / 3.67 (+ optional custom expense)
+// 1 Dirham = (1 / 3.67) = 0.27 USD+
+// 1 Dirham = (1 / 3.67) * 7.23 = 1.97 Yuan
+export function calculatePricing(dirhamPrice: number, customExpense: number = 0, customMarkupPercent: number = 30): {
   costUsd: number;
   yuan: number;
   salesPrice: number;
   salesPriceD: number;
   expense: number;
 } {
-  const expense = customExpense !== undefined ? customExpense : (dirhamPrice > 50 ? 2.0 : dirhamPrice > 15 ? 1.0 : 0.5);
+  const expense = customExpense || 0;
   const baseUsd = dirhamPrice / 3.67;
   const costUsd = Number((baseUsd + expense).toFixed(2));
-  const yuan = Number((baseUsd * 7.23).toFixed(1));
+  const yuan = Number((baseUsd * 7.23).toFixed(2));
   const markupFactor = 1 + (customMarkupPercent / 100);
   const salesPrice = Number((costUsd * markupFactor).toFixed(2));
   const salesPriceD = Number((salesPrice * 3.67).toFixed(1));
@@ -604,16 +630,18 @@ export const INITIAL_DATA: Record<string, [string, number, number][]> = {
     ["TECNO 20PIN", 0.65, 1.1],
     ["TECNO T402", 0.82, 0.9]
   ],
-  "Samsung Switch / Finger": [
+  "Samsung Fingerprint Sensors": [
     ["FINGER  SAM A16", 1.56, 1.56],
     ["FINGER  SAM A057", 1.3, 1.3],
     ["FINGER  SAM A23", 0.4, 0.4],
     ["FINGER  SAM A15", 0.36, 0.36],
     ["FINGER  SAM A12", 1.15, 0.32],
+    ["FINGER  SAM A14", 0.18, 0.18]
+  ],
+  "Samsung Switches": [
     ["SWICH SAM A16", 0.19, 0.19],
     ["SWICH SAM A037", 0.18, 0.18],
     ["SWICH SAM A14", 0.18, 0.18],
-    ["FINGER  SAM A14", 0.18, 0.18],
     ["SWICH SAM A03 CORE", 0.18, 0.18],
     ["SWICH SAM A107", 0.18, 0.18],
     ["SWICH SAM A025", 0.18, 0.18],
@@ -692,9 +720,9 @@ export const INITIAL_CHANGES: ChangeItem[] = [
   { cat: "Samsung Cable", name: "CABLE SAM A15", type: "new", oldD: null, oldUsd: null },
   { cat: "Samsung Cable", name: "CABLE SAM A53", type: "new", oldD: null, oldUsd: null },
   { cat: "Samsung Cable", name: "CABLE SAM A52", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Switch / Finger", name: "SWICH SMART 8", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Switch / Finger", name: "SWICH SMART 9", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Switch / Finger", name: "SWICH SMART 7", type: "new", oldD: null, oldUsd: null },
+  { cat: "Samsung Switches", name: "SWICH SMART 8", type: "new", oldD: null, oldUsd: null },
+  { cat: "Samsung Switches", name: "SWICH SMART 9", type: "new", oldD: null, oldUsd: null },
+  { cat: "Samsung Switches", name: "SWICH SMART 7", type: "new", oldD: null, oldUsd: null },
   { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A57", type: "new", oldD: null, oldUsd: null },
   { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A37", type: "new", oldD: null, oldUsd: null },
   { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A56", type: "new", oldD: null, oldUsd: null },
@@ -703,7 +731,7 @@ export const INITIAL_CHANGES: ChangeItem[] = [
   { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM M32 4G", type: "new", oldD: null, oldUsd: null },
   { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A24", type: "new", oldD: null, oldUsd: null },
   { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A22 5G", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Switch / Finger", name: "FINGER  SAM A12", type: "chg", oldD: 0.3, oldUsd: 0.3 },
+  { cat: "Samsung Fingerprint Sensors", name: "FINGER  SAM A12", type: "chg", oldD: 0.3, oldUsd: 0.3 },
   { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM  A12", type: "chg", oldD: 0.6, oldUsd: 0.6 },
   { cat: "Samsung Cable", name: "CABLE SAM A16", type: "chg", oldD: 0.5, oldUsd: 0.7 },
   { cat: "Samsung Cable", name: "CABLE SAM A51", type: "chg", oldD: 0.5, oldUsd: 0.7 },
@@ -858,6 +886,314 @@ export const PART_CATEGORY_GROUPS: Record<string, { label: string; iconKey: stri
   "Samsung Cable": { label: "Flex Interconnect Cable", iconKey: "port" },
   "USB (Samsung & Others)": { label: "USB Charging Port", iconKey: "port" },
   "Charging Pins (Mini)": { label: "Micro / Mini Charging Pin", iconKey: "port" },
-  "Samsung Switch / Finger": { label: "Power Switch & Fingerprint", iconKey: "port" },
+  "Samsung Fingerprint Sensors": { label: "Fingerprint Sensor", iconKey: "port" },
+  "Samsung Switches": { label: "Power & Volume Switch", iconKey: "port" },
   "Tools": { label: "Repair Tool / Consumable", iconKey: "tool" }
 };
+
+export const INITIAL_PHOTOS: PhotoItem[] = INITIAL_COMPARE_ITEMS.map((item, idx) => ({
+  id: `photo-${idx + 1}`,
+  name: item.name,
+  url: item.url,
+  brand: item.brand,
+  description: `${item.name} original mobile screen replacement module with connector flex cable and factory packaging.`,
+  link: `https://www.google.com/search?q=${encodeURIComponent(item.name + ' replacement screen')}`,
+  createdAt: '2026-10-22'
+}));
+
+export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
+  {
+    id: "pc-1",
+    name: "LCD REALME9 PRO , 1+",
+    cat: "Vivo / ZTE / Realme LCD",
+    oldD: 24.5,
+    newD: 21.0,
+    oldUsd: 7.68,
+    newUsd: 6.72,
+    type: "decrease",
+    deltaD: -3.5,
+    percentage: -14.3,
+    date: "2026-10-22",
+    note: "Supplier promotional discount"
+  },
+  {
+    id: "pc-2",
+    name: "LCD SAM A165 / A16 4G wf",
+    cat: "Samsung LCD",
+    oldD: 22.5,
+    newD: 21.5,
+    oldUsd: 6.3,
+    newUsd: 6.06,
+    type: "decrease",
+    deltaD: -1.0,
+    percentage: -4.4,
+    date: "2026-10-22",
+    note: "Factory price markdown"
+  },
+  {
+    id: "pc-3",
+    name: "LCD SAM A17 INCEL WF",
+    cat: "Samsung LCD",
+    oldD: 23.5,
+    newD: 22.0,
+    oldUsd: 6.6,
+    newUsd: 6.19,
+    type: "decrease",
+    deltaD: -1.5,
+    percentage: -6.4,
+    date: "2026-10-21",
+    note: "Volume discount applied"
+  },
+  {
+    id: "pc-4",
+    name: "LCD IPHONE GX X14 PRO",
+    cat: "iPhone LCD",
+    oldD: 102.0,
+    newD: 97.0,
+    oldUsd: 28.6,
+    newUsd: 27.28,
+    type: "decrease",
+    deltaD: -5.0,
+    percentage: -4.9,
+    date: "2026-10-21",
+    note: "OLED panel price drop"
+  },
+  {
+    id: "pc-5",
+    name: "LCD IPHONE DD X14 PRO MaX",
+    cat: "iPhone LCD",
+    oldD: 119.0,
+    newD: 121.0,
+    oldUsd: 33.1,
+    newUsd: 33.65,
+    type: "increase",
+    deltaD: 2.0,
+    percentage: 1.7,
+    date: "2026-10-20",
+    note: "Supply shortage adjustment"
+  },
+  {
+    id: "pc-6",
+    name: "LCD IPHONE DD X15 PRO MaX",
+    cat: "iPhone LCD",
+    oldD: 119.0,
+    newD: 121.0,
+    oldUsd: 33.0,
+    newUsd: 33.57,
+    type: "increase",
+    deltaD: 2.0,
+    percentage: 1.7,
+    date: "2026-10-20",
+    note: "High market demand"
+  },
+  {
+    id: "pc-7",
+    name: "LCD SAM A30 / A305F",
+    cat: "Samsung LCD",
+    oldD: 21.0,
+    newD: 21.5,
+    oldUsd: 5.9,
+    newUsd: 6.01,
+    type: "increase",
+    deltaD: 0.5,
+    percentage: 2.4,
+    date: "2026-10-19",
+    note: "Material cost update"
+  },
+  {
+    id: "pc-8",
+    name: "LCD SAM A155 INCEL WF BRAND",
+    cat: "Samsung LCD",
+    oldD: 38.0,
+    newD: 37.0,
+    oldUsd: 11.0,
+    newUsd: 10.78,
+    type: "decrease",
+    deltaD: -1.0,
+    percentage: -2.6,
+    date: "2026-10-19",
+    note: "Supplier rate decrease"
+  },
+  {
+    id: "pc-9",
+    name: "LCD SAM A345 INCEL WF BRAND",
+    cat: "Samsung LCD",
+    oldD: 42.0,
+    newD: 41.0,
+    oldUsd: 12.0,
+    newUsd: 11.87,
+    type: "decrease",
+    deltaD: -1.0,
+    percentage: -2.4,
+    date: "2026-10-18",
+    note: "Stock clearance discount"
+  },
+  {
+    id: "pc-10",
+    name: "LCD SAM A70 / A705F",
+    cat: "Samsung LCD",
+    oldD: 22.5,
+    newD: 21.7,
+    oldUsd: 6.7,
+    newUsd: 6.61,
+    type: "decrease",
+    deltaD: -0.8,
+    percentage: -3.6,
+    date: "2026-10-18",
+    note: "Price reduction"
+  },
+  {
+    id: "pc-11",
+    name: "LCD IPHONE X8 +",
+    cat: "iPhone LCD",
+    oldD: 17.0,
+    newD: 17.5,
+    oldUsd: 4.8,
+    newUsd: 4.97,
+    type: "increase",
+    deltaD: 0.5,
+    percentage: 2.9,
+    date: "2026-10-17",
+    note: "Legacy part surcharge"
+  },
+  {
+    id: "pc-12",
+    name: "LCD MOTOROLA G24",
+    cat: "Motorola LCD",
+    oldD: 17.3,
+    newD: 17.0,
+    oldUsd: 5.39,
+    newUsd: 5.3,
+    type: "decrease",
+    deltaD: -0.3,
+    percentage: -1.7,
+    date: "2026-10-16",
+    note: "Supplier discount"
+  },
+  {
+    id: "pc-13",
+    name: "FINGER  SAM A12",
+    cat: "Samsung Fingerprint Sensors",
+    oldD: 0.3,
+    newD: 1.15,
+    oldUsd: 0.3,
+    newUsd: 0.32,
+    type: "increase",
+    deltaD: 0.85,
+    percentage: 283.3,
+    date: "2026-10-15",
+    note: "Original flex assembly update"
+  },
+  {
+    id: "pc-14",
+    name: "TECNO T302",
+    cat: "Charging Pins (Mini)",
+    oldD: 0.78,
+    newD: 2.25,
+    oldUsd: 0.85,
+    newUsd: 0.71,
+    type: "increase",
+    deltaD: 1.47,
+    percentage: 188.5,
+    date: "2026-10-14",
+    note: "Bulk pack adjustment"
+  },
+  {
+    id: "pc-15",
+    name: "LCD SAM M16 4G INCEL wf caa",
+    cat: "Samsung LCD",
+    oldD: 23.5,
+    newD: 22.8,
+    oldUsd: 7.1,
+    newUsd: 6.91,
+    type: "decrease",
+    deltaD: -0.7,
+    percentage: -3.0,
+    date: "2026-10-14",
+    note: "Supplier cost markdown"
+  },
+  {
+    id: "pc-16",
+    name: "LCD Redmi 10c",
+    cat: "Redmi LCD",
+    oldD: 16.3,
+    newD: 16.0,
+    oldUsd: 5.29,
+    newUsd: 5.2,
+    type: "decrease",
+    deltaD: -0.3,
+    percentage: -1.8,
+    date: "2026-10-13",
+    note: "Competitive price match"
+  },
+  {
+    id: "pc-17",
+    name: "LCD IPHONE DD X13 PRO MAX",
+    cat: "iPhone LCD",
+    oldD: 114.0,
+    newD: 115.0,
+    oldUsd: 31.7,
+    newUsd: 32.02,
+    type: "increase",
+    deltaD: 1.0,
+    percentage: 0.9,
+    date: "2026-10-12",
+    note: "Supplier rate increase"
+  },
+  {
+    id: "pc-18",
+    name: "LCD SAM A145",
+    cat: "Samsung LCD (ORG)",
+    oldD: 20.0,
+    newD: 19.5,
+    oldUsd: 5.55,
+    newUsd: 5.42,
+    type: "decrease",
+    deltaD: -0.5,
+    percentage: -2.5,
+    date: "2026-10-11",
+    note: "Bulk volume markdown"
+  },
+  {
+    id: "pc-19",
+    name: "LCD IPHONE DD X17 PRO",
+    cat: "iPhone LCD",
+    oldD: 0,
+    newD: 154.0,
+    oldUsd: 0,
+    newUsd: 42.56,
+    type: "new",
+    deltaD: 154.0,
+    percentage: 100,
+    date: "2026-10-23",
+    note: "New product sent from Google Sheet (Cusub)"
+  },
+  {
+    id: "pc-20",
+    name: "LCD SAM A17 Orginal  4G",
+    cat: "Samsung LCD",
+    oldD: 0,
+    newD: 127.0,
+    oldUsd: 0,
+    newUsd: 35.3,
+    type: "new",
+    deltaD: 127.0,
+    percentage: 100,
+    date: "2026-10-23",
+    note: "New product sent from Google Sheet (Cusub)"
+  },
+  {
+    id: "pc-21",
+    name: "SWICH SMART 9",
+    cat: "Samsung Switches",
+    oldD: 0,
+    newD: 0.3,
+    oldUsd: 0,
+    newUsd: 0.18,
+    type: "new",
+    deltaD: 0.3,
+    percentage: 100,
+    date: "2026-10-22",
+    note: "New switch component added (Cusub)"
+  }
+];

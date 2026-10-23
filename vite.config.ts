@@ -14,8 +14,8 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon.png'],
         manifest: {
           id: '/',
-          name: 'Reer Hassan — Spare Parts Suite',
-          short_name: 'Reer Hassan',
+          name: 'Do or Die — Spare Parts Suite',
+          short_name: 'Do or Die',
           description: 'Quiz game & price memorization suite for smartphone spare parts with live Google Sheets database.',
           theme_color: '#0b0f17',
           background_color: '#0b0f17',

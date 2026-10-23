@@ -396,4 +396,185 @@ export class GoogleSheetsService {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   }
+
+  /**
+   * Append a row and automatically create a new sheet tab in Google Sheets
+   * using a connected Google Apps Script Web App endpoint
+   */
+  public static async appendToGoogleSheet(
+    endpointUrl: string, 
+    item: SparePartItem, 
+    sheetName?: string
+  ): Promise<{ success: boolean; message: string }> {
+    if (!endpointUrl.trim()) {
+      return { success: false, message: 'No Google Sheets API / Web App URL configured.' };
+    }
+
+    const targetSheet = sheetName || item.cat;
+    const yuanVal = item.yuan ?? Number(((item.d / 3.67) * 7.23).toFixed(1));
+
+    try {
+      // POST with mode no-cors for Google Apps Script Web App execution
+      await fetch(endpointUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'create_sheet_and_add_row',
+          sheetName: targetSheet,
+          row: [
+            item.name,
+            item.cat,
+            item.d,
+            yuanVal,
+            item.usd,
+            item.salesPrice
+          ]
+        }),
+        mode: 'no-cors'
+      });
+
+      return { 
+        success: true, 
+        message: `Successfully sent "${item.name}" to Google Sheet tab "${targetSheet}"!` 
+      };
+    } catch (err) {
+      console.warn('Google Sheet append error:', err);
+      return { 
+        success: false, 
+        message: (err as Error).message || 'Failed to append row to Google Sheets.' 
+      };
+    }
+  }
+
+  /**
+   * Backup all current local parts to Google Sheets in one batch
+   */
+  public static async backupAllToGoogleSheet(
+    endpointUrl: string,
+    items: SparePartItem[]
+  ): Promise<{ success: boolean; message: string }> {
+    if (!endpointUrl.trim()) {
+      return { success: false, message: 'No Google Sheets API / Web App URL configured.' };
+    }
+
+    try {
+      const payloadRows = items.map(p => ({
+        sheetName: p.cat || 'General Spare Parts',
+        row: [
+          p.name,
+          p.cat,
+          p.d,
+          p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+          p.usd,
+          p.salesPrice
+        ]
+      }));
+
+      await fetch(endpointUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'batch_backup_all',
+          items: payloadRows
+        }),
+        mode: 'no-cors'
+      });
+
+      return {
+        success: true,
+        message: `Successfully sent backup request for ${items.length} products to Google Sheets!`
+      };
+    } catch (err) {
+      return {
+        success: false,
+        message: (err as Error).message || 'Failed to backup database to Google Sheets.'
+      };
+    }
+  }
+
+  /**
+   * Copy-ready Google Apps Script for the user's Google Sheet
+   * to automatically create new sheets and append rows on Add!
+   */
+  public static getAppsScriptCode(): string {
+    return `// ========================================================
+// DO OR DIE - GOOGLE SHEETS LIVE DATABASE WEB APP
+// Instructions:
+// 1. In your Google Sheet, click "Extensions" > "Apps Script".
+// 2. Delete existing code, paste this entire script, and click Save.
+// 3. Click "Deploy" > "New deployment".
+// 4. Select "Web app". Set Execute as: "Me" and Who has access: "Anyone".
+// 5. Copy the Web App URL and paste it into the app's Sheet DB section!
+// ========================================================
+
+function doGet(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet();
+  var data = sheet.getDataRange().getValues();
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
 }
+
+function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var payload = JSON.parse(e.postData.contents);
+    
+    // Batch backup support
+    if (payload.action === 'batch_backup_all' && payload.items) {
+      for (var i = 0; i < payload.items.length; i++) {
+        var item = payload.items[i];
+        var sName = item.sheetName || "General Spare Parts";
+        var sh = ss.getSheetByName(sName);
+        if (!sh) {
+          sh = ss.insertSheet(sName);
+          sh.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
+          sh.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        }
+        if (item.row) {
+          sh.appendRow(item.row);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: true, 
+        message: "Backed up " + payload.items.length + " products to Google Sheets!" 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var sheetName = payload.sheetName || "General Spare Parts";
+    
+    // Check if sheet exists, otherwise automatically create new sheet
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      // Add standard 6-column header
+      sheet.appendRow([
+        "Product Name", 
+        "Category (Brand _Part Type)", 
+        "Price D", 
+        "Yuan ¥", 
+        "USD+", 
+        "Sales $"
+      ]);
+      sheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+    }
+    
+    // Append the row
+    if (payload.row) {
+      sheet.appendRow(payload.row);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: true, 
+      message: "Row added to " + sheetName 
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: false, 
+      error: err.toString() 
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+  }
+}
+
