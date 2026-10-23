@@ -193,18 +193,24 @@ export const CompareView: React.FC<CompareViewProps> = ({ items }) => {
                 </button>
               </div>
 
-              {/* Image Container with Zoom */}
+              {/* Image Container with TikTok 9:16 Vertical Ratio */}
               <div 
                 onClick={() => openLightbox(currentItem.url, currentItem.name)}
-                className="relative aspect-4/3 sm:aspect-16/10 rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden cursor-zoom-in group flex items-center justify-center p-3"
+                className="relative aspect-[9/16] max-h-[660px] w-full max-w-[380px] mx-auto rounded-3xl bg-slate-950 border-2 border-slate-800 overflow-hidden cursor-zoom-in group flex items-center justify-center p-3 shadow-2xl"
               >
+                {/* TikTok Badge */}
+                <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-sm border border-slate-800 text-[11px] font-mono font-medium text-cyan-300 flex items-center gap-1.5 shadow-md">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  <span>TikTok 9:16</span>
+                </div>
+
                 {imageErrorMap[currentItem.img] ? (
                   <div className="text-center p-6 space-y-2">
                     <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto text-slate-500">
                       <ImageIcon className="w-7 h-7" />
                     </div>
                     <div className="text-sm font-bold text-slate-300">{currentItem.name}</div>
-                    <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed font-normal">
                       Google Drive image link is restricted. Set your Google Drive file or folder to <span className="text-slate-300 font-semibold">"Anyone with the link can view"</span> to view photos automatically.
                     </p>
                   </div>
@@ -216,11 +222,11 @@ export const CompareView: React.FC<CompareViewProps> = ({ items }) => {
                     onError={() => {
                       setImageErrorMap(prev => ({ ...prev, [currentItem.img]: true }));
                     }}
-                    className="w-full h-full object-contain rounded-xl group-hover:scale-105 transition-transform duration-300 select-none"
+                    className="w-full h-full object-contain rounded-2xl group-hover:scale-105 transition-transform duration-300 select-none"
                   />
                 )}
 
-                <div className="absolute bottom-3 right-3 px-3 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-sm border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5 shadow-md">
+                <div className="absolute bottom-3 right-3 px-3 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-sm border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5 shadow-md font-medium">
                   <ZoomIn className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Click to Zoom & Inspect</span>
                 </div>
@@ -344,7 +350,7 @@ export const CompareView: React.FC<CompareViewProps> = ({ items }) => {
               <div key={item.img} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-xl">
                 <div 
                   onClick={() => openLightbox(item.url, item.name)}
-                  className="aspect-square rounded-xl bg-slate-950 border border-slate-800/60 flex items-center justify-center p-3 cursor-zoom-in overflow-hidden"
+                  className="aspect-[9/16] rounded-2xl bg-slate-950 border border-slate-800/60 flex items-center justify-center p-3 cursor-zoom-in overflow-hidden shadow-inner"
                 >
                   <img
                     referrerPolicy="no-referrer"

@@ -37,14 +37,23 @@ export default function App() {
 
   // Database State
   const [parts, setParts] = useState<SparePartItem[]>(() => {
-    const base = getAllFlattenedParts(INITIAL_DATA);
+    if (GoogleSheetsService.isFormattedEmpty()) {
+      return [];
+    }
     const custom = GoogleSheetsService.getCustomParts();
-    return [...custom, ...base];
+    return custom.length > 0 ? custom : getAllFlattenedParts(INITIAL_DATA);
   });
 
-  const [compatList, setCompatList] = useState<CompatItem[]>(INITIAL_COMPAT);
-  const [changesList, setChangesList] = useState<ChangeItem[]>(INITIAL_CHANGES);
+  const [compatList, setCompatList] = useState<CompatItem[]>(() => {
+    if (GoogleSheetsService.isFormattedEmpty()) return [];
+    return INITIAL_COMPAT;
+  });
+  const [changesList, setChangesList] = useState<ChangeItem[]>(() => {
+    if (GoogleSheetsService.isFormattedEmpty()) return [];
+    return INITIAL_CHANGES;
+  });
   const [compareItems, setCompareItems] = useState<CompareItem[]>(() => {
+    if (GoogleSheetsService.isFormattedEmpty()) return [];
     const config = GoogleSheetsService.getSavedConfig();
     return config.liveCompareItems.length > 0 ? config.liveCompareItems : INITIAL_COMPARE_ITEMS;
   });
@@ -66,9 +75,7 @@ export default function App() {
     };
     const updated = [newPart, ...parts];
     setParts(updated);
-
-    const existingCustom = GoogleSheetsService.getCustomParts();
-    GoogleSheetsService.saveCustomParts([newPart, ...existingCustom]);
+    GoogleSheetsService.saveCustomParts(updated);
   };
 
   // Handle Google Sheet live sync completion
@@ -77,7 +84,24 @@ export default function App() {
     if (newCompare && newCompare.length) {
       setCompareItems(newCompare);
     }
-    setLastSyncedAt(new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }));
+    const syncedTime = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+    setLastSyncedAt(syncedTime);
+    GoogleSheetsService.saveCustomParts(newParts);
+    GoogleSheetsService.saveConfig({
+      lastSyncedAt: syncedTime,
+      liveCompareItems: newCompare || [],
+      isFormattedEmpty: false
+    });
+  };
+
+  // Format database completely (clean slate 0 products for new upload)
+  const handleFormatDatabase = () => {
+    setParts([]);
+    setCompatList([]);
+    setChangesList([]);
+    setCompareItems([]);
+    setLastSyncedAt(null);
+    GoogleSheetsService.formatAllData();
   };
 
   // Reset database back to factory snapshot
@@ -88,16 +112,7 @@ export default function App() {
     setChangesList(INITIAL_CHANGES);
     setCompareItems(INITIAL_COMPARE_ITEMS);
     setLastSyncedAt(null);
-    GoogleSheetsService.saveCustomParts([]);
-    GoogleSheetsService.saveConfig({
-      sheetUrl: '',
-      lastSyncedAt: null,
-      customParts: [],
-      liveCompareItems: [],
-      liveCompatItems: [],
-      defaultExpense: 1.0,
-      defaultMarkupPercent: 30
-    });
+    GoogleSheetsService.restoreDefaultData();
   };
 
   return (
@@ -120,7 +135,7 @@ export default function App() {
       {!isOnline && (
         <div className="bg-amber-600/95 text-white py-2.5 px-4 text-center text-xs font-bold flex items-center justify-center gap-2 shadow-md w-full">
           <WifiOff className="w-4 h-4" />
-          <span>Offline Mode — All 480+ spare parts, prices, and quizzes are running locally on your device with no internet needed!</span>
+          <span>Offline Mode — All spare parts, prices, and quizzes are running locally on your device with no internet needed!</span>
         </div>
       )}
 
@@ -131,6 +146,8 @@ export default function App() {
             parts={parts}
             compatList={compatList}
             onAddPart={handleAddPart}
+            onOpenDbModal={() => setIsDbModalOpen(true)}
+            onRestoreDefault={handleResetToDefault}
           />
         )}
 
@@ -159,6 +176,7 @@ export default function App() {
         compareList={compareItems}
         onDataSynced={handleDataSynced}
         onResetToDefault={handleResetToDefault}
+        onFormatDatabase={handleFormatDatabase}
         lastSyncedAt={lastSyncedAt}
       />
 

@@ -18,6 +18,7 @@ export interface StoredDatabaseState {
   liveCompatItems: CompatItem[];
   defaultExpense: number;
   defaultMarkupPercent: number;
+  isFormattedEmpty?: boolean;
 }
 
 const STORAGE_KEY_DB = 'spareparts_db_config_v3';
@@ -40,8 +41,38 @@ export class GoogleSheetsService {
       liveCompareItems: [],
       liveCompatItems: [],
       defaultExpense: 1.0,
-      defaultMarkupPercent: 30
+      defaultMarkupPercent: 30,
+      isFormattedEmpty: false
     };
+  }
+
+  public static isFormattedEmpty(): boolean {
+    const config = this.getSavedConfig();
+    return Boolean(config.isFormattedEmpty);
+  }
+
+  public static formatAllData() {
+    this.saveCustomParts([]);
+    this.saveConfig({
+      sheetUrl: '',
+      lastSyncedAt: null,
+      customParts: [],
+      liveCompareItems: [],
+      liveCompatItems: [],
+      isFormattedEmpty: true
+    });
+  }
+
+  public static restoreDefaultData() {
+    this.saveCustomParts([]);
+    this.saveConfig({
+      sheetUrl: '',
+      lastSyncedAt: null,
+      customParts: [],
+      liveCompareItems: [],
+      liveCompatItems: [],
+      isFormattedEmpty: false
+    });
   }
 
   public static saveConfig(state: Partial<StoredDatabaseState>) {
@@ -69,6 +100,9 @@ export class GoogleSheetsService {
   public static saveCustomParts(items: SparePartItem[]) {
     try {
       localStorage.setItem(STORAGE_KEY_CUSTOM_PARTS, JSON.stringify(items));
+      if (items.length > 0) {
+        this.saveConfig({ isFormattedEmpty: false });
+      }
     } catch (e) {
       console.error('Failed to save custom parts', e);
     }
@@ -101,6 +135,89 @@ export class GoogleSheetsService {
       result.push(row);
     }
     return result;
+  }
+
+  /**
+   * Intelligently parses tabular rows (CSV/TSV from Google Sheets)
+   * into SparePartItem[] matching the exact Google Sheet format:
+   * Col A: Product Name
+   * Col B: Category (Brand _Part Type)
+   * Col C: Price D
+   * Col D: Yuan ¥
+   * Col E: USD+
+   * Col F: Sales $
+   */
+  public static parseRowsToParts(rows: string[][]): {
+    parts: SparePartItem[];
+    compareItems: CompareItem[];
+  } {
+    const parts: SparePartItem[] = [];
+    const compareItems: CompareItem[] = [];
+    if (!rows || rows.length < 2) return { parts, compareItems };
+
+    const rawHeaders = rows[0].map(h => (h || '').trim().toLowerCase());
+
+    const nameIdx = rawHeaders.findIndex(h => h.includes('name') || h.includes('product') || h.includes('model') || h.includes('item'));
+    const catIdx = rawHeaders.findIndex(h => h.includes('category') || h.includes('brand') || h.includes('part type') || h.includes('cat'));
+    const dIdx = rawHeaders.findIndex(h => h === 'price d' || h === 'dirham' || h === 'd' || h.includes('price d') || h.includes('dirham') || (h.includes('price') && !h.includes('sale')));
+    const yuanIdx = rawHeaders.findIndex(h => h.includes('yuan') || h.includes('¥') || h.includes('rmb') || h.includes('cny'));
+    const usdIdx = rawHeaders.findIndex(h => h.includes('usd+') || h.includes('usd +') || h.includes('cost') || (h.includes('usd') && !h.includes('sales')));
+    const salesIdx = rawHeaders.findIndex(h => h.includes('sales') || h.includes('sale') || h.includes('retail') || h.includes('selling'));
+    const expIdx = rawHeaders.findIndex(h => h.includes('exp') || h.includes('ship'));
+    const urlIdx = rawHeaders.findIndex(h => h.includes('url') || h.includes('photo') || h.includes('image'));
+
+    // Fallbacks corresponding directly to user's exact 6 columns:
+    // A: Product Name, B: Category (Brand _Part Type), C: Price D, D: Yuan ¥, E: USD+, F: Sales $
+    const safeNameIdx = nameIdx >= 0 ? nameIdx : 0;
+    const safeCatIdx = catIdx >= 0 ? catIdx : 1;
+    const safeDIdx = dIdx >= 0 ? dIdx : 2;
+    const safeYuanIdx = yuanIdx >= 0 ? yuanIdx : 3;
+    const safeUsdIdx = usdIdx >= 0 ? usdIdx : 4;
+    const safeSalesIdx = salesIdx >= 0 ? salesIdx : 5;
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.length === 0) continue;
+      const name = (row[safeNameIdx] || '').trim();
+      if (!name) continue;
+
+      const cat = (row[safeCatIdx] || 'General Spare Parts').trim();
+      const rawD = String(row[safeDIdx] || '0').replace(/[^0-9.]/g, '');
+      const d = parseFloat(rawD) || 0;
+      const exp = expIdx >= 0 ? (parseFloat(String(row[expIdx]).replace(/[^0-9.]/g, '')) || 1.0) : 1.0;
+      const pricing = calculatePricing(d, exp);
+
+      const rawUsd = safeUsdIdx >= 0 && row[safeUsdIdx] ? parseFloat(String(row[safeUsdIdx]).replace(/[^0-9.]/g, '')) : NaN;
+      const rawYuan = safeYuanIdx >= 0 && row[safeYuanIdx] ? parseFloat(String(row[safeYuanIdx]).replace(/[^0-9.]/g, '')) : NaN;
+      const rawSales = safeSalesIdx >= 0 && row[safeSalesIdx] ? parseFloat(String(row[safeSalesIdx]).replace(/[^0-9.]/g, '')) : NaN;
+
+      const usd = !isNaN(rawUsd) && rawUsd > 0 ? rawUsd : pricing.costUsd;
+      const yuan = !isNaN(rawYuan) && rawYuan > 0 ? rawYuan : pricing.yuan;
+      const salesPrice = !isNaN(rawSales) && rawSales > 0 ? rawSales : pricing.salesPrice;
+
+      parts.push({
+        id: `row-${r}-${Date.now()}`,
+        cat: cat || 'General Spare Parts',
+        name,
+        d,
+        usd,
+        yuan,
+        salesPrice,
+        salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
+        expense: exp
+      });
+
+      if (urlIdx >= 0 && row[urlIdx]) {
+        compareItems.push({
+          img: `row-img-${r}`,
+          name,
+          brand: cat,
+          url: row[urlIdx].trim()
+        });
+      }
+    }
+
+    return { parts, compareItems };
   }
 
   /**
@@ -200,58 +317,9 @@ export class GoogleSheetsService {
       if (rows.length < 2) {
         throw new Error("The CSV sheet does not contain enough rows.");
       }
-
-      const headers = rows[0].map(h => h.toLowerCase().trim());
-      
-      const catIdx = headers.findIndex(h => h.includes('cat') || h.includes('brand') || h.includes('group'));
-      const nameIdx = headers.findIndex(h => h.includes('name') || h.includes('product') || h.includes('model') || h.includes('item'));
-      const dIdx = headers.findIndex(h => h === 'd' || h.includes('dirham') || h.includes('price d') || h.includes('aed'));
-      const usdIdx = headers.findIndex(h => h.includes('usd+') || h.includes('cost') || h === 'usd');
-      const yuanIdx = headers.findIndex(h => h.includes('yuan') || h.includes('rmb') || h.includes('¥') || h.includes('cny'));
-      const salesIdx = headers.findIndex(h => h.includes('sale') || h.includes('retail') || h.includes('selling'));
-      const expIdx = headers.findIndex(h => h.includes('exp') || h.includes('ship'));
-      const urlIdx = headers.findIndex(h => h.includes('url') || h.includes('photo') || h.includes('image'));
-
-      const safeNameIdx = nameIdx >= 0 ? nameIdx : 0;
-      const safeCatIdx = catIdx >= 0 ? catIdx : (safeNameIdx === 0 ? 1 : 0);
-      const safeDIdx = dIdx >= 0 ? dIdx : (safeNameIdx === 0 ? 1 : 2);
-
-      for (let r = 1; r < rows.length; r++) {
-        const row = rows[r];
-        if (!row || row.length === 0) continue;
-        const name = (row[safeNameIdx] || '').trim();
-        if (!name) continue;
-
-        const cat = (row[safeCatIdx] || 'General Spare Parts').trim();
-        const d = parseFloat(String(row[safeDIdx] || '0').replace(/[^0-9.]/g, '')) || 0;
-        const exp = expIdx >= 0 ? (parseFloat(String(row[expIdx]).replace(/[^0-9.]/g, '')) || 1.0) : 1.0;
-        const pricing = calculatePricing(d, exp);
-
-        const customUsd = usdIdx >= 0 ? parseFloat(String(row[usdIdx]).replace(/[^0-9.]/g, '')) : NaN;
-        const customYuan = yuanIdx >= 0 ? parseFloat(String(row[yuanIdx]).replace(/[^0-9.]/g, '')) : NaN;
-        const customSales = salesIdx >= 0 ? parseFloat(String(row[salesIdx]).replace(/[^0-9.]/g, '')) : NaN;
-
-        parts.push({
-          id: `csv-${r}-${Date.now()}`,
-          cat,
-          name,
-          d,
-          usd: !isNaN(customUsd) && customUsd > 0 ? customUsd : pricing.costUsd,
-          yuan: !isNaN(customYuan) && customYuan > 0 ? customYuan : pricing.yuan,
-          salesPrice: !isNaN(customSales) && customSales > 0 ? customSales : pricing.salesPrice,
-          salesPriceD: pricing.salesPriceD,
-          expense: exp
-        });
-
-        if (urlIdx >= 0 && row[urlIdx]) {
-          compareItems.push({
-            img: `csv-img-${r}`,
-            name,
-            brand: cat,
-            url: row[urlIdx].trim()
-          });
-        }
-      }
+      const parsedData = this.parseRowsToParts(rows);
+      parts.push(...parsedData.parts);
+      compareItems.push(...parsedData.compareItems);
     }
 
     const timestamp = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
@@ -280,21 +348,19 @@ export class GoogleSheetsService {
   public static exportToCSV(parts: SparePartItem[]) {
     const headers = [
       'Product Name',
+      'Category (Brand _Part Type)',
       'Price D',
-      'USD+',
       'Yuan ¥',
-      'Sales $',
-      'Category',
-      'Expense $'
+      'USD+',
+      'Sales $'
     ];
     const rows = parts.map(p => [
       `"${p.name.replace(/"/g, '""')}"`,
-      p.d,
-      p.usd,
-      p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
-      p.salesPrice,
       `"${p.cat.replace(/"/g, '""')}"`,
-      p.expense
+      p.d,
+      p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+      p.usd,
+      p.salesPrice
     ]);
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

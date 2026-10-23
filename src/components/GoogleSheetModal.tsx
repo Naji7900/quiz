@@ -14,7 +14,10 @@ import {
   Check,
   Table,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  Lock,
+  Unlock,
+  ShieldAlert
 } from 'lucide-react';
 import { GoogleSheetsService } from '../services/googleSheetsService';
 import { SparePartItem, CompatItem, CompareItem } from '../data/initialData';
@@ -28,6 +31,7 @@ interface GoogleSheetModalProps {
   compareList: CompareItem[];
   onDataSynced: (newParts: SparePartItem[], newCompare?: CompareItem[]) => void;
   onResetToDefault: () => void;
+  onFormatDatabase: () => void;
   lastSyncedAt: string | null;
 }
 
@@ -84,6 +88,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   compareList,
   onDataSynced,
   onResetToDefault,
+  onFormatDatabase,
   lastSyncedAt
 }) => {
   const [sheetUrl, setSheetUrl] = useState(() => {
@@ -94,6 +99,9 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
   const [templateFilter, setTemplateFilter] = useState('__all__');
+  const [pasteText, setPasteText] = useState('');
+  const [formatConfirmText, setFormatConfirmText] = useState('');
+  const [resetConfirmText, setResetConfirmText] = useState('');
 
   if (!isOpen) return null;
 
@@ -138,12 +146,65 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     GoogleSheetsService.exportToJSON(parts, compatList, compareList);
   };
 
+  const handlePasteImport = () => {
+    if (!pasteText.trim()) return;
+    try {
+      sound.playTick();
+      const lines = pasteText.split(/\r?\n/).filter(l => l.trim().length > 0);
+      const parsedRows = lines.map(line => {
+        if (line.includes('\t')) {
+          return line.split('\t').map(c => c.trim().replace(/^["']|["']$/g, ''));
+        }
+        return GoogleSheetsService.parseCSV(line)[0] || [line];
+      });
+
+      const firstRow = parsedRows[0];
+      const hasHeader = firstRow && firstRow.some(cell => 
+        cell.toLowerCase().includes('name') || 
+        cell.toLowerCase().includes('product') || 
+        cell.toLowerCase().includes('price') ||
+        cell.toLowerCase().includes('category')
+      );
+
+      const rowsToParse = hasHeader 
+        ? parsedRows 
+        : [['Product Name', 'Category (Brand _Part Type)', 'Price D', 'Yuan ¥', 'USD+', 'Sales $'], ...parsedRows];
+
+      const { parts: imported, compareItems: newCompare } = GoogleSheetsService.parseRowsToParts(rowsToParse);
+      if (imported.length > 0) {
+        onDataSynced(imported, newCompare);
+        sound.playVictory();
+        setStatusMessage({
+          type: 'success',
+          text: `Successfully synced ${imported.length} products pasted from Google Sheets!`
+        });
+        setPasteText('');
+      } else {
+        throw new Error("Could not find valid product rows in pasted content.");
+      }
+    } catch (err) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Failed to parse pasted data: ' + (err as Error).message
+      });
+    }
+  };
+
   const handleCopyAllInOneTemplate = () => {
     sound.playTick();
-    const headers = ['Product Name', 'Price D', 'USD+', 'Yuan ¥', 'Sales $', 'Category', 'Expense $'].join('\t');
-    const rows = ALL_IN_ONE_TEMPLATE_ROWS.map(r => 
-      [r.name, r.priceD, `=ROUND((B${ALL_IN_ONE_TEMPLATE_ROWS.indexOf(r)+2}/3.67)+G${ALL_IN_ONE_TEMPLATE_ROWS.indexOf(r)+2}, 2)`, `=ROUND((B${ALL_IN_ONE_TEMPLATE_ROWS.indexOf(r)+2}/3.67)*7.23, 1)`, `=ROUND(C${ALL_IN_ONE_TEMPLATE_ROWS.indexOf(r)+2}*1.30, 2)`, r.cat, r.exp].join('\t')
-    ).join('\n');
+    const headers = ['Product Name', 'Category (Brand _Part Type)', 'Price D', 'Yuan ¥', 'USD+', 'Sales $'].join('\t');
+    const rows = ALL_IN_ONE_TEMPLATE_ROWS.map((r, i) => {
+      const rowNum = i + 2;
+      return [
+        r.name,
+        r.cat,
+        r.priceD,
+        `=ROUND((C${rowNum}/3.67)*7.23, 1)`,
+        `=ROUND((C${rowNum}/3.67)+1.0, 2)`,
+        `=ROUND(E${rowNum}*1.30, 2)`
+      ].join('\t');
+    }).join('\n');
 
     const fullTsv = headers + '\n' + rows;
 
@@ -156,15 +217,14 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
 
   const handleDownloadTemplateCSV = () => {
     sound.playTick();
-    const headers = ['Product Name', 'Price D', 'USD+', 'Yuan ¥', 'Sales $', 'Category', 'Expense $'];
+    const headers = ['Product Name', 'Category (Brand _Part Type)', 'Price D', 'Yuan ¥', 'USD+', 'Sales $'];
     const rows = ALL_IN_ONE_TEMPLATE_ROWS.map(r => [
       `"${r.name.replace(/"/g, '""')}"`,
-      r.priceD,
-      r.usdPlus,
-      r.yuan,
-      r.sales,
       `"${r.cat.replace(/"/g, '""')}"`,
-      r.exp
+      r.priceD,
+      r.yuan,
+      r.usdPlus,
+      r.sales
     ]);
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -197,37 +257,20 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
             });
           }
         } else {
-          // Parse CSV
-          const rows = GoogleSheetsService.parseCSV(content);
-          if (rows.length > 1) {
-            const imported: SparePartItem[] = [];
-            for (let i = 1; i < rows.length; i++) {
-              const r = rows[i];
-              if (!r[0]) continue;
-              const name = r[0].trim();
-              const d = parseFloat(r[1]) || 0;
-              const usd = parseFloat(r[2]) || Number((d / 3.67 + 1.0).toFixed(2));
-              const yuan = parseFloat(r[3]) || Number(((d / 3.67) * 7.23).toFixed(1));
-              const sales = parseFloat(r[4]) || Number((usd * 1.30).toFixed(2));
-              const cat = (r[5] || 'General Spare Parts').trim();
-              imported.push({
-                id: `import-${i}-${Date.now()}`,
-                name,
-                d,
-                usd,
-                yuan,
-                salesPrice: sales,
-                salesPriceD: Number((sales * 3.67).toFixed(1)),
-                cat,
-                expense: 1.0
+          // Parse CSV using unified accurate multi-format parser
+          const rawRows = GoogleSheetsService.parseCSV(content);
+          if (rawRows.length > 1) {
+            const { parts: imported, compareItems: newCompare } = GoogleSheetsService.parseRowsToParts(rawRows);
+            if (imported.length > 0) {
+              onDataSynced(imported, newCompare);
+              sound.playVictory();
+              setStatusMessage({
+                type: 'success',
+                text: `Imported ${imported.length} parts from CSV file!`
               });
+            } else {
+              throw new Error("No valid rows could be imported from CSV.");
             }
-            onDataSynced(imported);
-            sound.playVictory();
-            setStatusMessage({
-              type: 'success',
-              text: `Imported ${imported.length} parts from CSV file!`
-            });
           }
         }
       } catch (err) {
@@ -316,8 +359,8 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Download className="w-4 h-4" />
-            <span>Download CSV / Backup</span>
+            <RotateCcw className="w-4 h-4 text-rose-400" />
+            <span>Backup & Reset Data</span>
           </button>
         </div>
 
@@ -415,11 +458,11 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                     <thead className="sticky top-0 bg-[#0d1424] text-slate-300 uppercase text-[11px] font-semibold tracking-wider border-b border-slate-800 z-10">
                       <tr>
                         <th className="py-3 px-4 font-semibold">Product Name</th>
+                        <th className="py-3 px-4 font-semibold">Category (Brand _Part Type)</th>
                         <th className="py-3 px-4 text-right font-mono text-cyan-400 font-semibold">Price D</th>
-                        <th className="py-3 px-4 text-right font-mono text-emerald-400 font-semibold">USD+</th>
                         <th className="py-3 px-4 text-right font-mono text-amber-300 font-semibold">Yuan ¥</th>
+                        <th className="py-3 px-4 text-right font-mono text-emerald-400 font-semibold">USD+</th>
                         <th className="py-3 px-4 text-right font-mono text-violet-400 font-semibold">Sales $</th>
-                        <th className="py-3 px-4 font-semibold">Category</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono font-medium">
@@ -428,20 +471,22 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                           <td className="py-2.5 px-4 font-sans font-semibold text-white text-xs sm:text-sm">
                             {r.name}
                           </td>
+                          <td className="py-2.5 px-4 font-sans text-xs text-slate-300 font-normal">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-slate-300 font-medium">
+                              {r.cat}
+                            </span>
+                          </td>
                           <td className="py-2.5 px-4 text-right text-cyan-300 font-bold tabular-nums">
                             {r.priceD} D
-                          </td>
-                          <td className="py-2.5 px-4 text-right text-emerald-400 font-bold tabular-nums">
-                            ${r.usdPlus}
                           </td>
                           <td className="py-2.5 px-4 text-right text-amber-300 font-bold tabular-nums">
                             ¥{r.yuan}
                           </td>
+                          <td className="py-2.5 px-4 text-right text-emerald-400 font-bold tabular-nums">
+                            ${r.usdPlus}
+                          </td>
                           <td className="py-2.5 px-4 text-right text-violet-300 font-bold tabular-nums">
                             ${r.sales}
-                          </td>
-                          <td className="py-2.5 px-4 font-sans text-xs text-slate-400 font-normal">
-                            {r.cat}
                           </td>
                         </tr>
                       ))}
@@ -458,20 +503,55 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                 <ol className="list-decimal list-inside space-y-1 text-slate-400 font-normal">
                   <li>Click <strong className="text-cyan-300">"Copy Sheet for Google Sheets"</strong> above.</li>
                   <li>Open a new sheet in <strong className="text-white">Google Sheets</strong> and press <strong className="text-white">Ctrl + V</strong> in cell A1.</li>
-                  <li>Go to <em>File &gt; Share &gt; Publish to web &gt; Choose CSV &gt; Click Publish</em> and paste the link in the "Live Sync" tab.</li>
+                  <li>Go to <em>File &gt; Share &gt; Publish to web &gt; Choose CSV &gt; Click Publish</em> and paste the link in the "Live Sync" tab, or copy your sheet cells and paste directly into the Direct Paste tool!</li>
                 </ol>
               </div>
 
             </div>
           )}
 
-          {/* TAB 2: LIVE SHEET URL SYNC */}
+          {/* TAB 2: LIVE SHEET URL SYNC & DIRECT PASTE */}
           {activeTab === 'sync' && (
             <div className="space-y-5">
+              
+              {/* Option A: Direct Paste from Google Sheet (Zero Setup) */}
+              <div className="bg-slate-900/90 border border-cyan-500/40 rounded-2xl p-5 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-cyan-300">
+                    Direct Paste from Google Sheets (Instant Sync)
+                  </label>
+                  <span className="text-[11px] text-slate-400 bg-slate-950 px-2.5 py-0.5 rounded-full border border-slate-800">
+                    Supports 6 columns: Product Name, Category, Price D, Yuan, USD+, Sales $
+                  </span>
+                </div>
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  rows={4}
+                  placeholder="In your Google Sheet, select your rows (or all cells with Ctrl+A) -> Ctrl+C -> Paste here with Ctrl+V..."
+                  className="w-full bg-slate-950 border border-slate-700/80 focus:border-cyan-500 rounded-xl px-4 py-3 text-xs text-slate-100 placeholder-slate-500 font-mono outline-none resize-y"
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-slate-400">
+                    {pasteText.trim() ? `${pasteText.trim().split('\n').length} rows detected` : 'No cells pasted yet'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handlePasteImport}
+                    disabled={!pasteText.trim()}
+                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-2 disabled:opacity-40"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Sync Pasted Data Now</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Option B: Published Google Sheet URL Sync */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-black uppercase tracking-wider text-slate-300 mb-2">
-                    Google Sheet Published CSV or Web App URL
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                    Or Live Google Sheet Published CSV Link
                   </label>
                   <div className="flex flex-col sm:flex-row gap-2.5">
                     <input
@@ -488,7 +568,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                       className="px-6 py-3 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
                     >
                       <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                      <span>{isLoading ? 'Syncing...' : 'Sync Now'}</span>
+                      <span>{isLoading ? 'Syncing...' : 'Sync From Link'}</span>
                     </button>
                   </div>
                 </div>
@@ -502,9 +582,9 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-900/50 border border-slate-800 space-y-2 text-xs text-slate-400">
-                <span className="font-bold text-white block">Requirement for Live Sync:</span>
+                <span className="font-bold text-white block">Requirement for Live CSV Link:</span>
                 <p>
-                  In your Google Sheet, click <strong>File &gt; Share &gt; Publish to web</strong>. Under Link, select <strong>Comma-separated values (.csv)</strong> and copy that URL here. Whenever you change prices in Google Sheets, open this app and click <strong>Sync Now</strong>!
+                  In your Google Sheet, click <strong>File &gt; Share &gt; Publish to web</strong>. Under Link, select <strong>Comma-separated values (.csv)</strong> and copy that URL here. Whenever you change prices in Google Sheets, open this app and click <strong>Sync From Link</strong>!
                 </p>
               </div>
             </div>
@@ -579,25 +659,199 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
 
               </div>
 
-              {/* Reset to Default */}
-              <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-sm text-slate-300 block">Factory Reset Database</span>
-                  <span className="text-xs text-slate-500">Restore factory catalog snapshot (480+ parts)</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playTick();
-                    onResetToDefault();
-                    onClose();
-                  }}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-950/40 text-rose-300 hover:bg-rose-900/50 border border-rose-800/40 font-bold text-xs transition-colors"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>Reset to Default</span>
-                </button>
-              </div>
+              {/* Action 1: Format Database (Wipe Clean / 0 Items for New Upload) */}
+              {(() => {
+                const isFormatUnlocked = formatConfirmText.trim().toLowerCase() === 'format database';
+                return (
+                  <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-b from-rose-950/30 to-rose-950/10 border border-rose-800/40 space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                            <RotateCcw className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-sm sm:text-base text-rose-200 block">
+                              Format Database (Wipe Clean / 0 Products for New Upload)
+                            </span>
+                            <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                              <ShieldAlert className="w-3.5 h-3.5" /> Safeguard: Typed confirmation required
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-rose-200/70 font-normal pt-1 leading-relaxed">
+                          Completely wipes all catalog products and empties the database to 0 items. Use this to prepare a clean blank slate before uploading your own Google Sheet or CSV.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Format Safeguard Input Field */}
+                    <div className="bg-[#080d18] p-4 rounded-xl border border-rose-900/50 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+                        <label htmlFor="format-confirm-input" className="text-slate-300 font-medium flex items-center gap-1.5">
+                          {isFormatUnlocked ? (
+                            <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                          )}
+                          <span>To unlock format button, type:</span>
+                          <span className="font-mono font-bold text-rose-300 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-700/60 select-all">
+                            format database
+                          </span>
+                        </label>
+                        <div>
+                          {isFormatUnlocked ? (
+                            <span className="text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Unlocked (Ready to format)
+                            </span>
+                          ) : (
+                            <span className="text-amber-400/90 font-mono text-[11px]">
+                              Locked: Type "format database"
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                        <input
+                          id="format-confirm-input"
+                          type="text"
+                          value={formatConfirmText}
+                          onChange={(e) => setFormatConfirmText(e.target.value)}
+                          placeholder='Type "format database" here to unlock...'
+                          autoComplete="off"
+                          spellCheck="false"
+                          className={`flex-1 px-4 py-2.5 rounded-xl bg-slate-900/90 border text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none transition-all ${
+                            isFormatUnlocked
+                              ? 'border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-950/20 text-emerald-200'
+                              : 'border-slate-700 focus:border-rose-500 text-slate-200'
+                          }`}
+                        />
+
+                        <button
+                          type="button"
+                          disabled={!isFormatUnlocked}
+                          onClick={() => {
+                            if (!isFormatUnlocked) return;
+                            sound.playVictory();
+                            onFormatDatabase();
+                            setFormatConfirmText('');
+                            setStatusMessage({
+                              type: 'success',
+                              text: 'Database successfully formatted! Catalog cleared to 0 items. You can now upload or paste your fresh Google Sheet data.'
+                            });
+                          }}
+                          className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md shrink-0 ${
+                            isFormatUnlocked
+                              ? 'bg-rose-600 hover:bg-rose-500 text-white border border-rose-400 cursor-pointer shadow-rose-950/60 active:scale-95'
+                              : 'bg-slate-800/60 text-slate-500 border border-slate-700/50 cursor-not-allowed opacity-50'
+                          }`}
+                        >
+                          <RotateCcw className={`w-4 h-4 ${isFormatUnlocked ? 'text-white' : 'text-slate-500'}`} />
+                          <span>Format & Clear Database (0 Items)</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Action 2: Restore Factory Demo Data (480+ Default Parts) */}
+              {(() => {
+                const isResetUnlocked = resetConfirmText.trim().toLowerCase() === 'restore default' || resetConfirmText.trim().toLowerCase() === 'reset all data';
+                return (
+                  <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-b from-indigo-950/30 to-indigo-950/10 border border-indigo-800/40 space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-sm sm:text-base text-indigo-200 block">
+                              Restore Factory Demo Data (480+ Default Parts)
+                            </span>
+                            <span className="text-[11px] text-indigo-300 font-medium flex items-center gap-1">
+                              <ShieldAlert className="w-3.5 h-3.5" /> Safeguard: Typed confirmation required
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-indigo-200/70 font-normal pt-1 leading-relaxed">
+                          Restores the built-in factory demo catalog with 480+ spare parts, screen photos, formulas, and baseline prices.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Reset Safeguard Input Field */}
+                    <div className="bg-[#080d18] p-4 rounded-xl border border-indigo-900/50 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+                        <label htmlFor="reset-confirm-input" className="text-slate-300 font-medium flex items-center gap-1.5">
+                          {isResetUnlocked ? (
+                            <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                          )}
+                          <span>To unlock restore button, type:</span>
+                          <span className="font-mono font-bold text-indigo-300 bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-700/60 select-all">
+                            restore default
+                          </span>
+                        </label>
+                        <div>
+                          {isResetUnlocked ? (
+                            <span className="text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Unlocked (Ready to restore)
+                            </span>
+                          ) : (
+                            <span className="text-amber-400/90 font-mono text-[11px]">
+                              Locked: Type "restore default"
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                        <input
+                          id="reset-confirm-input"
+                          type="text"
+                          value={resetConfirmText}
+                          onChange={(e) => setResetConfirmText(e.target.value)}
+                          placeholder='Type "restore default" here to unlock...'
+                          autoComplete="off"
+                          spellCheck="false"
+                          className={`flex-1 px-4 py-2.5 rounded-xl bg-slate-900/90 border text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none transition-all ${
+                            isResetUnlocked
+                              ? 'border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-950/20 text-emerald-200'
+                              : 'border-slate-700 focus:border-indigo-500 text-slate-200'
+                          }`}
+                        />
+
+                        <button
+                          type="button"
+                          disabled={!isResetUnlocked}
+                          onClick={() => {
+                            if (!isResetUnlocked) return;
+                            sound.playVictory();
+                            onResetToDefault();
+                            setResetConfirmText('');
+                            setStatusMessage({
+                              type: 'success',
+                              text: 'Factory demo catalog restored with 480+ spare parts, formulas, and baseline prices.'
+                            });
+                          }}
+                          className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md shrink-0 ${
+                            isResetUnlocked
+                              ? 'bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 cursor-pointer shadow-indigo-950/60 active:scale-95'
+                              : 'bg-slate-800/60 text-slate-500 border border-slate-700/50 cursor-not-allowed opacity-50'
+                          }`}
+                        >
+                          <Sparkles className={`w-4 h-4 ${isResetUnlocked ? 'text-white' : 'text-slate-500'}`} />
+                          <span>Restore Factory Demo (480+ Parts)</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
             </div>
           )}
