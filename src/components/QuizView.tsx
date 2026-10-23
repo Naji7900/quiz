@@ -17,7 +17,8 @@ import {
   Check,
   Tag,
   DollarSign,
-  Plus
+  Plus,
+  X
 } from 'lucide-react';
 import { SparePartItem, CompatItem, ChangeItem } from '../data/initialData';
 import { sound } from '../services/soundService';
@@ -100,11 +101,26 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [learnBatches, setLearnBatches] = useState<QuestionItem[][]>([]);
   const [currentBatchIndex, setCurrentBatchIndex] = useState(0);
 
+  const [categorySearchQuery, setCategorySearchQuery] = useState('');
+  const [selectedBrandFilter, setSelectedBrandFilter] = useState('ALL');
+
   const availableCategories = useMemo(() => {
     const set = new Set<string>();
     parts.forEach(p => set.add(p.cat));
     return Array.from(set).sort();
   }, [parts]);
+
+  const filteredAvailableCategories = useMemo(() => {
+    let list = availableCategories;
+    if (selectedBrandFilter !== 'ALL') {
+      list = list.filter(c => c.toLowerCase().includes(selectedBrandFilter.toLowerCase()));
+    }
+    if (categorySearchQuery.trim()) {
+      const q = categorySearchQuery.trim().toLowerCase();
+      list = list.filter(c => c.toLowerCase().includes(q));
+    }
+    return list;
+  }, [availableCategories, selectedBrandFilter, categorySearchQuery]);
 
   const categoryProducts = useMemo(() => {
     let list = parts;
@@ -702,52 +718,132 @@ export const QuizView: React.FC<QuizViewProps> = ({
               </div>
             </div>
 
-            {/* Sub-mode A: Category Buttons */}
+            {/* Sub-mode A: Category Buttons with Easy Search & Brand Shortcuts */}
             {selMode !== 'custom' && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Click category buttons to practice or preview:</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playTick();
-                      setSelectedCats([]);
-                      setPreviewCategory('__all__');
-                    }}
-                    className="text-xs font-semibold text-cyan-400 hover:underline cursor-pointer"
-                  >
-                    Select All Categories ({parts.length})
-                  </button>
-                </div>
+              <div className="space-y-3">
+                {/* Search & Fast Filter Box */}
+                <div className="bg-[#070c18] border border-cyan-500/40 p-3 sm:p-3.5 rounded-2xl space-y-2.5 shadow-lg">
+                  <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={categorySearchQuery}
+                        onChange={(e) => setCategorySearchQuery(e.target.value)}
+                        placeholder="Search category (e.g. iPhone, Samsung, Tecno, Battery, Glass)..."
+                        className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded-xl text-white placeholder-slate-400 outline-none font-medium"
+                      />
+                      {categorySearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setCategorySearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {availableCategories.map(cat => {
-                    const isSelected = selectedCats.includes(cat);
-                    const isPreview = previewCategory === cat;
-                    const count = parts.filter(p => p.cat === cat).length;
-                    return (
+                    <div className="flex items-center gap-2">
                       <button
-                        key={cat}
                         type="button"
                         onClick={() => {
                           sound.playTick();
-                          setPreviewCategory(cat);
-                          if (isSelected) {
-                            setSelectedCats(selectedCats.filter(c => c !== cat));
-                          } else {
-                            setSelectedCats([...selectedCats, cat]);
-                          }
+                          setSelectedCats([]);
+                          setPreviewCategory('__all__');
+                          setCategorySearchQuery('');
+                          setSelectedBrandFilter('ALL');
                         }}
-                        className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
-                          isSelected || isPreview
-                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md ring-1 ring-cyan-300 font-bold'
-                            : 'bg-[#070c18] border-slate-700/80 text-slate-300 hover:border-slate-500'
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold text-xs border border-slate-700 transition-colors whitespace-nowrap cursor-pointer"
+                      >
+                        Select All ({parts.length} parts)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Brand Shortcuts to find any brand instantly */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1">
+                      Quick Find:
+                    </span>
+                    {[
+                      { id: 'ALL', label: 'All Categories' },
+                      { id: 'iPhone', label: 'iPhone' },
+                      { id: 'Samsung', label: 'Samsung' },
+                      { id: 'Tecno', label: 'Tecno' },
+                      { id: 'Infinix', label: 'Infinix' },
+                      { id: 'Redmi', label: 'Redmi / Xiaomi' },
+                      { id: 'Honor', label: 'Honor' },
+                      { id: 'Battery', label: 'Battery' },
+                      { id: 'Touch', label: 'iPad / Touch' },
+                      { id: 'Glass', label: 'Glass & OCA' }
+                    ].map(b => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setSelectedBrandFilter(b.id);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                          selectedBrandFilter === b.id
+                            ? 'bg-cyan-500 text-slate-950 font-bold shadow-md'
+                            : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
                         }`}
                       >
-                        {cat} ({count})
+                        {b.label}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
+                </div>
+
+                {/* Filtered Category Chips */}
+                <div className="flex flex-wrap gap-2 max-h-56 overflow-y-auto pr-1">
+                  {filteredAvailableCategories.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-slate-400 w-full bg-[#070c18] rounded-xl border border-slate-800">
+                      No categories found matching "{categorySearchQuery}".
+                      <button
+                        type="button"
+                        onClick={() => { setCategorySearchQuery(''); setSelectedBrandFilter('ALL'); }}
+                        className="ml-2 text-cyan-400 underline font-semibold cursor-pointer"
+                      >
+                        Clear filter
+                      </button>
+                    </div>
+                  ) : (
+                    filteredAvailableCategories.map(cat => {
+                      const isSelected = selectedCats.includes(cat);
+                      const isPreview = previewCategory === cat;
+                      const count = parts.filter(p => p.cat === cat).length;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => {
+                            sound.playTick();
+                            setPreviewCategory(cat);
+                            if (isSelected) {
+                              setSelectedCats(selectedCats.filter(c => c !== cat));
+                            } else {
+                              setSelectedCats([...selectedCats, cat]);
+                            }
+                          }}
+                          className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                            isSelected || isPreview
+                              ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md ring-1 ring-cyan-300 font-bold'
+                              : 'bg-[#070c18] border-slate-700/80 text-slate-300 hover:border-slate-500'
+                          }`}
+                        >
+                          <span>{cat}</span>
+                          <span className={`text-[11px] font-mono font-bold px-1.5 py-0.2 rounded-md ${
+                            isSelected || isPreview ? 'bg-slate-950/30 text-slate-950' : 'bg-slate-800 text-cyan-300'
+                          }`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             )}
@@ -858,25 +954,36 @@ export const QuizView: React.FC<QuizViewProps> = ({
           {/* STEP 4: QUESTION COUNT & TIMER */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-800">
             <div>
-              <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
-                Questions
-              </label>
-              <div className="flex gap-2">
-                {[10, 20, 50, 100].map(cnt => (
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-medium uppercase tracking-wider text-slate-300">
+                  Questions Limit
+                </label>
+                <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded-lg border border-cyan-800/60">
+                  {questionCount} Questions
+                </span>
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                {[10, 25, 50, 100, 150, 200, 250].map(cnt => (
                   <button
                     key={cnt}
                     type="button"
-                    onClick={() => setQuestionCount(cnt)}
-                    className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
+                    onClick={() => {
+                      sound.playTick();
+                      setQuestionCount(cnt);
+                    }}
+                    className={`py-2 px-1 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer text-center ${
                       questionCount === cnt
-                        ? 'bg-cyan-500 text-slate-950 border-cyan-400'
-                        : 'bg-[#070c18] border-slate-700 text-slate-300 hover:border-slate-500'
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold shadow-md ring-1 ring-cyan-300'
+                        : 'bg-[#070c18] border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'
                     }`}
                   >
                     {cnt}
                   </button>
                 ))}
               </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                Practice up to <strong>250 questions</strong> continuously in any mode.
+              </p>
             </div>
 
             <div>
@@ -938,9 +1045,26 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     {categoryProducts.length} {categoryProducts.length === 1 ? 'Product' : 'Products'}
                   </span>
                 </div>
-                <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                  {previewCategory === '__all__' ? 'All Categories' : previewCategory || 'Select a Category'}
-                </h3>
+                <div className="flex items-center gap-2.5 flex-wrap mt-0.5">
+                  <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                    {previewCategory === '__all__' ? 'All Categories' : previewCategory || 'Select a Category'}
+                  </h3>
+                  <select
+                    value={previewCategory}
+                    onChange={(e) => {
+                      sound.playTick();
+                      setPreviewCategory(e.target.value);
+                    }}
+                    className="bg-slate-900 border border-emerald-500/50 hover:border-emerald-400 rounded-xl px-2.5 py-1 text-xs text-emerald-300 font-semibold focus:outline-none focus:border-emerald-400 cursor-pointer"
+                  >
+                    <option value="__all__">All Categories ({parts.length})</option>
+                    {availableCategories.map(cat => (
+                      <option key={cat} value={cat}>
+                        {cat} ({parts.filter(p => p.cat === cat).length})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -1008,17 +1132,17 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     <th className="py-3 px-4 text-center">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
+                <tbody className="divide-y divide-slate-800/80 font-mono">
                   {categoryProducts.map((p, idx) => (
-                    <tr key={p.id} className="hover:bg-emerald-500/10 transition-colors">
-                      <td className="py-3 px-4 text-slate-500 text-xs">{idx + 1}</td>
-                      <td className="py-3 px-4 font-sans font-semibold text-white whitespace-nowrap">{p.name}</td>
-                      <td className="py-3 px-4 font-sans text-slate-400 text-xs whitespace-nowrap">{p.cat}</td>
-                      <td className="py-3 px-4 text-right font-bold text-cyan-400">{fmt(p.d)} D</td>
-                      <td className="py-3 px-4 text-right text-amber-300">¥{fmt(p.yuan ?? 0)}</td>
-                      <td className="py-3 px-4 text-right font-semibold text-emerald-400">${fmt(p.usd)}</td>
-                      <td className="py-3 px-4 text-right font-bold text-violet-300">${fmt(p.salesPrice)}</td>
-                      <td className="py-3 px-4 text-center">
+                    <tr key={p.id} className="hover:bg-emerald-500/10 transition-colors border-b border-slate-800/80">
+                      <td className="py-3 px-4 text-slate-500 text-xs border-b border-slate-800/80">{idx + 1}</td>
+                      <td className="py-3 px-4 font-sans font-semibold text-white whitespace-nowrap border-b border-slate-800/80">{p.name}</td>
+                      <td className="py-3 px-4 font-sans text-slate-400 text-xs whitespace-nowrap border-b border-slate-800/80">{p.cat}</td>
+                      <td className="py-3 px-4 text-right font-bold text-cyan-400 border-b border-slate-800/80">{fmt(p.d)} D</td>
+                      <td className="py-3 px-4 text-right text-amber-300 border-b border-slate-800/80">¥{fmt(p.yuan ?? 0)}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-emerald-400 border-b border-slate-800/80">${fmt(p.usd)}</td>
+                      <td className="py-3 px-4 text-right font-bold text-violet-300 border-b border-slate-800/80">${fmt(p.salesPrice)}</td>
+                      <td className="py-3 px-4 text-center border-b border-slate-800/80">
                         <div className="flex items-center justify-center gap-2">
                           <button
                             type="button"

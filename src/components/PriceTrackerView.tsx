@@ -635,7 +635,7 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
                   return (
                     <tr 
                       key={change.id}
-                      className={`hover:bg-slate-900/50 transition-colors ${
+                      className={`hover:bg-slate-900/50 transition-colors border-b border-slate-700/80 ${
                         isNew ? 'hover:bg-blue-500/5' : isDecrease ? 'hover:bg-emerald-500/5' : 'hover:bg-amber-500/5'
                       }`}
                     >

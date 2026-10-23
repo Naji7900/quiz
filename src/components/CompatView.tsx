@@ -9,7 +9,8 @@ import {
   Check, 
   X, 
   Sparkles, 
-  ArrowRight, 
+  ArrowRight,
+  ArrowRightLeft,
   CheckCircle2,
   List,
   LayoutGrid,
@@ -407,12 +408,21 @@ export const CompatView: React.FC<CompatViewProps> = ({
       {/* ================= VIEW 1: STRUCTURED LIST VIEW (QAAB LIST AHAAN) ================= */}
       {viewMode === 'list' && (
         <div className="bg-[#0b111e] border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+          {/* Mobile Horizontal Table Indicator */}
+          <div className="md:hidden px-4 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-[11px] text-cyan-400 font-mono">
+            <span className="flex items-center gap-1.5 font-bold">
+              <ArrowRightLeft className="w-3.5 h-3.5" />
+              <span>Swipe horizontally to view full table & models</span>
+            </span>
+            <span className="text-slate-400 text-[10px]">PC Table Mode</span>
+          </div>
+
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="min-w-[860px] w-full text-left text-xs sm:text-sm border-collapse">
               <thead className="bg-[#070c18] text-slate-300 uppercase tracking-wider text-[11px] font-semibold border-b border-slate-800">
                 <tr>
                   <th className="py-3.5 px-4 w-12 text-slate-500">#</th>
-                  <th className="py-3.5 px-4 w-64">Primary LCD Screen</th>
+                  <th className="py-3.5 px-4 w-60">Primary LCD Screen</th>
                   <th className="py-3.5 px-4">Compatible Phone Models (3+ Fits)</th>
                   <th className="py-3.5 px-4 w-44">Technical Note</th>
                   <th className="py-3.5 px-4 w-36 text-center">Actions</th>
@@ -424,7 +434,7 @@ export const CompatView: React.FC<CompatViewProps> = ({
                   const isAppending = appendTargetId === item.id;
 
                   return (
-                    <tr key={item.id} className="hover:bg-cyan-500/5 transition-colors group">
+                    <tr key={item.id} className="hover:bg-cyan-500/5 transition-colors group border-b border-slate-700/80">
                       
                       {/* # Index */}
                       <td className="py-4 px-4 font-mono text-slate-500 font-bold text-xs">
@@ -432,7 +442,7 @@ export const CompatView: React.FC<CompatViewProps> = ({
                       </td>
 
                       {/* Primary LCD */}
-                      <td className="py-4 px-4">
+                      <td className="py-4 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-2 font-mono font-bold text-white text-sm sm:text-base">
                           <Smartphone className="w-4 h-4 text-cyan-400 shrink-0" />
                           <span>{item.lcd}</span>
@@ -442,48 +452,29 @@ export const CompatView: React.FC<CompatViewProps> = ({
                         </span>
                       </td>
 
-                      {/* Compatible Models List (Supports 3, 4, 5+ models with clear badges) */}
-                      <td className="py-4 px-4">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {models.map((m, mIdx) => (
-                              <span
-                                key={mIdx}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 border border-emerald-500/40 font-mono text-xs font-semibold shadow-sm"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                                <span>{m}</span>
-                              </span>
-                            ))}
+                      {/* Compatible Models List (Supports 3, 4, 5+ models with clear badges rendered horizontally) */}
+                      <td className="py-4 px-4 min-w-[340px]">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {models.map((m, mIdx) => (
+                            <span
+                              key={mIdx}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 border border-emerald-500/40 font-mono text-xs font-semibold shadow-sm whitespace-nowrap shrink-0"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                              <span>{m}</span>
+                            </span>
+                          ))}
 
-                            {/* Inline Button to add another compatible model */}
-                            {!isAppending ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  sound.playTick();
-                                  setAppendTargetId(item.id);
-                                  setNewModelToAppend('');
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 hover:text-white border border-cyan-500/30 text-xs font-semibold transition-colors cursor-pointer"
-                                title="Add another compatible model to this LCD"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Add Model</span>
-                              </button>
-                            ) : null}
-                          </div>
-
-                          {/* Quick Append Input form */}
-                          {isAppending && (
-                            <div className="flex items-center gap-2 pt-1 animate-in fade-in duration-100">
+                          {/* Quick Append Input form rendered inline horizontally alongside badges */}
+                          {isAppending ? (
+                            <div className="inline-flex items-center gap-1.5 animate-in fade-in duration-100 shrink-0">
                               <input
                                 type="text"
                                 autoFocus
                                 value={newModelToAppend}
                                 onChange={(e) => setNewModelToAppend(e.target.value)}
-                                placeholder="Enter compatible model name (e.g. Spark 20 Pro)..."
-                                className="px-3 py-1.5 text-xs bg-slate-900 border border-cyan-400 rounded-lg text-white font-mono focus:outline-none w-64"
+                                placeholder="Enter model (e.g. Spark 20 Pro)..."
+                                className="px-2.5 py-1 text-xs bg-slate-900 border border-cyan-400 rounded-lg text-white font-mono focus:outline-none w-44 sm:w-56"
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     e.preventDefault();
@@ -496,18 +487,32 @@ export const CompatView: React.FC<CompatViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleAppendModelSubmit(item)}
-                                className="px-3 py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs hover:bg-cyan-400 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs hover:bg-cyan-400 cursor-pointer whitespace-nowrap"
                               >
                                 Save
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setAppendTargetId(null)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                                className="p-1 rounded-lg text-slate-400 hover:text-white"
                               >
                                 <X className="w-3.5 h-3.5" />
                               </button>
                             </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sound.playTick();
+                                setAppendTargetId(item.id);
+                                setNewModelToAppend('');
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 hover:text-white border border-cyan-500/30 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                              title="Add another compatible model to this LCD"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Add Model</span>
+                            </button>
                           )}
                         </div>
                       </td>

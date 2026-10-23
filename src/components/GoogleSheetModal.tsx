@@ -489,19 +489,19 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
               <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/70 shadow-xl">
                 <div className="overflow-x-auto max-h-[380px]">
                   <table className="w-full text-left border-collapse text-xs sm:text-sm">
-                    <thead className="sticky top-0 bg-[#0d1424] text-slate-300 uppercase text-[11px] font-semibold tracking-wider border-b border-slate-800 z-10">
+                    <thead className="sticky top-0 bg-[#0d1424] text-slate-300 uppercase text-[11px] font-semibold tracking-wider border-b-2 border-slate-700 z-10">
                       <tr>
-                        <th className="py-3 px-4 font-semibold">Product Name</th>
-                        <th className="py-3 px-4 font-semibold">Category (Brand _Part Type)</th>
-                        <th className="py-3 px-4 text-right font-mono text-cyan-400 font-semibold">Price D</th>
-                        <th className="py-3 px-4 text-right font-mono text-amber-300 font-semibold">Yuan ¥</th>
-                        <th className="py-3 px-4 text-right font-mono text-emerald-400 font-semibold">USD+</th>
-                        <th className="py-3 px-4 text-right font-mono text-violet-400 font-semibold">Sales $</th>
+                        <th className="py-3 px-4 font-semibold border-b border-slate-700">Product Name</th>
+                        <th className="py-3 px-4 font-semibold border-b border-slate-700">Category (Brand _Part Type)</th>
+                        <th className="py-3 px-4 text-right font-mono text-cyan-400 font-semibold border-b border-slate-700">Price D</th>
+                        <th className="py-3 px-4 text-right font-mono text-amber-300 font-semibold border-b border-slate-700">Yuan ¥</th>
+                        <th className="py-3 px-4 text-right font-mono text-emerald-400 font-semibold border-b border-slate-700">USD+</th>
+                        <th className="py-3 px-4 text-right font-mono text-violet-400 font-semibold border-b border-slate-700">Sales $</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-mono font-medium">
+                    <tbody className="divide-y divide-slate-700/80 font-mono font-medium">
                       {filteredTemplateRows.map((r, i) => (
-                        <tr key={i} className="hover:bg-slate-850/50 transition-colors">
+                        <tr key={i} className="hover:bg-slate-850/50 transition-colors border-b border-slate-700/80">
                           <td className="py-2.5 px-4 font-sans font-semibold text-white text-xs sm:text-sm">
                             {r.name}
                           </td>

@@ -757,7 +757,18 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                     </div>
 
                     {/* Per-Slot Zoom Controls */}
+                    {/* Per-Slot Zoom Controls & Fit Display Button */}
                     <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleResetZoomPan(slotIdx)}
+                        className="px-2.5 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 hover:text-white border border-cyan-500/50 cursor-pointer flex items-center gap-1 text-xs font-semibold transition-all shadow-sm active:scale-95"
+                        title="Fit image to screen / display (100%)"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="hidden sm:inline">Fit Screen</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleZoomOut(slotIdx)}
@@ -792,7 +803,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
 
                   </div>
 
-                  {/* Interactive Inspection Canvas ("Hand Move" Drag + Wheel Zoom) */}
+                  {/* Interactive Inspection Canvas ("Hand Move" Drag + Wheel Zoom + Fit Display) */}
                   <div
                     onMouseDown={(e) => onMouseDown(slotIdx, e)}
                     onTouchStart={(e) => onTouchStart(slotIdx, e)}
@@ -801,7 +812,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                     className={`relative w-full overflow-hidden bg-[#050811] flex items-center justify-center select-none ${
                       isDraggingThisSlot ? 'cursor-grabbing' : 'cursor-grab'
                     } ${
-                      compareMode === '1x' ? 'h-[620px] lg:h-[700px]' : 'h-[480px] lg:h-[560px]'
+                      compareMode === '1x' ? 'h-[620px] lg:h-[720px]' : 'h-[480px] lg:h-[580px]'
                     }`}
                   >
                     
@@ -834,18 +845,24 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                       }}
                     />
 
-                    {/* HUD Status Floating Badge */}
-                    <div className="absolute top-3 left-3 z-10 flex items-center gap-2 pointer-events-none">
-                      <div className="px-2.5 py-1 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] font-mono text-slate-300 flex items-center gap-1.5">
+                    {/* HUD Status Floating Badge with 1-Click Fit Display */}
+                    <div className="absolute top-3 left-3 z-10 flex items-center gap-2 pointer-events-auto">
+                      <div className="px-2.5 py-1 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] font-mono text-slate-300 flex items-center gap-1.5 pointer-events-none">
                         <Hand className="w-3 h-3 text-cyan-400" />
-                        <span>Hand Move Drag Active</span>
+                        <span>Hand Move</span>
                       </div>
-                      <div className="px-2.5 py-1 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] font-mono text-cyan-300">
-                        Zoom: {Math.round(vp.zoom * 100)}%
-                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleResetZoomPan(slotIdx); }}
+                        className="px-2.5 py-1 rounded-xl bg-cyan-950/80 hover:bg-cyan-900/90 backdrop-blur-md border border-cyan-500/50 text-[10px] font-mono text-cyan-300 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Fit image to screen"
+                      >
+                        <Maximize2 className="w-3 h-3 text-cyan-400" />
+                        <span>Fit Display ({Math.round(vp.zoom * 100)}%)</span>
+                      </button>
                     </div>
 
-                    {/* Screen Image with Fluid Pan & Zoom Transform */}
+                    {/* Screen Image with Fluid Pan & Zoom Transform (Fit to Screen) */}
                     {currentPhoto?.url ? (
                       <div
                         style={{
@@ -853,13 +870,13 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                           transformOrigin: 'center center',
                           transition: isDraggingThisSlot ? 'none' : 'transform 0.15s ease-out'
                         }}
-                        className="w-full h-full flex items-center justify-center p-4 pointer-events-none"
+                        className="w-full h-full flex items-center justify-center p-1 sm:p-2 pointer-events-none"
                       >
                         <img
                           src={currentPhoto.url}
                           alt={currentPhoto.name}
                           draggable={false}
-                          className="max-h-full max-w-full object-contain filter drop-shadow-[0_15px_30px_rgba(0,0,0,0.8)]"
+                          className="w-auto h-auto max-w-full max-h-full object-contain filter drop-shadow-[0_15px_30px_rgba(0,0,0,0.85)] select-none pointer-events-none transition-all duration-150"
                         />
                       </div>
                     ) : (

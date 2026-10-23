@@ -126,6 +126,46 @@ export default function App() {
     }
   };
 
+  // Update existing part (Edit Name, Cat, Prices, etc.)
+  const handleUpdatePart = (id: string, updatedFields: Partial<SparePartItem>) => {
+    const updated = parts.map(p => {
+      if (p.id === id) {
+        return { ...p, ...updatedFields };
+      }
+      return p;
+    });
+    setParts(updated);
+    GoogleSheetsService.saveCustomParts(updated);
+  };
+
+  // Delete part from catalog
+  const handleDeletePart = (id: string) => {
+    const updated = parts.filter(p => p.id !== id);
+    setParts(updated);
+    GoogleSheetsService.saveCustomParts(updated);
+  };
+
+  // Move product to new Category
+  const handleMovePartCategory = (id: string, newCategory: string) => {
+    handleUpdatePart(id, { cat: newCategory });
+  };
+
+  // Bulk delete multiple products
+  const handleBulkDeleteParts = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const updated = parts.filter(p => !idSet.has(p.id));
+    setParts(updated);
+    GoogleSheetsService.saveCustomParts(updated);
+  };
+
+  // Bulk move multiple products to category
+  const handleBulkMoveCategory = (ids: string[], newCategory: string) => {
+    const idSet = new Set(ids);
+    const updated = parts.map(p => idSet.has(p.id) ? { ...p, cat: newCategory } : p);
+    setParts(updated);
+    GoogleSheetsService.saveCustomParts(updated);
+  };
+
   // Compatible LCDs Handlers
   const handleAddCompat = (itemData: Omit<CompatItem, 'id'>) => {
     const newItem: CompatItem = {
@@ -268,6 +308,11 @@ export default function App() {
             parts={parts}
             compatList={compatList}
             onAddPart={handleAddPart}
+            onUpdatePart={handleUpdatePart}
+            onDeletePart={handleDeletePart}
+            onMovePartCategory={handleMovePartCategory}
+            onBulkDeleteParts={handleBulkDeleteParts}
+            onBulkMoveCategory={handleBulkMoveCategory}
             onOpenDbModal={() => setIsDbModalOpen(true)}
             onRestoreDefault={handleResetToDefault}
           />
