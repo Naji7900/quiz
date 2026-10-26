@@ -52,7 +52,16 @@ export default function App() {
       return [];
     }
     const custom = GoogleSheetsService.getCustomParts();
-    return custom.length > 0 ? custom : getAllFlattenedParts(INITIAL_DATA);
+    const sourceParts = custom.length > 0 ? custom : getAllFlattenedParts(INITIAL_DATA);
+    return sourceParts.map(p => {
+      const isOld13 = p.salesPrice && p.usd && Math.abs(p.salesPrice - Number((p.usd * 1.3).toFixed(2))) < 0.05;
+      const salesPrice = isOld13 || !p.salesPrice ? p.usd : p.salesPrice;
+      return {
+        ...p,
+        salesPrice,
+        salesPriceD: Number((salesPrice * 3.67).toFixed(1))
+      };
+    });
   });
 
   // 2. Compatible LCDs State
@@ -138,11 +147,22 @@ export default function App() {
     GoogleSheetsService.saveCustomParts(updated);
   };
 
-  // Delete part from catalog
+  // Delete part from catalog & auto-delete from Google Sheet if connected
   const handleDeletePart = (id: string) => {
+    const partToDelete = parts.find(p => p.id === id);
     const updated = parts.filter(p => p.id !== id);
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
+
+    // If connected to Google Sheets Web App, automatically delete row from Google Sheet!
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl && partToDelete && (config.sheetUrl.includes('/exec') || config.sheetUrl.includes('script.google.com'))) {
+      GoogleSheetsService.deleteFromGoogleSheet(config.sheetUrl, partToDelete.name, partToDelete.cat).then(res => {
+        if (res.success) {
+          console.log(`Auto-deleted "${partToDelete.name}" from Google Sheet`);
+        }
+      });
+    }
   };
 
   // Move product to new Category
@@ -150,12 +170,24 @@ export default function App() {
     handleUpdatePart(id, { cat: newCategory });
   };
 
-  // Bulk delete multiple products
+  // Bulk delete multiple products & auto-delete from Google Sheet if connected
   const handleBulkDeleteParts = (ids: string[]) => {
     const idSet = new Set(ids);
+    const partsToDelete = parts.filter(p => idSet.has(p.id));
     const updated = parts.filter(p => !idSet.has(p.id));
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
+
+    // If connected to Google Sheets Web App, automatically bulk delete from Google Sheet!
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl && partsToDelete.length > 0 && (config.sheetUrl.includes('/exec') || config.sheetUrl.includes('script.google.com'))) {
+      const names = partsToDelete.map(p => p.name);
+      GoogleSheetsService.bulkDeleteFromGoogleSheet(config.sheetUrl, names).then(res => {
+        if (res.success) {
+          console.log(`Auto-deleted ${names.length} products from Google Sheet`);
+        }
+      });
+    }
   };
 
   // Bulk move multiple products to category
@@ -230,11 +262,24 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
   };
 
-  // Handle Google Sheet live sync completion
-  const handleDataSynced = (newParts: SparePartItem[], newCompare?: CompareItem[]) => {
+  // Handle Google Sheet live sync completion (parts, compare, photos, compat)
+  const handleDataSynced = (
+    newParts: SparePartItem[], 
+    newCompare?: CompareItem[],
+    newPhotos?: PhotoItem[],
+    newCompat?: CompatItem[]
+  ) => {
     setParts(newParts);
     if (newCompare && newCompare.length) {
       setCompareItems(newCompare);
+    }
+    if (newPhotos && newPhotos.length > 0) {
+      setPhotosList(newPhotos);
+      localStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(newPhotos));
+    }
+    if (newCompat && newCompat.length > 0) {
+      setCompatList(newCompat);
+      localStorage.setItem(STORAGE_KEY_COMPAT, JSON.stringify(newCompat));
     }
     const syncedTime = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
     setLastSyncedAt(syncedTime);
@@ -364,6 +409,7 @@ export default function App() {
             parts={parts}
             compatList={compatList}
             compareList={compareItems}
+            photosList={photosList}
             onDataSynced={handleDataSynced}
             onResetToDefault={handleResetToDefault}
             onFormatDatabase={handleFormatDatabase}
@@ -380,6 +426,7 @@ export default function App() {
         parts={parts}
         compatList={compatList}
         compareList={compareItems}
+        photosList={photosList}
         onDataSynced={handleDataSynced}
         onResetToDefault={handleResetToDefault}
         onFormatDatabase={handleFormatDatabase}

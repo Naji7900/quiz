@@ -27,7 +27,13 @@ interface SheetsDatabaseViewProps {
   parts: SparePartItem[];
   compatList: CompatItem[];
   compareList: CompareItem[];
-  onDataSynced: (newParts: SparePartItem[], newCompare?: CompareItem[]) => void;
+  photosList?: any[];
+  onDataSynced: (
+    newParts: SparePartItem[], 
+    newCompare?: CompareItem[],
+    newPhotos?: any[],
+    newCompat?: any[]
+  ) => void;
   onResetToDefault: () => void;
   onFormatDatabase: () => void;
   lastSyncedAt: string | null;
@@ -37,6 +43,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
   parts,
   compatList,
   compareList,
+  photosList = [],
   onDataSynced,
   onResetToDefault,
   onFormatDatabase,
@@ -52,46 +59,66 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
   const [dragActive, setDragActive] = useState(false);
   const [uploadedPreview, setUploadedPreview] = useState<{ headers: string[]; rows: string[][] } | null>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [showAppsScriptCard, setShowAppsScriptCard] = useState(false);
 
   // Format confirmation state
   const [formatConfirmText, setFormatConfirmText] = useState('');
   const [resetConfirmText, setResetConfirmText] = useState('');
 
-  // Backup all local products to Google Sheets database
-  const handleBackupToSheet = async () => {
-    if (!sheetUrl.trim()) {
+  // Backup all local products, photos, and compatible LCDs to Google Sheets database
+  const handleBackupToSheet = async (mode: 'all_in_one' | 'multi_tab' = 'all_in_one') => {
+    if (parts.length === 0) {
+      sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Please enter your Google Apps Script Web App URL first to enable cloud backup.'
+        text: 'Your catalog currently has 0 products. Please add products or restore defaults before creating 1 Sheet.'
       });
       return;
     }
 
     setIsBackingUp(true);
     setStatusMessage(null);
-    try {
-      const res = await GoogleSheetsService.backupAllToGoogleSheet(sheetUrl, parts);
-      if (res.success) {
+
+    // 1. Always copy all products in tab-delimited format (ready to paste directly into Google Sheets with Ctrl+V)
+    await GoogleSheetsService.copyAllProductsToClipboard(parts);
+
+    const isWebEndpoint = sheetUrl.trim().includes('/exec') || sheetUrl.trim().includes('script.google.com');
+
+    // 2. If connected to an Apps Script Web App, send cloud push to update "ALL PRODUCT" tab
+    if (isWebEndpoint) {
+      try {
+        const res = await GoogleSheetsService.backupAllToGoogleSheet(sheetUrl, parts, photosList, compatList, mode);
+        sound.playVictory();
+        const targetDesc = mode === 'all_in_one' 
+          ? "1 single sheet tab named 'ALL PRODUCT'" 
+          : "individual category sheets";
+        setStatusMessage({
+          type: 'success',
+          text: `Success! All ${parts.length} products backed up to ${targetDesc} in your Google Sheet, and copied to clipboard!`
+        });
+      } catch (err) {
         sound.playVictory();
         setStatusMessage({
           type: 'success',
-          text: `Backup complete! ${parts.length} products sent directly into your Google Sheets tabs.`
+          text: `All ${parts.length} products copied to clipboard in 1-Sheet format! In Google Sheets, click cell A1 and press Ctrl+V to paste immediately.`
         });
-      } else {
-        throw new Error(res.message);
+      } finally {
+        setIsBackingUp(false);
       }
-    } catch (err) {
-      sound.playWrong();
-      setStatusMessage({
-        type: 'error',
-        text: (err as Error).message || 'Failed to backup to Google Sheets.'
-      });
-    } finally {
-      setIsBackingUp(false);
+      return;
     }
+
+    // 3. If regular sheet link or empty: download CSV and copy to clipboard so they can paste directly
+    GoogleSheetsService.exportToCSV(parts);
+    sound.playVictory();
+    setIsBackingUp(false);
+    setStatusMessage({
+      type: 'success',
+      text: `1-Sheet Ready! All ${parts.length} products copied to clipboard and downloaded as 'ALL_PRODUCT_Master_Sheet.csv'. Open your Google Sheet, click cell A1 and press Ctrl+V!`
+    });
   };
 
-  // Handle live sync from Google Sheet
+  // Handle live sync from Google Sheet (scans all categories + photos + compat)
   const handleSync = async () => {
     if (!sheetUrl.trim()) {
       setStatusMessage({
@@ -105,13 +132,18 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     setStatusMessage(null);
 
     try {
-      const { result, parts: syncedParts, compareItems: syncedCompare } = await GoogleSheetsService.syncFromSheet(sheetUrl);
+      const { result, parts: syncedParts, photos: syncedPhotos, compat: syncedCompat, compareItems: syncedCompare } = await GoogleSheetsService.syncFromSheet(sheetUrl);
       sound.playVictory();
       setStatusMessage({
         type: 'success',
         text: result.message
       });
-      onDataSynced(syncedParts, syncedCompare.length ? syncedCompare : undefined);
+      onDataSynced(
+        syncedParts, 
+        syncedCompare.length ? syncedCompare : undefined,
+        syncedPhotos.length ? syncedPhotos : undefined,
+        syncedCompat.length ? syncedCompat : undefined
+      );
     } catch (err) {
       sound.playWrong();
       setStatusMessage({
@@ -227,10 +259,11 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
             <button
               type="button"
               onClick={() => { sound.playTick(); GoogleSheetsService.exportToCSV(parts); }}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-cyan-500/40 bg-slate-900 hover:bg-slate-800 text-cyan-300 text-xs sm:text-sm font-semibold transition-all cursor-pointer shadow-lg"
+              title="Download all products consolidated in 1 single sheet format ('ALL PRODUCT')"
             >
               <Download className="w-4 h-4 text-cyan-400" />
-              <span>Export CSV</span>
+              <span>Export "ALL PRODUCT" CSV</span>
             </button>
           </div>
         </div>
@@ -282,75 +315,161 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       {/* ================= TAB 1: CONNECT GOOGLE SHEET LINK ================= */}
       {activeTab === 'connect' && (
         <div className="bg-[#0b111e] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
-          <div className="space-y-1">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <ExternalLink className="w-5 h-5 text-cyan-400" />
-              <span>Connect Live Google Sheet Database</span>
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-300">
-              Paste your Google Sheet URL. The app will fetch all rows, calculate currencies, and populate your entire catalog and quizzes.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <ExternalLink className="w-5 h-5 text-cyan-400" />
+                <span>Multi-Category Google Sheets Live Cloud Database</span>
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-300">
+                Sync all 17+ category tabs (SAMSUNG / LCD, REDMI / LCD, IPHONE / BATTERY, etc.), backup Photos and Compatible LCDs, and enable auto-delete from the interface.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAppsScriptCard(!showAppsScriptCard)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-cyan-500/40 bg-cyan-950/30 hover:bg-cyan-900/40 text-cyan-300 text-xs font-semibold transition-all cursor-pointer shrink-0"
+            >
+              <Code2 className="w-4 h-4 text-cyan-400" />
+              <span>{showAppsScriptCard ? 'Hide Apps Script' : 'View Multi-Category Script'}</span>
+            </button>
           </div>
 
           <div className="space-y-3">
             <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
-              Google Sheet URL or Apps Script Link:
+              Google Apps Script Web App URL or Google Sheet Link:
             </label>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col lg:flex-row gap-3">
               <input
                 type="url"
                 value={sheetUrl}
                 onChange={(e) => setSheetUrl(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/your-sheet-id/edit#gid=0"
+                placeholder="https://script.google.com/macros/s/AKfy.../exec"
                 className="flex-1 px-4 py-3 text-xs sm:text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono"
               />
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   disabled={isLoading || isBackingUp}
                   onClick={handleSync}
-                  className="px-5 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-cyan-900/50 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  title="Download latest products from Google Sheet into app"
+                  className="px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-cyan-900/50 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  title="Download and sync all products ('ALL PRODUCT' sheet or all category tabs), photos, and compatible LCDs"
                 >
                   <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                  <span>{isLoading ? 'Syncing...' : 'Sync from Sheet'}</span>
+                  <span>{isLoading ? 'Syncing...' : '🔄 1-Click Sync'}</span>
                 </button>
 
                 <button
                   type="button"
                   disabled={isLoading || isBackingUp}
-                  onClick={handleBackupToSheet}
-                  className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-emerald-950/50 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  title="Upload all local app products into Google Sheet tabs"
+                  onClick={() => handleBackupToSheet('all_in_one')}
+                  className="px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-emerald-950/60 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  title="Make all data into 1 single sheet named 'ALL PRODUCT' (Uploads to Google Sheet, copies to clipboard, and downloads CSV)"
                 >
-                  <Upload className={`w-4 h-4 ${isBackingUp ? 'animate-bounce' : ''}`} />
-                  <span>{isBackingUp ? 'Backing up...' : 'Backup to Sheet'}</span>
+                  <Upload className={`w-4 h-4 ${isBackingUp ? 'animate-bounce text-amber-300' : 'text-emerald-200'}`} />
+                  <span>{isBackingUp ? 'Making 1 Sheet ("ALL PRODUCT")...' : '⚡ Backup All to 1 Sheet ("ALL PRODUCT")'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isLoading || isBackingUp}
+                  onClick={() => handleBackupToSheet('multi_tab')}
+                  className="px-3.5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  title="Split products into individual category tabs (SAMSUNG / LCD, REDMI / LCD, etc.)"
+                >
+                  <span>📂 Multi-Tab Backup</span>
                 </button>
               </div>
             </div>
-          </div>
 
-          {/* Quick Sharing Setup Tip */}
-          <div className="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 text-xs text-slate-300 space-y-2">
-            <div className="font-semibold text-cyan-300 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-cyan-400" />
-              <span>Google Sheet Sharing Instructions:</span>
+            {/* All-In-One Notification Highlight */}
+            <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 flex items-center gap-2.5 text-xs text-cyan-200">
+              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span>
+                <strong>1-Sheet Mode Active:</strong> Clicking <strong>"⚡ Backup All to 1 Sheet ("ALL PRODUCT")"</strong> prepares and uploads all {parts.length} products into <strong>1 single sheet tab named "ALL PRODUCT"</strong> with all columns (Product Name, Category, Price D, Yuan ¥, USD+, Sales $)!
+              </span>
             </div>
-            <p>
-              1. In Google Sheets, click the green <strong>"Share"</strong> button at top right.
-            </p>
-            <p>
-              2. Under General access, change to: <strong>"Anyone with the link can view"</strong>.
-            </p>
-            <p>
-              3. Copy the URL from your browser address bar and paste it in the box above.
-            </p>
           </div>
 
-          {/* Current Database Summary */}
-          <div className="pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-400">Current Local Cache:</span>
-            <span className="text-cyan-400 font-bold">{parts.length} Products Active</span>
+          {/* Collapsible / Quick Multi-Category Apps Script Block */}
+          {showAppsScriptCard && (
+            <div className="p-5 rounded-2xl bg-slate-950 border border-cyan-500/30 space-y-3 animate-in fade-in duration-150">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span>Multi-Category Apps Script (Scans all sheets, Photos & Compat)</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Paste this into your Google Sheet: <strong>Extensions &gt; Apps Script</strong> &gt; Deploy as Web App ("Who has access: Anyone").
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(GoogleSheetsService.getAppsScriptCode());
+                    sound.playVictory();
+                    setCopiedScript(true);
+                    setTimeout(() => setCopiedScript(false), 2500);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-lg"
+                >
+                  {copiedScript ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedScript ? 'Copied to Clipboard!' : 'Copy Multi-Category Script'}</span>
+                </button>
+              </div>
+
+              <pre className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-mono text-cyan-200/90 overflow-x-auto max-h-52 leading-relaxed">
+                {GoogleSheetsService.getAppsScriptCode()}
+              </pre>
+            </div>
+          )}
+
+          {/* Quick Sharing Setup Tip & Feature Badges */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div className="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 text-slate-300 space-y-1.5">
+              <div className="font-semibold text-cyan-300 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-cyan-400" />
+                <span>1-Sheet All-In-One vs Multi-Category:</span>
+              </div>
+              <ul className="space-y-1 text-slate-300 list-disc list-inside text-[11px] leading-relaxed">
+                <li><strong>"ALL PRODUCT" Sheet:</strong> Consolidates all {parts.length} products from all categories into 1 single master sheet.</li>
+                <li><strong>Multi-Tab Option:</strong> Splits items into individual brand sheets (SAMSUNG / LCD, REDMI / LCD, etc.).</li>
+                <li><strong>1-Click Sync:</strong> Automatically detects and reads the "ALL PRODUCT" sheet or all category sheets.</li>
+                <li><strong>Exact Origin Price $:</strong> Formula is strictly Price D / 3.67 with zero extra shipping or hidden fees.</li>
+              </ul>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 text-slate-300 space-y-1.5">
+              <div className="font-semibold text-emerald-300 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>Automatic Bidirectional Deletion:</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-slate-300">
+                When you delete or bulk-delete any product from the catalog table, the system automatically sends a delete request to your Google Sheet to remove the matching row instantly.
+              </p>
+            </div>
+          </div>
+
+          {/* Current Database Summary Metrics */}
+          <div className="pt-4 border-t border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+            <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+              <div className="text-slate-400 text-[10px] uppercase">Catalog Products</div>
+              <div className="text-cyan-400 font-bold text-base mt-0.5">{parts.length} Active</div>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+              <div className="text-slate-400 text-[10px] uppercase">Photos in Hub</div>
+              <div className="text-emerald-400 font-bold text-base mt-0.5">{photosList.length} Photos</div>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+              <div className="text-slate-400 text-[10px] uppercase">Compatible LCDs</div>
+              <div className="text-amber-400 font-bold text-base mt-0.5">{compatList.length} Sets</div>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+              <div className="text-slate-400 text-[10px] uppercase">Cloud Auto-Delete</div>
+              <div className="text-rose-400 font-bold text-base mt-0.5">Enabled ⚡</div>
+            </div>
           </div>
         </div>
       )}

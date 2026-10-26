@@ -29,55 +29,61 @@ interface GoogleSheetModalProps {
   parts: SparePartItem[];
   compatList: CompatItem[];
   compareList: CompareItem[];
-  onDataSynced: (newParts: SparePartItem[], newCompare?: CompareItem[]) => void;
+  photosList?: any[];
+  onDataSynced: (
+    newParts: SparePartItem[], 
+    newCompare?: CompareItem[],
+    newPhotos?: any[],
+    newCompat?: any[]
+  ) => void;
   onResetToDefault: () => void;
   onFormatDatabase: () => void;
   lastSyncedAt: string | null;
 }
 
-// 5 rows per category for the official All-In-One Google Sheet template
+// 5 rows per category for the official All-In-One Google Sheet template (0 expenses)
 const ALL_IN_ONE_TEMPLATE_ROWS = [
   // iPhone LCD (5 rows)
-  { name: 'LCD IPHONE X8 +', priceD: 17.5, usdPlus: 5.0, yuan: 34.5, sales: 6.5, cat: 'iPhone LCD', exp: 1.0 },
-  { name: 'LCD IPHONE X7 +', priceD: 17.5, usdPlus: 5.0, yuan: 34.5, sales: 6.5, cat: 'iPhone LCD', exp: 1.0 },
-  { name: 'LCD IPHONE DD X13 PRO', priceD: 117.0, usdPlus: 32.6, yuan: 230.5, sales: 42.4, cat: 'iPhone LCD', exp: 2.0 },
-  { name: 'LCD IPHONE DD X14 PRO MAX', priceD: 121.0, usdPlus: 33.65, yuan: 238.4, sales: 43.7, cat: 'iPhone LCD', exp: 2.0 },
-  { name: 'LCD IPHONE DD X15 PRO MAX', priceD: 121.0, usdPlus: 33.57, yuan: 238.4, sales: 43.6, cat: 'iPhone LCD', exp: 2.0 },
+  { name: 'LCD IPHONE X8 +', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'iPhone LCD', exp: 0 },
+  { name: 'LCD IPHONE X7 +', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'iPhone LCD', exp: 0 },
+  { name: 'LCD IPHONE DD X13 PRO', priceD: 117.0, usdPlus: 31.88, yuan: 230.5, sales: 31.88, cat: 'iPhone LCD', exp: 0 },
+  { name: 'LCD IPHONE DD X14 PRO MAX', priceD: 121.0, usdPlus: 32.97, yuan: 238.4, sales: 32.97, cat: 'iPhone LCD', exp: 0 },
+  { name: 'LCD IPHONE DD X15 PRO MAX', priceD: 121.0, usdPlus: 32.97, yuan: 238.4, sales: 32.97, cat: 'iPhone LCD', exp: 0 },
 
   // Samsung LCD (5 rows)
-  { name: 'LCD SAM A12 (INCELL)', priceD: 19.8, usdPlus: 5.4, yuan: 39.0, sales: 7.0, cat: 'Samsung LCD', exp: 1.0 },
-  { name: 'LCD SAM A15 (INCELL)', priceD: 24.5, usdPlus: 6.7, yuan: 48.3, sales: 8.7, cat: 'Samsung LCD', exp: 1.0 },
-  { name: 'LCD SAM A54 (OLED)', priceD: 68.0, usdPlus: 18.5, yuan: 134.0, sales: 24.1, cat: 'Samsung LCD', exp: 2.0 },
-  { name: 'LCD SAM A10 (ORIGINAL)', priceD: 22.0, usdPlus: 6.0, yuan: 43.3, sales: 7.8, cat: 'Samsung LCD', exp: 1.0 },
-  { name: 'LCD SAM A24 (INCELL)', priceD: 28.5, usdPlus: 7.8, yuan: 56.1, sales: 10.1, cat: 'Samsung LCD', exp: 1.0 },
+  { name: 'LCD SAM A12 (INCELL)', priceD: 19.8, usdPlus: 5.4, yuan: 39.0, sales: 5.4, cat: 'Samsung LCD', exp: 0 },
+  { name: 'LCD SAM A15 (INCELL)', priceD: 24.5, usdPlus: 6.68, yuan: 48.3, sales: 6.68, cat: 'Samsung LCD', exp: 0 },
+  { name: 'LCD SAM A54 (OLED)', priceD: 68.0, usdPlus: 18.53, yuan: 134.0, sales: 18.53, cat: 'Samsung LCD', exp: 0 },
+  { name: 'LCD SAM A10 (ORIGINAL)', priceD: 22.0, usdPlus: 5.99, yuan: 43.3, sales: 5.99, cat: 'Samsung LCD', exp: 0 },
+  { name: 'LCD SAM A24 (INCELL)', priceD: 28.5, usdPlus: 7.77, yuan: 56.1, sales: 7.77, cat: 'Samsung LCD', exp: 0 },
 
   // Redmi LCD (5 rows)
-  { name: 'LCD Redmi Note 13 4G', priceD: 19.4, usdPlus: 5.3, yuan: 38.2, sales: 6.9, cat: 'Redmi LCD', exp: 1.0 },
-  { name: 'LCD Redmi Note 12 4G', priceD: 18.5, usdPlus: 5.0, yuan: 36.4, sales: 6.5, cat: 'Redmi LCD', exp: 1.0 },
-  { name: 'LCD Redmi Note 11', priceD: 21.0, usdPlus: 5.7, yuan: 41.4, sales: 7.4, cat: 'Redmi LCD', exp: 1.0 },
-  { name: 'LCD Redmi Note 10', priceD: 19.0, usdPlus: 5.2, yuan: 37.4, sales: 6.8, cat: 'Redmi LCD', exp: 1.0 },
-  { name: 'LCD Redmi Note 9 Pro', priceD: 17.5, usdPlus: 4.8, yuan: 34.5, sales: 6.2, cat: 'Redmi LCD', exp: 1.0 },
+  { name: 'LCD Redmi Note 13 4G', priceD: 19.4, usdPlus: 5.29, yuan: 38.2, sales: 5.29, cat: 'Redmi LCD', exp: 0 },
+  { name: 'LCD Redmi Note 12 4G', priceD: 18.5, usdPlus: 5.04, yuan: 36.4, sales: 5.04, cat: 'Redmi LCD', exp: 0 },
+  { name: 'LCD Redmi Note 11', priceD: 21.0, usdPlus: 5.72, yuan: 41.4, sales: 5.72, cat: 'Redmi LCD', exp: 0 },
+  { name: 'LCD Redmi Note 10', priceD: 19.0, usdPlus: 5.18, yuan: 37.4, sales: 5.18, cat: 'Redmi LCD', exp: 0 },
+  { name: 'LCD Redmi Note 9 Pro', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'Redmi LCD', exp: 0 },
 
   // Infinix / Tecno LCD (5 rows)
-  { name: 'LCD Infinix Hot 12i', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 5.9, cat: 'Infinix / Tecno LCD', exp: 1.0 },
-  { name: 'LCD Tecno Spark 20', priceD: 18.0, usdPlus: 4.9, yuan: 35.5, sales: 6.4, cat: 'Infinix / Tecno LCD', exp: 1.0 },
-  { name: 'LCD Infinix Hot 30', priceD: 19.0, usdPlus: 5.2, yuan: 37.4, sales: 6.8, cat: 'Infinix / Tecno LCD', exp: 1.0 },
-  { name: 'LCD Tecno Spark 10', priceD: 17.0, usdPlus: 4.6, yuan: 33.5, sales: 6.0, cat: 'Infinix / Tecno LCD', exp: 1.0 },
-  { name: 'LCD Tecno Camon 20', priceD: 23.5, usdPlus: 6.4, yuan: 46.3, sales: 8.3, cat: 'Infinix / Tecno LCD', exp: 1.0 },
+  { name: 'LCD Infinix Hot 12i', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 4.5, cat: 'Infinix / Tecno LCD', exp: 0 },
+  { name: 'LCD Tecno Spark 20', priceD: 18.0, usdPlus: 4.9, yuan: 35.5, sales: 4.9, cat: 'Infinix / Tecno LCD', exp: 0 },
+  { name: 'LCD Infinix Hot 30', priceD: 19.0, usdPlus: 5.18, yuan: 37.4, sales: 5.18, cat: 'Infinix / Tecno LCD', exp: 0 },
+  { name: 'LCD Tecno Spark 10', priceD: 17.0, usdPlus: 4.63, yuan: 33.5, sales: 4.63, cat: 'Infinix / Tecno LCD', exp: 0 },
+  { name: 'LCD Tecno Camon 20', priceD: 23.5, usdPlus: 6.4, yuan: 46.3, sales: 6.4, cat: 'Infinix / Tecno LCD', exp: 0 },
 
   // iPhone Battery (5 rows)
-  { name: 'BATTERY IPHONE X14 PRO MAX', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 5.9, cat: 'iPhone Battery', exp: 0.8 },
-  { name: 'BATTERY IPHONE X13 PRO MAX', priceD: 14.8, usdPlus: 4.0, yuan: 29.2, sales: 5.2, cat: 'iPhone Battery', exp: 0.8 },
-  { name: 'BATTERY IPHONE X12 PRO', priceD: 12.5, usdPlus: 3.4, yuan: 24.6, sales: 4.4, cat: 'iPhone Battery', exp: 0.8 },
-  { name: 'BATTERY IPHONE X11 PRO', priceD: 11.0, usdPlus: 3.0, yuan: 21.7, sales: 3.9, cat: 'iPhone Battery', exp: 0.8 },
-  { name: 'BATTERY IPHONE X8 PLUS', priceD: 8.5, usdPlus: 2.3, yuan: 16.7, sales: 3.0, cat: 'iPhone Battery', exp: 0.8 },
+  { name: 'BATTERY IPHONE X14 PRO MAX', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 4.5, cat: 'iPhone Battery', exp: 0 },
+  { name: 'BATTERY IPHONE X13 PRO MAX', priceD: 14.8, usdPlus: 4.03, yuan: 29.2, sales: 4.03, cat: 'iPhone Battery', exp: 0 },
+  { name: 'BATTERY IPHONE X12 PRO', priceD: 12.5, usdPlus: 3.41, yuan: 24.6, sales: 3.41, cat: 'iPhone Battery', exp: 0 },
+  { name: 'BATTERY IPHONE X11 PRO', priceD: 11.0, usdPlus: 3.0, yuan: 21.7, sales: 3.0, cat: 'iPhone Battery', exp: 0 },
+  { name: 'BATTERY IPHONE X8 PLUS', priceD: 8.5, usdPlus: 2.32, yuan: 16.7, sales: 2.32, cat: 'iPhone Battery', exp: 0 },
 
   // Samsung Flex Charger (5 rows)
-  { name: 'FLEX CHARGER SAM A15', priceD: 0.6, usdPlus: 0.66, yuan: 1.18, sales: 0.86, cat: 'Samsung Flex Charger', exp: 0.5 },
-  { name: 'FLEX CHARGER SAM A12', priceD: 0.5, usdPlus: 0.64, yuan: 0.98, sales: 0.83, cat: 'Samsung Flex Charger', exp: 0.5 },
-  { name: 'FLEX CHARGER SAM A54', priceD: 0.8, usdPlus: 0.72, yuan: 1.58, sales: 0.94, cat: 'Samsung Flex Charger', exp: 0.5 },
-  { name: 'FLEX CHARGER SAM A24', priceD: 0.6, usdPlus: 0.66, yuan: 1.18, sales: 0.86, cat: 'Samsung Flex Charger', exp: 0.5 },
-  { name: 'FLEX CHARGER SAM A32', priceD: 0.55, usdPlus: 0.65, yuan: 1.08, sales: 0.85, cat: 'Samsung Flex Charger', exp: 0.5 }
+  { name: 'FLEX CHARGER SAM A15', priceD: 0.6, usdPlus: 0.16, yuan: 1.18, sales: 0.16, cat: 'Samsung Flex Charger', exp: 0 },
+  { name: 'FLEX CHARGER SAM A12', priceD: 0.5, usdPlus: 0.14, yuan: 0.98, sales: 0.14, cat: 'Samsung Flex Charger', exp: 0 },
+  { name: 'FLEX CHARGER SAM A54', priceD: 0.8, usdPlus: 0.22, yuan: 1.58, sales: 0.22, cat: 'Samsung Flex Charger', exp: 0 },
+  { name: 'FLEX CHARGER SAM A24', priceD: 0.6, usdPlus: 0.16, yuan: 1.18, sales: 0.16, cat: 'Samsung Flex Charger', exp: 0 },
+  { name: 'FLEX CHARGER SAM A32', priceD: 0.55, usdPlus: 0.15, yuan: 1.08, sales: 0.15, cat: 'Samsung Flex Charger', exp: 0 }
 ];
 
 export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
@@ -86,6 +92,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   parts,
   compatList,
   compareList,
+  photosList = [],
   onDataSynced,
   onResetToDefault,
   onFormatDatabase,
@@ -106,37 +113,55 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleBackupToSheet = async () => {
-    if (!sheetUrl.trim()) {
+  const handleBackupToSheet = async (mode: 'all_in_one' | 'multi_tab' = 'all_in_one') => {
+    if (parts.length === 0) {
+      sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Please enter your Google Apps Script Web App URL first to enable cloud backup.'
+        text: 'Your catalog currently has 0 products. Please add products or restore defaults before creating 1 Sheet.'
       });
       return;
     }
 
     setIsBackingUp(true);
     setStatusMessage(null);
-    try {
-      const res = await GoogleSheetsService.backupAllToGoogleSheet(sheetUrl, parts);
-      if (res.success) {
+
+    // Always copy TSV to clipboard
+    await GoogleSheetsService.copyAllProductsToClipboard(parts);
+
+    const isWebEndpoint = sheetUrl.trim().includes('/exec') || sheetUrl.trim().includes('script.google.com');
+
+    if (isWebEndpoint) {
+      try {
+        const res = await GoogleSheetsService.backupAllToGoogleSheet(sheetUrl, parts, photosList, compatList, mode);
+        sound.playVictory();
+        const targetDesc = mode === 'all_in_one'
+          ? "1 single sheet tab named 'ALL PRODUCT'"
+          : "individual category sheets";
+        setStatusMessage({
+          type: 'success',
+          text: `Success! All ${parts.length} products backed up to ${targetDesc} in your Google Sheet, and copied to clipboard!`
+        });
+      } catch (err) {
         sound.playVictory();
         setStatusMessage({
           type: 'success',
-          text: `Backup complete! ${parts.length} products sent directly into your Google Sheets.`
+          text: `All ${parts.length} products copied to clipboard in 1-Sheet format! In Google Sheets, click cell A1 and press Ctrl+V.`
         });
-      } else {
-        throw new Error(res.message);
+      } finally {
+        setIsBackingUp(false);
       }
-    } catch (err) {
-      sound.playWrong();
-      setStatusMessage({
-        type: 'error',
-        text: (err as Error).message || 'Failed to backup to Google Sheets.'
-      });
-    } finally {
-      setIsBackingUp(false);
+      return;
     }
+
+    // Direct sheet link or empty: download CSV & copy to clipboard
+    GoogleSheetsService.exportToCSV(parts);
+    sound.playVictory();
+    setIsBackingUp(false);
+    setStatusMessage({
+      type: 'success',
+      text: `1-Sheet Ready! All ${parts.length} products copied to clipboard & downloaded as 'ALL_PRODUCT_Master_Sheet.csv'. In Google Sheets, click cell A1 and press Ctrl+V!`
+    });
   };
 
   const handleSync = async () => {
@@ -152,13 +177,18 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     setStatusMessage(null);
 
     try {
-      const { result, parts: syncedParts, compareItems: syncedCompare } = await GoogleSheetsService.syncFromSheet(sheetUrl);
+      const { result, parts: syncedParts, photos: syncedPhotos, compat: syncedCompat, compareItems: syncedCompare } = await GoogleSheetsService.syncFromSheet(sheetUrl);
       sound.playVictory();
       setStatusMessage({
         type: 'success',
         text: result.message
       });
-      onDataSynced(syncedParts, syncedCompare.length ? syncedCompare : undefined);
+      onDataSynced(
+        syncedParts, 
+        syncedCompare.length ? syncedCompare : undefined,
+        syncedPhotos.length ? syncedPhotos : undefined,
+        syncedCompat.length ? syncedCompat : undefined
+      );
     } catch (err) {
       sound.playWrong();
       setStatusMessage({
@@ -236,7 +266,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
         r.priceD,
         `=ROUND((C${rowNum}/3.67)*7.23, 1)`,
         `=ROUND((C${rowNum}/3.67)+1.0, 2)`,
-        `=ROUND(E${rowNum}*1.30, 2)`
+        `=E${rowNum}`
       ].join('\t');
     }).join('\n');
 
@@ -436,7 +466,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                       Yuan ¥ = (Price D / 3.67) * 7.23
                     </span>
                     <span className="bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-700 text-violet-300 font-bold">
-                      Sales $ = USD+ * 1.30
+                      Sales $ = Origin Price $ (No 1.3 markup)
                     </span>
                   </div>
                 </div>
@@ -595,13 +625,13 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                       placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv"
                       className="flex-1 bg-slate-950 border border-slate-700/80 focus:border-cyan-500 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 font-mono outline-none"
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={handleSync}
                         disabled={isLoading || isBackingUp}
-                        className="px-5 py-3 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
-                        title="Download latest data from Google Sheet into local app"
+                        className="px-4 py-3 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
+                        title="Download latest data from Google Sheet ('ALL PRODUCT' sheet or all category tabs)"
                       >
                         <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                         <span>{isLoading ? 'Syncing...' : 'Sync From Link'}</span>
@@ -609,13 +639,23 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={handleBackupToSheet}
+                        onClick={() => handleBackupToSheet('all_in_one')}
                         disabled={isLoading || isBackingUp}
-                        className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
-                        title="Backup all local app products into Google Sheet tabs"
+                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
+                        title="Backup ALL products into 1 single sheet named 'ALL PRODUCT'"
                       >
                         <Upload className={`w-4 h-4 ${isBackingUp ? 'animate-bounce' : ''}`} />
-                        <span>{isBackingUp ? 'Backing up...' : 'Backup to Sheet'}</span>
+                        <span>{isBackingUp ? 'Backing up...' : '⚡ Backup All to 1 Sheet ("ALL PRODUCT")'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleBackupToSheet('multi_tab')}
+                        disabled={isLoading || isBackingUp}
+                        className="px-3 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
+                        title="Split products into individual category tabs"
+                      >
+                        <span>📂 Multi-Tab</span>
                       </button>
                     </div>
                   </div>

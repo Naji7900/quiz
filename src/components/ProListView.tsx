@@ -200,7 +200,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const d = Number((baseUsd * 3.67).toFixed(2));
       const exp = parseFloat(newPartExpense) || 0;
       const costUsd = Number((baseUsd + exp).toFixed(2));
-      const sales = Number((costUsd * 1.30).toFixed(2));
+      const sales = costUsd; // Direct origin price $, no 1.3 multiplier
       setNewPartD(String(d));
       setNewPartUsd(String(costUsd));
       setNewPartSalesPrice(String(sales));
@@ -216,7 +216,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const baseUsd = Math.max(0, u - exp);
       const d = Number((baseUsd * 3.67).toFixed(2));
       const yuan = Number((baseUsd * 7.23).toFixed(2));
-      const sales = Number((u * 1.30).toFixed(2));
+      const sales = u; // Direct origin price $, no 1.3 multiplier
       setNewPartD(String(d));
       setNewPartYuan(String(yuan));
       setNewPartSalesPrice(String(sales));
@@ -344,7 +344,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const d = Number((baseUsd * 3.67).toFixed(2));
       const exp = parseFloat(editExpense) || 0;
       const costUsd = Number((baseUsd + exp).toFixed(2));
-      const sales = Number((costUsd * 1.30).toFixed(2));
+      const sales = costUsd; // Direct origin price $, no 1.3 multiplier
       setEditD(String(d));
       setEditUsd(String(costUsd));
       setEditSalesPrice(String(sales));
@@ -359,7 +359,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const baseUsd = Math.max(0, u - exp);
       const d = Number((baseUsd * 3.67).toFixed(2));
       const yuan = Number((baseUsd * 7.23).toFixed(2));
-      const sales = Number((u * 1.30).toFixed(2));
+      const sales = u; // Direct origin price $, no 1.3 multiplier
       setEditD(String(d));
       setEditYuan(String(yuan));
       setEditSalesPrice(String(sales));
@@ -668,12 +668,12 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 </span>
               </div>
               <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-400 block font-sans font-medium">Sales $ (Customer Price):</span>
+                <span className="text-xs text-slate-400 block font-sans font-medium">Sales $ (Origin Price):</span>
                 <span className="text-violet-300 font-bold text-sm sm:text-base">
-                  USD+ * 1.30 (30% Profit)
+                  Direct Google Sheet Price $ (No 1.3 Markup)
                 </span>
                 <span className="text-[11px] text-slate-400 block font-sans font-normal mt-0.5">
-                  Final shop retail price.
+                  Follows exact original spreadsheet price $.
                 </span>
               </div>
             </div>

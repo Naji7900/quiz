@@ -62,7 +62,8 @@ export interface CompareItem {
 // Exact formula: USD+ = Price D / 3.67 (+ optional custom expense)
 // 1 Dirham = (1 / 3.67) = 0.27 USD+
 // 1 Dirham = (1 / 3.67) * 7.23 = 1.97 Yuan
-export function calculatePricing(dirhamPrice: number, customExpense: number = 0, customMarkupPercent: number = 30): {
+// Sales $ strictly follows the origin Google Sheet price $ (NO 1.3 markup added)
+export function calculatePricing(dirhamPrice: number, customExpense: number = 0): {
   costUsd: number;
   yuan: number;
   salesPrice: number;
@@ -73,8 +74,7 @@ export function calculatePricing(dirhamPrice: number, customExpense: number = 0,
   const baseUsd = dirhamPrice / 3.67;
   const costUsd = Number((baseUsd + expense).toFixed(2));
   const yuan = Number((baseUsd * 7.23).toFixed(2));
-  const markupFactor = 1 + (customMarkupPercent / 100);
-  const salesPrice = Number((costUsd * markupFactor).toFixed(2));
+  const salesPrice = costUsd; // Direct origin price $, no 1.3 multiplier
   const salesPriceD = Number((salesPrice * 3.67).toFixed(1));
   return { costUsd, yuan, salesPrice, salesPriceD, expense };
 }
@@ -846,16 +846,18 @@ export function getAllFlattenedParts(dataset: Record<string, [string, number, nu
     for (const item of dataset[cat]) {
       count++;
       const dirham = item[1];
+      const originUsd = item[2]; // Exact origin price $ from Google Sheet
       const pricing = calculatePricing(dirham);
+      const exactUsd = originUsd !== undefined && originUsd !== null && !isNaN(originUsd) ? originUsd : pricing.costUsd;
       result.push({
         id: `p-${count}-${encodeURIComponent(item[0])}`,
         cat,
         name: item[0],
         d: dirham,
-        usd: pricing.costUsd,
+        usd: exactUsd,
         yuan: pricing.yuan,
-        salesPrice: pricing.salesPrice,
-        salesPriceD: pricing.salesPriceD,
+        salesPrice: exactUsd, // Directly follow origin price $ - no 1.3 multiplier added
+        salesPriceD: Number((exactUsd * 3.67).toFixed(1)),
         expense: pricing.expense
       });
     }
