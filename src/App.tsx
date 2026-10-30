@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { WifiOff, Download, Database, BookOpen, Layers } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { WifiOff, Download, Database, BookOpen, Layers, RefreshCw, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { TopNav, AppTab } from './components/TopNav';
 import { ProListView } from './components/ProListView';
 import { QuizView } from './components/QuizView';
@@ -108,6 +108,52 @@ export default function App() {
     return GoogleSheetsService.getSavedConfig().lastSyncedAt;
   });
 
+  const [isSyncingFromSheet, setIsSyncingFromSheet] = useState(false);
+
+  // Auto-sync on startup so Catalog and Quiz strictly reflect Google Sheet "ALL PRODUCT"
+  useEffect(() => {
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl) {
+      setIsSyncingFromSheet(true);
+      GoogleSheetsService.syncFromSheet(config.sheetUrl)
+        .then(({ parts: syncedParts, photos: syncedPhotos, compat: syncedCompat, compareItems: syncedCompare }) => {
+          if (syncedParts.length > 0) {
+            handleDataSynced(syncedParts, syncedCompare, syncedPhotos, syncedCompat);
+            console.log(`Auto-synced ${syncedParts.length} parts from Google Sheet "ALL PRODUCT"`);
+          }
+        })
+        .catch(err => {
+          console.warn('Initial Google Sheet sync notice (using cached data):', err);
+        })
+        .finally(() => {
+          setIsSyncingFromSheet(false);
+        });
+    }
+  }, []);
+
+  // Quick 1-click sync from Google Sheet "ALL PRODUCT"
+  const handleQuickSync = async () => {
+    const config = GoogleSheetsService.getSavedConfig();
+    if (!config.sheetUrl) {
+      setIsDbModalOpen(true);
+      return;
+    }
+    setIsSyncingFromSheet(true);
+    sound.playTick();
+    try {
+      const { parts: syncedParts, photos: syncedPhotos, compat: syncedCompat, compareItems: syncedCompare } = await GoogleSheetsService.syncFromSheet(config.sheetUrl);
+      if (syncedParts.length > 0) {
+        handleDataSynced(syncedParts, syncedCompare, syncedPhotos, syncedCompat);
+        sound.playVictory();
+      }
+    } catch (e) {
+      sound.playWrong();
+      console.warn('Manual sync error:', e);
+    } finally {
+      setIsSyncingFromSheet(false);
+    }
+  };
+
   // Sound toggle handler
   const handleToggleSound = () => {
     const next = sound.toggleMute();
@@ -124,12 +170,12 @@ export default function App() {
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
 
-    // If connected to a Google Sheets Web App endpoint, automatically create new sheet and append row!
+    // If connected to Google Sheets, automatically append row to "ALL PRODUCT" sheet!
     const config = GoogleSheetsService.getSavedConfig();
-    if (config.sheetUrl && (config.sheetUrl.includes('/exec') || config.sheetUrl.includes('script.google.com'))) {
-      GoogleSheetsService.appendToGoogleSheet(config.sheetUrl, newPart).then(res => {
+    if (config.sheetUrl) {
+      GoogleSheetsService.appendToGoogleSheet(config.sheetUrl, newPart, 'ALL PRODUCT').then(res => {
         if (res.success) {
-          console.log(res.message);
+          console.log(`Auto-added "${newPart.name}" directly to ALL PRODUCT in Google Sheet:`, res.message);
         }
       });
     }
@@ -168,7 +214,7 @@ export default function App() {
 
     // If connected to Google Sheets Web App, automatically delete row from Google Sheet!
     const config = GoogleSheetsService.getSavedConfig();
-    if (config.sheetUrl && partToDelete && (config.sheetUrl.includes('/exec') || config.sheetUrl.includes('script.google.com'))) {
+    if (config.sheetUrl && partToDelete) {
       GoogleSheetsService.deleteFromGoogleSheet(config.sheetUrl, partToDelete.name, partToDelete.cat).then(res => {
         if (res.success) {
           console.log(`Auto-deleted "${partToDelete.name}" from Google Sheet`);
@@ -192,7 +238,7 @@ export default function App() {
 
     // If connected to Google Sheets Web App, automatically bulk delete from Google Sheet!
     const config = GoogleSheetsService.getSavedConfig();
-    if (config.sheetUrl && partsToDelete.length > 0 && (config.sheetUrl.includes('/exec') || config.sheetUrl.includes('script.google.com'))) {
+    if (config.sheetUrl && partsToDelete.length > 0) {
       const names = partsToDelete.map(p => p.name);
       GoogleSheetsService.bulkDeleteFromGoogleSheet(config.sheetUrl, names).then(res => {
         if (res.success) {
@@ -211,6 +257,7 @@ export default function App() {
   };
 
   // Compatible LCDs Handlers
+  // Compatible LCDs Handlers & auto-sync to Google Sheet
   const handleAddCompat = (itemData: Omit<CompatItem, 'id'>) => {
     const newItem: CompatItem = {
       ...itemData,
@@ -219,21 +266,39 @@ export default function App() {
     const updated = [newItem, ...compatList];
     setCompatList(updated);
     localStorage.setItem(STORAGE_KEY_COMPAT, JSON.stringify(updated));
+
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl) {
+      GoogleSheetsService.syncCompatToGoogleSheet(config.sheetUrl, 'add', newItem);
+    }
   };
 
   const handleUpdateCompat = (id: string, updated: Partial<CompatItem>) => {
+    const original = compatList.find(c => c.id === id);
     const next = compatList.map(item => item.id === id ? { ...item, ...updated } : item);
     setCompatList(next);
     localStorage.setItem(STORAGE_KEY_COMPAT, JSON.stringify(next));
+
+    const finalItem = next.find(c => c.id === id);
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl && finalItem) {
+      GoogleSheetsService.syncCompatToGoogleSheet(config.sheetUrl, 'update', finalItem, original?.lcd);
+    }
   };
 
   const handleDeleteCompat = (id: string) => {
+    const toDelete = compatList.find(c => c.id === id);
     const next = compatList.filter(item => item.id !== id);
     setCompatList(next);
     localStorage.setItem(STORAGE_KEY_COMPAT, JSON.stringify(next));
+
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl && toDelete) {
+      GoogleSheetsService.syncCompatToGoogleSheet(config.sheetUrl, 'delete', toDelete);
+    }
   };
 
-  // Photos Handlers
+  // Photos Handlers & auto-sync to Google Sheet
   const handleAddPhoto = (photoData: Omit<PhotoItem, 'id' | 'createdAt'>) => {
     const newPhoto: PhotoItem = {
       ...photoData,
@@ -243,18 +308,36 @@ export default function App() {
     const updated = [newPhoto, ...photosList];
     setPhotosList(updated);
     localStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(updated));
+
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl) {
+      GoogleSheetsService.syncPhotoToGoogleSheet(config.sheetUrl, 'add', newPhoto);
+    }
   };
 
   const handleUpdatePhoto = (id: string, updated: Partial<PhotoItem>) => {
+    const original = photosList.find(p => p.id === id);
     const next = photosList.map(p => p.id === id ? { ...p, ...updated } : p);
     setPhotosList(next);
     localStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(next));
+
+    const finalPhoto = next.find(p => p.id === id);
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl && finalPhoto) {
+      GoogleSheetsService.syncPhotoToGoogleSheet(config.sheetUrl, 'update', finalPhoto, original?.name);
+    }
   };
 
   const handleDeletePhoto = (id: string) => {
+    const toDelete = photosList.find(p => p.id === id);
     const next = photosList.filter(p => p.id !== id);
     setPhotosList(next);
     localStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(next));
+
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl && toDelete) {
+      GoogleSheetsService.syncPhotoToGoogleSheet(config.sheetUrl, 'delete', toDelete);
+    }
   };
 
   // Price Changes Handlers
@@ -347,6 +430,54 @@ export default function App() {
         onToggleSound={handleToggleSound}
         currentStreak={currentStreak}
       />
+
+      {/* Live Google Sheet "ALL PRODUCT" Sync & Status Bar */}
+      <div className="bg-[#0b1324] border-b border-cyan-900/40 px-3 sm:px-6 lg:px-10 py-2 flex flex-wrap items-center justify-between gap-2.5 text-xs shadow-inner">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="flex h-2.5 w-2.5 relative shrink-0">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${GoogleSheetsService.getSavedConfig().sheetUrl ? 'bg-emerald-400' : 'bg-cyan-400'}`}></span>
+            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${GoogleSheetsService.getSavedConfig().sheetUrl ? 'bg-emerald-500' : 'bg-cyan-500'}`}></span>
+          </span>
+          <span className="font-semibold text-slate-300">
+            Spreadsheet: <strong className="text-white font-bold">Spare Parts Price Quiz & Inventory Suite</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-800/80">
+            Tab: ALL PRODUCT
+          </span>
+          <span className="text-slate-400 font-mono text-[11px] hidden sm:inline">
+            ({parts.length} parts in Catalog & Quiz)
+          </span>
+          {lastSyncedAt && (
+            <span className="text-emerald-400/90 font-mono text-[11px] flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+              <span>Synced {lastSyncedAt}</span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleQuickSync}
+            disabled={isSyncingFromSheet}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-95 text-white font-bold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
+            title="Pull latest live product prices from Google Sheet 'ALL PRODUCT'"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingFromSheet ? 'animate-spin' : ''}`} />
+            <span>{isSyncingFromSheet ? 'Syncing...' : 'Sync "ALL PRODUCT" Now'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsDbModalOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700/80 transition-colors cursor-pointer"
+            title="Configure Google Sheet connection & view Apps Script"
+          >
+            <ExternalLink className="w-3 h-3 text-cyan-400" />
+            <span>Sheet Hub</span>
+          </button>
+        </div>
+      </div>
 
       {/* Offline Status Toast */}
       {!isOnline && (

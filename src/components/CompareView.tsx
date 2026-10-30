@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { CompareItem } from '../data/initialData';
 import { sound } from '../services/soundService';
+import { getFallbackLcdBlueprint, fastResolveImageUrl } from '../utils/imageUtils';
 
 interface CompareViewProps {
   items: CompareItem[];
@@ -204,27 +205,17 @@ export const CompareView: React.FC<CompareViewProps> = ({ items }) => {
                   <span>TikTok 9:16</span>
                 </div>
 
-                {imageErrorMap[currentItem.img] ? (
-                  <div className="text-center p-6 space-y-2">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto text-slate-500">
-                      <ImageIcon className="w-7 h-7" />
-                    </div>
-                    <div className="text-sm font-bold text-slate-300">{currentItem.name}</div>
-                    <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed font-normal">
-                      Google Drive image link is restricted. Set your Google Drive file or folder to <span className="text-slate-300 font-semibold">"Anyone with the link can view"</span> to view photos automatically.
-                    </p>
-                  </div>
-                ) : (
-                  <img
-                    referrerPolicy="no-referrer"
-                    src={currentItem.url}
-                    alt={currentItem.name}
-                    onError={() => {
-                      setImageErrorMap(prev => ({ ...prev, [currentItem.img]: true }));
-                    }}
-                    className="w-full h-full object-contain rounded-2xl group-hover:scale-105 transition-transform duration-300 select-none"
-                  />
-                )}
+                <img
+                  referrerPolicy="no-referrer"
+                  src={imageErrorMap[currentItem.img] ? getFallbackLcdBlueprint(currentItem.name, currentItem.brand) : fastResolveImageUrl(currentItem.url)}
+                  alt={currentItem.name}
+                  loading="eager"
+                  decoding="async"
+                  onError={() => {
+                    setImageErrorMap(prev => ({ ...prev, [currentItem.img]: true }));
+                  }}
+                  className="w-full h-full object-contain rounded-2xl group-hover:scale-105 transition-transform duration-300 select-none"
+                />
 
                 <div className="absolute bottom-3 right-3 px-3 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-sm border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5 shadow-md font-medium">
                   <ZoomIn className="w-3.5 h-3.5 text-cyan-400" />
@@ -354,7 +345,7 @@ export const CompareView: React.FC<CompareViewProps> = ({ items }) => {
                 >
                   <img
                     referrerPolicy="no-referrer"
-                    src={item.url}
+                    src={imageErrorMap[item.img] ? getFallbackLcdBlueprint(item.name, item.brand) : fastResolveImageUrl(item.url)}
                     alt={item.name}
                     className="w-full h-full object-contain"
                     onError={() => {

@@ -22,10 +22,25 @@ import {
   AlertTriangle,
   Move,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Zap,
+  CheckCircle2,
+  Loader2,
+  RefreshCw,
+  ClipboardPaste,
+  Camera,
+  Cpu,
+  Image as ImageIcon
 } from 'lucide-react';
 import { PhotoItem } from '../data/initialData';
 import { sound } from '../services/soundService';
+import { 
+  fastResolveImageUrl, 
+  getLinkSourceLabel, 
+  preloadImageLinks, 
+  getFallbackLcdBlueprint,
+  compressImageFile
+} from '../utils/imageUtils';
 
 interface PhotosViewProps {
   photos: PhotoItem[];
@@ -35,6 +50,7 @@ interface PhotosViewProps {
 }
 
 type CompareMode = '1x' | '2x' | '3x' | '4x';
+type ViewMode = 'auto' | 'schematic' | 'photo';
 
 interface ViewportState {
   zoom: number;
@@ -53,10 +69,14 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
   const [compareMode, setCompareMode] = useState<CompareMode>('2x');
   const [showListPanel, setShowListPanel] = useState(true);
   const [syncPanZoom, setSyncPanZoom] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('auto');
 
   // Selected photo indices for each slot (up to 4 slots)
   const [slotIndices, setSlotIndices] = useState<number[]>([0, 1, 2, 3]);
   const [activeSlotTarget, setActiveSlotTarget] = useState<number>(0);
+
+  // Tracking images that failed to load externally so they instantly use the technical blueprint
+  const [failedImageIds, setFailedImageIds] = useState<Record<string, boolean>>({});
 
   // Independent viewport state per slot (zoom, panX, panY)
   const [viewports, setViewports] = useState<ViewportState[]>([
@@ -66,9 +86,16 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
     { zoom: 1, panX: 0, panY: 0 }
   ]);
 
-  // Dragging state
+  // Dragging state for hand movement
   const isDraggingRef = useRef<{ slot: number; startX: number; startY: number; initialPanX: number; initialPanY: number } | null>(null);
   const [isCurrentlyDragging, setIsCurrentlyDragging] = useState<number | null>(null);
+
+  // Hidden direct file input ref for slot-specific quick photo upload
+  const slotFileInputRef = useRef<HTMLInputElement>(null);
+  const [slotToUploadIndex, setSlotToUploadIndex] = useState<number>(0);
+
+  // Toast feedback message
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // In-app safe deletion modal
   const [photoToDelete, setPhotoToDelete] = useState<PhotoItem | null>(null);
@@ -81,6 +108,14 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
   const [formBrand, setFormBrand] = useState('Redmi');
   const [formDescription, setFormDescription] = useState('');
   const [formLink, setFormLink] = useState('');
+  const [isCompressing, setIsCompressing] = useState(false);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(prev => prev === msg ? null : prev);
+    }, 2800);
+  };
 
   // Extract brands for filter pills
   const brands = useMemo(() => {
@@ -91,7 +126,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
     return Array.from(set).sort();
   }, [photos]);
 
-  // Filtered photos list (name list only)
+  // Filtered photos list
   const filteredPhotos = useMemo(() => {
     let list = [...photos];
     if (selectedBrand !== '__all__') {
@@ -107,6 +142,27 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
     }
     return list;
   }, [photos, selectedBrand, searchTerm]);
+
+  // Visible slots count based on compareMode
+  const visibleSlotCount = compareMode === '1x' ? 1 : compareMode === '2x' ? 2 : compareMode === '3x' ? 3 : 4;
+
+  // Ultra-Fast Background Image Preloader
+  useEffect(() => {
+    if (filteredPhotos.length === 0) return;
+    const urlsToPreload: string[] = [];
+    slotIndices.slice(0, visibleSlotCount).forEach(targetIdx => {
+      const targets = [
+        targetIdx,
+        (targetIdx + 1) % filteredPhotos.length,
+        (targetIdx - 1 + filteredPhotos.length) % filteredPhotos.length
+      ];
+      targets.forEach(t => {
+        const p = filteredPhotos[t];
+        if (p?.url && !failedImageIds[p.id]) urlsToPreload.push(p.url);
+      });
+    });
+    preloadImageLinks(urlsToPreload);
+  }, [slotIndices, filteredPhotos, visibleSlotCount, failedImageIds]);
 
   // Ensure slot indices stay within valid range
   useEffect(() => {
@@ -125,7 +181,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
     return filteredPhotos[listIndex] || photos[listIndex % Math.max(1, photos.length)] || photos[0];
   };
 
-  // Next & Back Navigation handlers
+  // Next & Back Navigation handlers (0ms instant response)
   const handleNext = useCallback((slotIdx?: number) => {
     if (filteredPhotos.length === 0) return;
     sound.playTick();
@@ -168,6 +224,46 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleNext, handlePrev]);
+
+  // Global Clipboard Paste Listener (Ctrl+V / Cmd+V) to quickly paste a photo for the active screen!
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      // Don't intercept if user is typing in an input
+      if (
+        e.target instanceof HTMLInputElement || 
+        e.target instanceof HTMLTextAreaElement
+      ) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            try {
+              sound.playVictory();
+              const compressed = await compressImageFile(file);
+              const targetPhoto = getPhotoForSlot(activeSlotTarget);
+              if (targetPhoto) {
+                onUpdatePhoto(targetPhoto.id, { url: compressed });
+                // Reset failed status for this photo
+                setFailedImageIds(prev => ({ ...prev, [targetPhoto.id]: false }));
+                showToast(`✓ Image pasted & saved for "${targetPhoto.name}"!`);
+              }
+            } catch (err) {
+              console.error('Failed to paste image', err);
+            }
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [activeSlotTarget, filteredPhotos, slotIndices, onUpdatePhoto]);
 
   // Zoom handlers
   const handleZoomChange = (slotIdx: number, newZoom: number) => {
@@ -292,7 +388,34 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
     handleZoomChange(slotIdx, current + delta);
   };
 
-  // Add / Edit handlers
+  // Slot Quick Upload Photo
+  const handleTriggerQuickUpload = (slotIdx: number) => {
+    sound.playTick();
+    setSlotToUploadIndex(slotIdx);
+    slotFileInputRef.current?.click();
+  };
+
+  const handleQuickFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      sound.playVictory();
+      const compressed = await compressImageFile(file);
+      const photo = getPhotoForSlot(slotToUploadIndex);
+      if (photo) {
+        onUpdatePhoto(photo.id, { url: compressed });
+        setFailedImageIds(prev => ({ ...prev, [photo.id]: false }));
+        showToast(`✓ Photo updated for "${photo.name}"!`);
+      }
+    } catch (err) {
+      console.error('File compression failed', err);
+    }
+    // reset input
+    if (e.target) e.target.value = '';
+  };
+
+  // Add / Edit Modal handlers
   const handleOpenAdd = () => {
     sound.playTick();
     setEditingPhoto(null);
@@ -317,21 +440,24 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
 
   const handleSavePhoto = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formUrl.trim()) return;
+    if (!formName.trim()) return;
 
     sound.playVictory();
+    const finalUrl = formUrl.trim() || getFallbackLcdBlueprint(formName.trim(), formBrand.trim());
+
     if (editingPhoto) {
       onUpdatePhoto(editingPhoto.id, {
         name: formName.trim(),
-        url: formUrl.trim(),
+        url: finalUrl,
         brand: formBrand.trim(),
         description: formDescription.trim(),
         link: formLink.trim()
       });
+      setFailedImageIds(prev => ({ ...prev, [editingPhoto.id]: false }));
     } else {
       onAddPhoto({
         name: formName.trim(),
-        url: formUrl.trim(),
+        url: finalUrl,
         brand: formBrand.trim(),
         description: formDescription.trim(),
         link: formLink.trim()
@@ -340,59 +466,75 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
     setShowAddModal(false);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
-      const result = uploadEvent.target?.result as string;
-      if (result) {
-        setFormUrl(result);
-        if (!formName.trim()) {
-          const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-          setFormName(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
-        }
-      }
-    };
-    reader.readAsDataURL(file);
-  };
 
-  // Visible slots count based on compareMode
-  const visibleSlotCount = compareMode === '1x' ? 1 : compareMode === '2x' ? 2 : compareMode === '3x' ? 3 : 4;
+    setIsCompressing(true);
+    try {
+      const compressed = await compressImageFile(file);
+      setFormUrl(compressed);
+      if (!formName.trim()) {
+        const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+        setFormName(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
+      }
+    } catch (err) {
+      console.error('Failed to compress upload', err);
+    } finally {
+      setIsCompressing(false);
+    }
+  };
 
   return (
     <div 
-      className="w-full space-y-4 animate-in fade-in duration-150 select-none"
+      className="w-full space-y-4 animate-in fade-in duration-100 select-none"
       onMouseMove={onMouseMove}
       onMouseUp={endDrag}
       onMouseLeave={endDrag}
       onTouchEnd={endDrag}
     >
+      {/* Hidden file input for quick slot photo replacement */}
+      <input
+        ref={slotFileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleQuickFileChosen}
+        className="hidden"
+      />
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-slate-950 font-bold px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2 border border-emerald-300 animate-in fade-in slide-in-from-bottom-2 duration-150 text-xs sm:text-sm">
+          <CheckCircle2 className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
       
       {/* Top Utility Header Bar */}
       <div className="bg-[#0b111e] border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         
-        {/* Title & Status */}
+        {/* Title & Speed Status */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-cyan-950/60 shrink-0">
-            <Hand className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-emerald-500 flex items-center justify-center text-white shadow-lg shadow-cyan-950/60 shrink-0">
+            <Cpu className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
-                LCD Inspection & Multi-Compare
+                LCD Pinout & Screen Hardware Inspector
               </span>
-              <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-500/40">
-                Hand Move Active
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[11px] font-bold border border-emerald-500/40 flex items-center gap-1">
+                <Zap className="w-3 h-3 fill-emerald-400/30" />
+                <span>0ms Instant Fast Mode</span>
               </span>
             </div>
             <h2 className="text-lg sm:text-2xl font-bold text-white tracking-tight">
-              Screen Pinout & Connector Inspector
+              Screen Pinout, IC & Connector Visual Inspector
             </h2>
           </div>
         </div>
 
-        {/* Global Toolbar: Compare Modes, Zoom Sync, Reset, Add Button */}
+        {/* Global Toolbar: View Mode, Compare Modes, Zoom Sync, Reset, Add Button */}
         <div className="flex flex-wrap items-center gap-2.5">
           
           {/* Mode Switcher: 1x, 2x, 3x, 4x */}
@@ -421,7 +563,37 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
             ))}
           </div>
 
-          {/* Back & Next Navigation Buttons */}
+          {/* View Mode Switcher: Auto / Blueprint / Real Photo */}
+          <div className="flex items-center p-1 bg-slate-900 rounded-2xl border border-slate-700/80">
+            <button
+              type="button"
+              onClick={() => { sound.playTick(); setViewMode('auto'); }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                viewMode === 'auto'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Auto: Shows real photo when available, or instant high-precision pinout schematic"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Smart View</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { sound.playTick(); setViewMode('schematic'); }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                viewMode === 'schematic'
+                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Pinout Blueprint: High-precision LCD connector schematic and wiring diagrams"
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              <span>Pinout Blueprint</span>
+            </button>
+          </div>
+
+          {/* Back & Next Navigation Buttons (ArrowLeft & ArrowRight) */}
           <div className="flex items-center gap-1.5 p-1 bg-slate-900 rounded-2xl border border-slate-700/80">
             <button
               type="button"
@@ -507,7 +679,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
       {/* Main Split Layout: Left Name List + Right Inspection Bench */}
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
         
-        {/* ================= LEFT SIDE: NAME LIST ONLY (NO PHOTO CARDS) ================= */}
+        {/* ================= LEFT SIDE: NAME LIST ONLY ================= */}
         {showListPanel && (
           <aside className="w-full lg:w-80 xl:w-96 bg-[#0b111e] border border-slate-800 rounded-3xl p-4 shadow-2xl flex flex-col space-y-3 shrink-0 max-h-[820px] overflow-hidden">
             
@@ -698,6 +870,12 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
               const vp = viewports[slotIdx] || { zoom: 1, panX: 0, panY: 0 };
               const isDraggingThisSlot = isCurrentlyDragging === slotIdx;
 
+              // Determine image source: if viewMode is schematic OR image previously failed OR empty, use technical blueprint
+              const isFailed = currentPhoto ? failedImageIds[currentPhoto.id] : false;
+              const shouldForceSchematic = viewMode === 'schematic' || isFailed || !currentPhoto?.url;
+              const blueprintSrc = currentPhoto ? getFallbackLcdBlueprint(currentPhoto.name, currentPhoto.brand) : '';
+              const resolvedPhotoUrl = currentPhoto && !shouldForceSchematic ? fastResolveImageUrl(currentPhoto.url) : blueprintSrc;
+
               return (
                 <div 
                   key={slotIdx}
@@ -708,7 +886,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                   }`}
                 >
                   
-                  {/* Slot Top Bar: Product Dropdown Switcher & Zoom Tool */}
+                  {/* Slot Top Bar: Product Dropdown Switcher, Quick Camera & Zoom Tool */}
                   <div className="p-3 sm:p-3.5 bg-[#070c18] border-b border-slate-800 flex items-center justify-between gap-2">
                     
                     {/* Screen Selector Dropdown & Slot Back/Next Buttons */}
@@ -721,7 +899,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                         type="button"
                         onClick={() => handlePrev(slotIdx)}
                         className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 cursor-pointer transition-colors shrink-0"
-                        title="Previous Screen Model"
+                        title="Previous Screen Model (ArrowLeft)"
                       >
                         <ChevronLeft className="w-3.5 h-3.5" />
                       </button>
@@ -750,15 +928,26 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                         type="button"
                         onClick={() => handleNext(slotIdx)}
                         className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 cursor-pointer transition-colors shrink-0"
-                        title="Next Screen Model"
+                        title="Next Screen Model (ArrowRight)"
                       >
                         <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
 
-                    {/* Per-Slot Zoom Controls */}
-                    {/* Per-Slot Zoom Controls & Fit Display Button */}
+                    {/* Quick Camera Upload & Zoom Controls */}
                     <div className="flex items-center gap-1 shrink-0">
+                      {/* Quick Upload / Camera button for this active screen */}
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerQuickUpload(slotIdx)}
+                        className="p-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 hover:text-white border border-indigo-500/50 cursor-pointer flex items-center gap-1 text-xs font-semibold transition-all shadow-sm active:scale-95"
+                        title="Upload real camera photo or screenshot for this screen"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-indigo-400" />
+                        <span className="hidden sm:inline text-[11px]">Upload Photo</span>
+                      </button>
+
+                      {/* Fit Display Button */}
                       <button
                         type="button"
                         onClick={() => handleResetZoomPan(slotIdx)}
@@ -766,7 +955,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                         title="Fit image to screen / display (100%)"
                       >
                         <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-                        <span className="hidden sm:inline">Fit Screen</span>
+                        <span className="hidden sm:inline text-[11px]">Fit</span>
                       </button>
 
                       <button
@@ -778,7 +967,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                         <ZoomOut className="w-3.5 h-3.5" />
                       </button>
 
-                      <span className="font-mono text-xs font-bold text-cyan-400 px-1 min-w-[42px] text-center">
+                      <span className="font-mono text-xs font-bold text-cyan-400 px-1 min-w-[38px] text-center">
                         {Math.round(vp.zoom * 100)}%
                       </span>
 
@@ -795,7 +984,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                         type="button"
                         onClick={() => handleResetZoomPan(slotIdx)}
                         className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-700/80 cursor-pointer"
-                        title="Reset this screen"
+                        title="Reset this screen view"
                       >
                         <RotateCcw className="w-3 h-3" />
                       </button>
@@ -803,7 +992,7 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
 
                   </div>
 
-                  {/* Interactive Inspection Canvas ("Hand Move" Drag + Wheel Zoom + Fit Display) */}
+                  {/* Interactive Inspection Canvas ("Hand Move" Drag + Wheel Zoom + Guaranteed Photo Render) */}
                   <div
                     onMouseDown={(e) => onMouseDown(slotIdx, e)}
                     onTouchStart={(e) => onTouchStart(slotIdx, e)}
@@ -845,12 +1034,32 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                       }}
                     />
 
-                    {/* HUD Status Floating Badge with 1-Click Fit Display */}
-                    <div className="absolute top-3 left-3 z-10 flex items-center gap-2 pointer-events-auto">
+                    {/* HUD Status Floating Badge with 1-Click Fit Display & Speed Stream Badge */}
+                    <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 sm:gap-2 pointer-events-auto flex-wrap">
                       <div className="px-2.5 py-1 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] font-mono text-slate-300 flex items-center gap-1.5 pointer-events-none">
                         <Hand className="w-3 h-3 text-cyan-400" />
                         <span>Hand Move</span>
                       </div>
+
+                      {/* Display Mode Status Badge */}
+                      <div className={`px-2 py-1 rounded-xl backdrop-blur-md border text-[10px] font-mono flex items-center gap-1 pointer-events-none shadow-sm ${
+                        shouldForceSchematic
+                          ? 'bg-cyan-950/80 border-cyan-500/40 text-cyan-300'
+                          : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                      }`}>
+                        {shouldForceSchematic ? (
+                          <>
+                            <Cpu className="w-3 h-3 text-cyan-400" />
+                            <span>Pinout Schematic (0ms)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-3 h-3 text-emerald-400 fill-emerald-400/20" />
+                            <span>Real Photo Active</span>
+                          </>
+                        )}
+                      </div>
+
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); handleResetZoomPan(slotIdx); }}
@@ -858,25 +1067,35 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                         title="Fit image to screen"
                       >
                         <Maximize2 className="w-3 h-3 text-cyan-400" />
-                        <span>Fit Display ({Math.round(vp.zoom * 100)}%)</span>
+                        <span>Fit 100%</span>
                       </button>
                     </div>
 
-                    {/* Screen Image with Fluid Pan & Zoom Transform (Fit to Screen) */}
-                    {currentPhoto?.url ? (
+                    {/* Guaranteed Screen Image / Blueprint (Never Blank, 0ms Instant Load) */}
+                    {currentPhoto ? (
                       <div
                         style={{
                           transform: `translate(${vp.panX}px, ${vp.panY}px) scale(${vp.zoom})`,
                           transformOrigin: 'center center',
-                          transition: isDraggingThisSlot ? 'none' : 'transform 0.15s ease-out'
+                          transition: isDraggingThisSlot ? 'none' : 'transform 0.1s ease-out'
                         }}
-                        className="w-full h-full flex items-center justify-center p-1 sm:p-2 pointer-events-none"
+                        className="w-full h-full flex items-center justify-center p-2 sm:p-3 pointer-events-none"
                       >
                         <img
-                          src={currentPhoto.url}
+                          key={`${currentPhoto.id}-${shouldForceSchematic ? 'schematic' : 'photo'}`}
+                          src={resolvedPhotoUrl}
                           alt={currentPhoto.name}
+                          referrerPolicy="no-referrer"
                           draggable={false}
-                          className="w-auto h-auto max-w-full max-h-full object-contain filter drop-shadow-[0_15px_30px_rgba(0,0,0,0.85)] select-none pointer-events-none transition-all duration-150"
+                          loading="eager"
+                          decoding="async"
+                          onError={() => {
+                            // Automatically fall back to the technical schematic blueprint immediately
+                            if (!isFailed) {
+                              setFailedImageIds(prev => ({ ...prev, [currentPhoto.id]: true }));
+                            }
+                          }}
+                          className="w-auto h-auto max-w-full max-h-full object-contain filter drop-shadow-[0_15px_30px_rgba(0,0,0,0.85)] select-none pointer-events-none"
                         />
                       </div>
                     ) : (
@@ -887,9 +1106,9 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                     )}
 
                     {/* Quick Drag & Wheel Hint */}
-                    <div className="absolute bottom-3 right-3 z-10 pointer-events-none opacity-70 hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] font-mono bg-slate-950/80 text-slate-400 px-2.5 py-1 rounded-lg border border-slate-800">
-                        Drag mouse to pan · Scroll wheel to zoom
+                    <div className="absolute bottom-3 right-3 z-10 pointer-events-none opacity-80 hover:opacity-100 transition-opacity">
+                      <span className="text-[10px] font-mono bg-slate-950/85 text-slate-400 px-2.5 py-1 rounded-lg border border-slate-800">
+                        Drag to pan · Wheel to zoom · Paste (Ctrl+V) photo
                       </span>
                     </div>
 
@@ -899,25 +1118,42 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
                   {currentPhoto && (
                     <div className="p-3 bg-[#070c18] border-t border-slate-800 flex items-center justify-between text-xs gap-3">
                       <div className="min-w-0">
-                        <h4 className="font-bold text-white text-xs truncate">
-                          {currentPhoto.name}
-                        </h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-white text-xs truncate">
+                            {currentPhoto.name}
+                          </h4>
+                          <span className="px-1.5 py-0.2 rounded bg-slate-800 text-cyan-400 text-[10px] font-mono font-bold">
+                            {currentPhoto.brand || 'Screen'}
+                          </span>
+                        </div>
                         <p className="text-[11px] text-slate-400 truncate mt-0.5 font-normal">
-                          {currentPhoto.description || 'Original LCD module with connector flex cable.'}
+                          {currentPhoto.description || 'Original LCD module with connector flex cable & IC controller.'}
                         </p>
                       </div>
 
-                      {currentPhoto.link && (
-                        <a
-                          href={currentPhoto.link}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-semibold flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleTriggerQuickUpload(slotIdx)}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Snap camera photo or upload image file for this screen"
                         >
-                          <span>Ref Link</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
+                          <Camera className="w-3 h-3 text-cyan-400" />
+                          <span>Change Photo</span>
+                        </button>
+
+                        {currentPhoto.link && (
+                          <a
+                            href={currentPhoto.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <span>Ref</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -979,11 +1215,11 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
 
                 <div>
                   <label className="block text-slate-300 font-semibold uppercase mb-1">
-                    Upload Image
+                    Upload Real Photo
                   </label>
                   <label className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 rounded-xl px-3 py-2 flex items-center justify-center gap-1.5 cursor-pointer font-semibold">
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Choose File</span>
+                    {isCompressing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    <span>{isCompressing ? 'Compressing...' : 'Camera / File'}</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -995,17 +1231,66 @@ export const PhotosView: React.FC<PhotosViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold uppercase mb-1">
-                  Image Web URL (or uploaded base64) *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-300 font-semibold uppercase">
+                    Image URL or Auto-Schematic
+                  </label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        if (navigator.clipboard) {
+                          const text = await navigator.clipboard.readText();
+                          if (text && text.trim().startsWith('http')) {
+                            setFormUrl(text.trim());
+                            sound.playCorrect();
+                          }
+                        }
+                      } catch {
+                        // clipboard access not granted
+                      }
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-800/80 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
+                    title="Paste directly from clipboard"
+                  >
+                    <ClipboardPaste className="w-3 h-3" />
+                    <span>Paste Link</span>
+                  </button>
+                </div>
                 <input
                   type="text"
-                  required
                   value={formUrl}
                   onChange={(e) => setFormUrl(e.target.value)}
-                  placeholder="https://... or uploaded image"
+                  placeholder="Leave empty for instant technical LCD schematic blueprint, or paste direct image URL"
                   className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3.5 py-2 text-white font-mono text-[11px] outline-none"
                 />
+
+                {/* Instant Live Link Reader & CDN Stream Preview */}
+                <div className="mt-2 p-2.5 bg-slate-950/90 rounded-xl border border-slate-800 flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-lg bg-black border border-slate-800 overflow-hidden shrink-0 flex items-center justify-center relative">
+                    <img
+                      src={formUrl.trim() ? fastResolveImageUrl(formUrl) : getFallbackLcdBlueprint(formName || 'New LCD', formBrand)}
+                      alt="Preview"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        target.src = getFallbackLcdBlueprint(formName || 'New LCD', formBrand);
+                      }}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <Zap className="w-3 h-3 text-emerald-400 fill-emerald-400" />
+                        <span>{formUrl.trim() ? getLinkSourceLabel(formUrl).label : 'Schematic Blueprint Active'}</span>
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate font-mono">
+                      {formUrl.trim() ? 'Direct Stream URL' : 'Auto-generated LCD pinout & flex diagram (0ms)'}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div>

@@ -403,7 +403,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     });
 
     sound.playVictory();
-    showToast(`Successfully updated "${editName.trim()}" & direct synced to Google Sheet!`);
+    showToast(`✅ Updated "${editName.trim()}" (${dirham} D / $${salesPrice}) & Synced to Google Sheet "ALL PRODUCT"!`);
     setEditingPart(null);
   };
 
@@ -1667,14 +1667,14 @@ export const ProListView: React.FC<ProListViewProps> = ({
               </div>
 
               {/* Google Sheet Direct Sync Indicator */}
-              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs flex items-center justify-between">
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-cyan-800/50 text-xs flex items-center justify-between">
                 <span className="text-slate-300 font-semibold flex items-center gap-2">
                   <Database className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Google Sheet Direct Sync:</span>
+                  <span>Spare Parts Price Quiz & Inventory Suite:</span>
                 </span>
-                <span className="text-emerald-400 font-mono font-bold flex items-center gap-1.5">
+                <span className="text-cyan-300 font-mono font-bold flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>Direct Row Auto-Update</span>
+                  <span>Tab: ALL PRODUCT (Auto-Sync)</span>
                 </span>
               </div>
 

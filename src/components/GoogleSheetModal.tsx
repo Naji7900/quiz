@@ -17,7 +17,8 @@ import {
   Sparkles,
   Lock,
   Unlock,
-  ShieldAlert
+  ShieldAlert,
+  Code2
 } from 'lucide-react';
 import { GoogleSheetsService } from '../services/googleSheetsService';
 import { SparePartItem, CompatItem, CompareItem } from '../data/initialData';
@@ -110,6 +111,8 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   const [formatConfirmText, setFormatConfirmText] = useState('');
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [showAppsScript, setShowAppsScript] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
 
   if (!isOpen) return null;
 
@@ -679,6 +682,63 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                 <p>
                   In your Google Sheet, click <strong>File &gt; Share &gt; Publish to web</strong>. Under Link, select <strong>Comma-separated values (.csv)</strong> and copy that URL here. Whenever you change prices in Google Sheets, open this app and click <strong>Sync From Link</strong>!
                 </p>
+              </div>
+
+              {/* Direct 2-Way Sync with Google Apps Script (Auto-Edits & ALL PRODUCT Sync) */}
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Code2 className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      Direct 2-Way Editing Script (Auto-Update Google Sheet on Edit)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAppsScript(!showAppsScript)}
+                    className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer underline"
+                  >
+                    {showAppsScript ? 'Hide Script' : 'Show Setup Script'}
+                  </button>
+                </div>
+
+                <p className="text-xs text-slate-400">
+                  To allow changes made in the app (like changing IP 8 + to 10.5 D) to automatically update your Google Sheet row in <strong className="text-white">Spare Parts Price Quiz & Inventory Suite / ALL PRODUCT</strong>, paste this script into your Google Sheet's <em>Extensions &gt; Apps Script</em> and deploy as a Web App.
+                </p>
+
+                {showAppsScript && (
+                  <div className="space-y-3 pt-2 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400">Google Apps Script Web App Code:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const code = GoogleSheetsService.getAppsScriptCode();
+                          navigator.clipboard.writeText(code);
+                          setCopiedScript(true);
+                          sound.playVictory();
+                          setTimeout(() => setCopiedScript(false), 2500);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow transition-all cursor-pointer"
+                      >
+                        {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedScript ? 'Copied Code!' : 'Copy Script Code'}</span>
+                      </button>
+                    </div>
+
+                    <pre className="p-3 bg-[#070b14] rounded-xl border border-slate-800 text-[11px] font-mono text-cyan-300 max-h-52 overflow-y-auto select-all">
+                      {GoogleSheetsService.getAppsScriptCode()}
+                    </pre>
+
+                    <ol className="list-decimal list-inside text-xs text-slate-400 space-y-1 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                      <li>In Google Sheets: Click <strong className="text-white">Extensions &gt; Apps Script</strong>.</li>
+                      <li>Delete all existing text, paste this script, and click <strong className="text-white">Save</strong>.</li>
+                      <li>Click <strong className="text-white">Deploy &gt; New deployment</strong> &gt; Select <strong className="text-white">Web app</strong>.</li>
+                      <li>Set Execute as: <strong className="text-white">Me</strong>, Who has access: <strong className="text-emerald-400">Anyone</strong>.</li>
+                      <li>Copy the Web App URL and paste it in the box above!</li>
+                    </ol>
+                  </div>
+                )}
               </div>
             </div>
           )}
