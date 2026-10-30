@@ -720,6 +720,86 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Automatically update an existing product in Google Sheets when edited in the app
+   * Updates matching row in 'ALL PRODUCT' and any category sheets.
+   * Uses both POST and GET query parameters to guarantee delivery across Google 302 redirects.
+   */
+  public static async updateInGoogleSheet(
+    endpointUrl: string,
+    oldProductName: string,
+    updatedItem: SparePartItem
+  ): Promise<{ success: boolean; message: string }> {
+    const rawUrl = endpointUrl.trim();
+    if (!rawUrl) {
+      return { success: false, message: 'No Google Sheets API / Web App URL configured.' };
+    }
+
+    const yuanVal = updatedItem.yuan ?? Number(((updatedItem.d / 3.67) * 7.23).toFixed(1));
+
+    try {
+      // 1. Primary method: POST with JSON payload in text/plain (avoids CORS preflight)
+      const postPromise = fetch(rawUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'update_product',
+          oldName: oldProductName,
+          productName: updatedItem.name,
+          name: updatedItem.name,
+          category: updatedItem.cat,
+          cat: updatedItem.cat,
+          sheetName: updatedItem.cat,
+          d: updatedItem.d,
+          yuan: yuanVal,
+          usd: updatedItem.usd,
+          salesPrice: updatedItem.salesPrice,
+          row: [
+            updatedItem.name,
+            updatedItem.cat,
+            updatedItem.d,
+            yuanVal,
+            updatedItem.usd,
+            updatedItem.salesPrice
+          ]
+        }),
+        mode: 'no-cors'
+      }).catch(e => console.warn('POST update notice:', e));
+
+      // 2. Dual fallback: GET query parameter (preserves parameters across Google 302 redirects)
+      const queryParams = new URLSearchParams({
+        action: 'update_product',
+        oldName: oldProductName,
+        name: updatedItem.name,
+        productName: updatedItem.name,
+        cat: updatedItem.cat,
+        d: String(updatedItem.d),
+        yuan: String(yuanVal),
+        usd: String(updatedItem.usd),
+        salesPrice: String(updatedItem.salesPrice),
+        _t: String(Date.now())
+      });
+      const separator = rawUrl.includes('?') ? '&' : '?';
+      const getPromise = fetch(`${rawUrl}${separator}${queryParams.toString()}`, {
+        method: 'GET',
+        mode: 'no-cors'
+      }).catch(e => console.warn('GET update notice:', e));
+
+      await Promise.allSettled([postPromise, getPromise]);
+
+      return {
+        success: true,
+        message: `Directly synced "${updatedItem.name}" to Google Sheet!`
+      };
+    } catch (err) {
+      console.warn('Google Sheet update error:', err);
+      return {
+        success: false,
+        message: (err as Error).message || 'Failed to update row in Google Sheets.'
+      };
+    }
+  }
+
+  /**
    * Backup all current local parts, photos, and compatible LCDs to Google Sheets in one batch.
    * Mode 'all_in_one': Consolidates ALL products from all categories into 1 single sheet named "ALL PRODUCT"
    * Mode 'multi_tab': Splits products into individual category tabs (SAMSUNG / LCD, REDMI / LCD, etc.)
@@ -829,6 +909,68 @@ export class GoogleSheetsService {
 
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var params = (e && e.parameter) ? e.parameter : {};
+  var action = params ? params.action : null;
+
+  // DIRECT ACTION DISPATCH FOR GET (Guarantees execution across redirects)
+  if (action === 'update_product') {
+    var oldTargetName = String(params.oldName || params.productName || params.name || '').trim().toLowerCase();
+    var newTargetName = String(params.name || params.productName || '').trim().toLowerCase();
+    var newRow = [
+      params.name || params.productName || '',
+      params.cat || params.category || 'General Spare Parts',
+      parseFloat(params.d || '0') || 0,
+      parseFloat(params.yuan || '0') || 0,
+      parseFloat(params.usd || '0') || 0,
+      parseFloat(params.salesPrice || params.sales || '0') || 0
+    ];
+    var updated = false;
+    var allSheets = ss.getSheets();
+    for (var s = 0; s < allSheets.length; s++) {
+      var sh = allSheets[s];
+      var lastR = sh.getLastRow();
+      if (lastR < 2) continue;
+      var colA = sh.getRange(1, 1, lastR, 1).getValues();
+      for (var r = 2; r <= lastR; r++) {
+        var val = String(colA[r - 1][0] || '').trim().toLowerCase();
+        if (val === oldTargetName || (oldTargetName !== '' && val === newTargetName)) {
+          sh.getRange(r, 1, 1, 6).setValues([newRow]);
+          updated = true;
+        }
+      }
+    }
+    if (!updated && newRow[0]) {
+      var targetSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName(params.cat || "General Spare Parts") || allSheets[0];
+      if (targetSheet) {
+        targetSheet.appendRow(newRow);
+        updated = true;
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, updated: updated, action: 'update_product' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'delete_product') {
+    var targetName = String(params.productName || params.name || '').trim().toLowerCase();
+    var deleted = false;
+    var allSheets = ss.getSheets();
+    for (var s = 0; s < allSheets.length; s++) {
+      var sh = allSheets[s];
+      var lastR = sh.getLastRow();
+      if (lastR < 2) continue;
+      var colA = sh.getRange(1, 1, lastR, 1).getValues();
+      for (var r = lastR; r >= 2; r--) {
+        var val = String(colA[r - 1][0] || '').trim().toLowerCase();
+        if (val === targetName) {
+          sh.deleteRow(r);
+          deleted = true;
+        }
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, deleted: deleted, action: 'delete_product' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   var sheets = ss.getSheets();
   var allParts = [];
   var allPhotos = [];
@@ -1023,10 +1165,66 @@ function doGet(e) {
 function doPost(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var payload = JSON.parse(e.postData.contents);
-    var action = payload.action;
+    var payload = {};
+    if (e && e.postData && e.postData.contents) {
+      try {
+        payload = JSON.parse(e.postData.contents);
+      } catch (jsonErr) {
+        payload = (e && e.parameter) ? e.parameter : {};
+      }
+    } else if (e && e.parameter) {
+      payload = e.parameter;
+    }
+    var action = payload ? payload.action : null;
 
-    // 1. DELETE SINGLE PRODUCT FROM GOOGLE SHEETS (Searches ALL PRODUCT and all other tabs)
+    // 1. UPDATE PRODUCT DIRECTLY IN GOOGLE SHEETS (Searches ALL PRODUCT and all other tabs)
+    if (action === 'update_product') {
+      var oldTargetName = String(payload.oldName || payload.productName || payload.name || '').trim().toLowerCase();
+      var newTargetName = String(payload.productName || payload.name || '').trim().toLowerCase();
+      var updated = false;
+      var sheets = ss.getSheets();
+      var newRow = payload.row || [
+        payload.name || payload.productName || '',
+        payload.cat || payload.category || 'General Spare Parts',
+        parseFloat(payload.d || '0') || 0,
+        parseFloat(payload.yuan || '0') || 0,
+        parseFloat(payload.usd || '0') || 0,
+        parseFloat(payload.salesPrice || payload.sales || '0') || 0
+      ];
+
+      for (var s = 0; s < sheets.length; s++) {
+        var sh = sheets[s];
+        var lastR = sh.getLastRow();
+        if (lastR < 2) continue;
+        var colA = sh.getRange(1, 1, lastR, 1).getValues();
+        for (var r = 2; r <= lastR; r++) {
+          var val = String(colA[r - 1][0] || '').trim().toLowerCase();
+          if (val === oldTargetName || (oldTargetName !== '' && val === newTargetName)) {
+            if (newRow && newRow.length > 0) {
+              sh.getRange(r, 1, 1, newRow.length).setValues([newRow]);
+              updated = true;
+            }
+          }
+        }
+      }
+
+      // If product wasn't found in any existing row, append it to ALL PRODUCT or category sheet
+      if (!updated && newRow && newRow.length > 0) {
+        var targetSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName(payload.category || "General Spare Parts") || sheets[0];
+        if (targetSheet) {
+          targetSheet.appendRow(newRow);
+          updated = true;
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        updated: updated,
+        message: updated ? "Updated " + payload.productName : "Product not found to update"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. DELETE SINGLE PRODUCT FROM GOOGLE SHEETS (Searches ALL PRODUCT and all other tabs)
     if (action === 'delete_product') {
       var targetName = String(payload.productName || '').trim().toLowerCase();
       var deleted = false;

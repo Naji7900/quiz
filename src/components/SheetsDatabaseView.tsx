@@ -344,7 +344,12 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
               <input
                 type="url"
                 value={sheetUrl}
-                onChange={(e) => setSheetUrl(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSheetUrl(val);
+                  GoogleSheetsService.saveConfig({ sheetUrl: val.trim() });
+                }}
+                onBlur={() => GoogleSheetsService.saveConfig({ sheetUrl: sheetUrl.trim() })}
                 placeholder="https://script.google.com/macros/s/AKfy.../exec"
                 className="flex-1 px-4 py-3 text-xs sm:text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono"
               />

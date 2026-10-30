@@ -332,7 +332,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const pricing = calculatePricing(d, exp);
       setEditYuan(String(pricing.yuan));
       setEditUsd(String(pricing.costUsd));
-      setEditSalesPrice(String(pricing.salesPrice));
+      // Sales Price is strictly MANUAL — do not overwrite automatically
     }
   };
 
@@ -344,10 +344,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const d = Number((baseUsd * 3.67).toFixed(2));
       const exp = parseFloat(editExpense) || 0;
       const costUsd = Number((baseUsd + exp).toFixed(2));
-      const sales = costUsd; // Direct origin price $, no 1.3 multiplier
       setEditD(String(d));
       setEditUsd(String(costUsd));
-      setEditSalesPrice(String(sales));
+      // Sales Price is strictly MANUAL — do not overwrite automatically
     }
   };
 
@@ -359,10 +358,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const baseUsd = Math.max(0, u - exp);
       const d = Number((baseUsd * 3.67).toFixed(2));
       const yuan = Number((baseUsd * 7.23).toFixed(2));
-      const sales = u; // Direct origin price $, no 1.3 multiplier
       setEditD(String(d));
       setEditYuan(String(yuan));
-      setEditSalesPrice(String(sales));
+      // Sales Price is strictly MANUAL — do not overwrite automatically
     }
   };
 
@@ -373,7 +371,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     if (!isNaN(d) && d >= 0) {
       const pricing = calculatePricing(d, exp);
       setEditUsd(String(pricing.costUsd));
-      setEditSalesPrice(String(pricing.salesPrice));
+      // Sales Price is strictly MANUAL — do not overwrite automatically
     }
   };
 
@@ -405,7 +403,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     });
 
     sound.playVictory();
-    showToast(`Successfully updated "${editName.trim()}"!`);
+    showToast(`Successfully updated "${editName.trim()}" & direct synced to Google Sheet!`);
     setEditingPart(null);
   };
 
@@ -1418,13 +1416,15 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   </div>
                 </div>
 
-                <div className="p-1 rounded-2xl bg-violet-950/30 border-2 border-violet-500/70 shadow-lg shadow-violet-950/40">
-                  <label className="block text-xs font-bold text-violet-300 uppercase mb-1 flex items-center justify-between px-1.5">
-                    <span>Sales Price (MUST) *</span>
-                    <span className="text-[10px] bg-violet-500 text-slate-950 px-1.5 py-0.2 rounded font-black">
-                      MUST
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-emerald-400 uppercase tracking-wide">
+                      Sales $ (Manual)
+                    </label>
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+                      MANUAL
                     </span>
-                  </label>
+                  </div>
                   <div className="relative flex items-center">
                     <input
                       type="number"
@@ -1433,11 +1433,11 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       required
                       value={newPartSalesPrice}
                       onChange={(e) => handleSalesPriceChange(e.target.value)}
-                      placeholder="e.g. 0.35"
-                      className="w-full h-10 sm:h-11 bg-[#070c18] border border-violet-500/80 focus:border-violet-400 rounded-xl pl-3 pr-10 text-sm sm:text-base text-violet-200 font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="0.0"
+                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-emerald-500/60 focus:border-emerald-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
                     />
-                    <span className="absolute right-3 text-xs font-bold text-violet-400 font-mono pointer-events-none">
-                      $
+                    <span className="absolute right-3.5 text-xs font-bold text-emerald-400 font-mono pointer-events-none">
+                      USD
                     </span>
                   </div>
                 </div>
@@ -1623,13 +1623,15 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   </div>
                 </div>
 
-                <div className="p-1 rounded-2xl bg-violet-950/30 border-2 border-violet-500/70 shadow-lg shadow-violet-950/40">
-                  <label className="block text-xs font-bold text-violet-300 uppercase mb-1 flex items-center justify-between px-1.5">
-                    <span>Sales Price (MUST) *</span>
-                    <span className="text-[10px] bg-violet-500 text-slate-950 px-1.5 py-0.2 rounded font-black">
-                      MUST
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-emerald-400 uppercase tracking-wide">
+                      Sales $ (Manual)
+                    </label>
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+                      MANUAL
                     </span>
-                  </label>
+                  </div>
                   <div className="relative flex items-center">
                     <input
                       type="number"
@@ -1639,9 +1641,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       value={editSalesPrice}
                       onChange={(e) => setEditSalesPrice(e.target.value)}
                       placeholder="0.0"
-                      className="w-full h-10 sm:h-11 bg-[#090e1a] border border-violet-500/60 focus:border-violet-300 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-violet-200 font-mono font-black outline-none"
+                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-emerald-500/60 focus:border-emerald-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none transition-colors"
                     />
-                    <span className="absolute right-3.5 text-xs font-bold text-violet-300 font-mono pointer-events-none">
+                    <span className="absolute right-3.5 text-xs font-bold text-emerald-400 font-mono pointer-events-none">
                       USD
                     </span>
                   </div>
@@ -1662,6 +1664,18 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   placeholder="0.0"
                   className="w-20 bg-[#070c18] border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-mono text-right outline-none"
                 />
+              </div>
+
+              {/* Google Sheet Direct Sync Indicator */}
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs flex items-center justify-between">
+                <span className="text-slate-300 font-semibold flex items-center gap-2">
+                  <Database className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Google Sheet Direct Sync:</span>
+                </span>
+                <span className="text-emerald-400 font-mono font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>Direct Row Auto-Update</span>
+                </span>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">

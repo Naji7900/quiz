@@ -621,8 +621,13 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                     <input
                       type="url"
                       value={sheetUrl}
-                      onChange={(e) => setSheetUrl(e.target.value)}
-                      placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSheetUrl(val);
+                        GoogleSheetsService.saveConfig({ sheetUrl: val.trim() });
+                      }}
+                      onBlur={() => GoogleSheetsService.saveConfig({ sheetUrl: sheetUrl.trim() })}
+                      placeholder="https://script.google.com/macros/s/AKfy.../exec or Google Sheet link"
                       className="flex-1 bg-slate-950 border border-slate-700/80 focus:border-cyan-500 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 font-mono outline-none"
                     />
                     <div className="flex flex-wrap items-center gap-2">

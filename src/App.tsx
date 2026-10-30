@@ -135,8 +135,9 @@ export default function App() {
     }
   };
 
-  // Update existing part (Edit Name, Cat, Prices, etc.)
+  // Update existing part (Edit Name, Cat, Prices, etc.) & auto-sync to Google Sheet
   const handleUpdatePart = (id: string, updatedFields: Partial<SparePartItem>) => {
+    const originalPart = parts.find(p => p.id === id);
     const updated = parts.map(p => {
       if (p.id === id) {
         return { ...p, ...updatedFields };
@@ -145,6 +146,17 @@ export default function App() {
     });
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
+
+    // If connected to Google Sheets, automatically update row directly in Google Sheet!
+    const config = GoogleSheetsService.getSavedConfig();
+    const finalPart = updated.find(p => p.id === id);
+    if (config.sheetUrl && originalPart && finalPart) {
+      GoogleSheetsService.updateInGoogleSheet(config.sheetUrl, originalPart.name, finalPart).then(res => {
+        if (res.success) {
+          console.log(`Auto-updated "${finalPart.name}" directly in Google Sheet:`, res.message);
+        }
+      });
+    }
   };
 
   // Delete part from catalog & auto-delete from Google Sheet if connected
