@@ -170,6 +170,28 @@ export default function App() {
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
 
+    // Automatically record in Price Tracker as New Product Arrival (Cusub)
+    const today = new Date().toISOString().split('T')[0];
+    const newRec: PriceChangeRecord = {
+      id: `pc-${Date.now()}`,
+      name: newPart.name,
+      cat: newPart.cat,
+      oldD: 0,
+      newD: newPart.d,
+      oldUsd: 0,
+      newUsd: newPart.usd || Number((newPart.d / 3.67).toFixed(2)),
+      type: 'new',
+      deltaD: newPart.d,
+      percentage: 100,
+      date: today,
+      note: 'New product registered in Catalog (Cusub)'
+    };
+    setPriceChanges(prev => {
+      const next = [newRec, ...prev];
+      localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+      return next;
+    });
+
     // If connected to Google Sheets, automatically append row to "ALL PRODUCT" sheet!
     const config = GoogleSheetsService.getSavedConfig();
     if (config.sheetUrl) {
@@ -181,7 +203,7 @@ export default function App() {
     }
   };
 
-  // Update existing part (Edit Name, Cat, Prices, etc.) & auto-sync to Google Sheet
+  // Update existing part (Edit Name, Cat, Prices, etc.) & auto-sync to Google Sheet & Price Tracker
   const handleUpdatePart = (id: string, updatedFields: Partial<SparePartItem>) => {
     const originalPart = parts.find(p => p.id === id);
     const updated = parts.map(p => {
@@ -192,6 +214,40 @@ export default function App() {
     });
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
+
+    // Automatically detect Price Up (Increase) or Price Down (Decrease) and record in Price Tracker!
+    if (originalPart && updatedFields.d !== undefined && Math.abs(updatedFields.d - originalPart.d) >= 0.05) {
+      const oldD = originalPart.d;
+      const newD = updatedFields.d;
+      const deltaD = Math.round((newD - oldD) * 100) / 100;
+      const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : 0;
+      const type: 'increase' | 'decrease' = newD > oldD ? 'increase' : 'decrease';
+      const today = new Date().toISOString().split('T')[0];
+      const oldUsd = originalPart.usd || Number((oldD / 3.67).toFixed(2));
+      const newUsd = updatedFields.usd || Number((newD / 3.67).toFixed(2));
+
+      const newRec: PriceChangeRecord = {
+        id: `pc-${Date.now()}`,
+        name: updatedFields.name || originalPart.name,
+        cat: updatedFields.cat || originalPart.cat,
+        oldD,
+        newD,
+        oldUsd,
+        newUsd,
+        type,
+        deltaD,
+        percentage,
+        date: today,
+        note: type === 'increase' 
+          ? 'Price increase recorded (Price Up / Kor u kacay)' 
+          : 'Price decrease recorded (Price Down / Hoos u dhacay)'
+      };
+      setPriceChanges(prev => {
+        const next = [newRec, ...prev];
+        localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+        return next;
+      });
+    }
 
     // If connected to Google Sheets, automatically update row directly in Google Sheet!
     const config = GoogleSheetsService.getSavedConfig();
@@ -364,6 +420,68 @@ export default function App() {
     newPhotos?: PhotoItem[],
     newCompat?: CompatItem[]
   ) => {
+    // Detect new products and price changes from Google Sheets sync
+    if (parts.length > 0 && newParts.length > 0) {
+      const existingMap = new Map<string, SparePartItem>();
+      parts.forEach(p => existingMap.set(p.name.trim().toLowerCase(), p));
+
+      const detectedRecords: PriceChangeRecord[] = [];
+      const today = new Date().toISOString().split('T')[0];
+
+      newParts.forEach(np => {
+        const key = np.name.trim().toLowerCase();
+        const existing = existingMap.get(key);
+        if (!existing) {
+          // New product from Sheet
+          detectedRecords.push({
+            id: `pc-sync-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            name: np.name,
+            cat: np.cat,
+            oldD: 0,
+            newD: np.d,
+            oldUsd: 0,
+            newUsd: np.usd || Number((np.d / 3.67).toFixed(2)),
+            type: 'new',
+            deltaD: np.d,
+            percentage: 100,
+            date: today,
+            note: 'New product synced from Google Sheet (Cusub)'
+          });
+        } else if (Math.abs(existing.d - np.d) >= 0.05) {
+          // Price change from Sheet
+          const oldD = existing.d;
+          const newD = np.d;
+          const deltaD = Math.round((newD - oldD) * 100) / 100;
+          const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : 0;
+          const type: 'increase' | 'decrease' = newD > oldD ? 'increase' : 'decrease';
+          detectedRecords.push({
+            id: `pc-sync-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            name: np.name,
+            cat: np.cat,
+            oldD,
+            newD,
+            oldUsd: existing.usd || Number((oldD / 3.67).toFixed(2)),
+            newUsd: np.usd || Number((newD / 3.67).toFixed(2)),
+            type,
+            deltaD,
+            percentage,
+            date: today,
+            note: type === 'increase'
+              ? 'Price increase from Google Sheet (Price Up / Kor u kacay)'
+              : 'Price markdown from Google Sheet (Price Down / Hoos u dhacay)'
+          });
+        }
+      });
+
+      if (detectedRecords.length > 0) {
+        setPriceChanges(prev => {
+          const next = [...detectedRecords, ...prev];
+          localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+          return next;
+        });
+      }
+    }
+
     setParts(newParts);
     if (newCompare && newCompare.length) {
       setCompareItems(newCompare);
@@ -543,6 +661,8 @@ export default function App() {
             parts={parts}
             onAddPriceChange={handleAddPriceChange}
             onDeletePriceChange={handleDeletePriceChange}
+            onAddPart={handleAddPart}
+            onUpdatePart={handleUpdatePart}
           />
         )}
 

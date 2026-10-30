@@ -27,13 +27,17 @@ interface PriceTrackerViewProps {
   parts: SparePartItem[];
   onAddPriceChange: (record: Omit<PriceChangeRecord, 'id'>) => void;
   onDeletePriceChange: (id: string) => void;
+  onAddPart?: (part: Omit<SparePartItem, 'id'>) => void;
+  onUpdatePart?: (id: string, updatedFields: Partial<SparePartItem>) => void;
 }
 
 export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
   priceChanges,
   parts,
   onAddPriceChange,
-  onDeletePriceChange
+  onDeletePriceChange,
+  onAddPart,
+  onUpdatePart
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'decrease' | 'increase' | 'new'>('all');
   const [weeklyFilter, setWeeklyFilter] = useState<'all' | 'this_week' | 'last_week'>('all');
@@ -41,6 +45,14 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('__all__');
   const [showAddForm, setShowAddForm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<PriceChangeRecord | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(prev => prev === msg ? null : prev);
+    }, 4000);
+  };
 
   // New Price Change Form State
   const [recordMode, setRecordMode] = useState<'change' | 'new_product'>('change');
@@ -135,6 +147,17 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
     return list;
   }, [priceChanges, weeklyFilter, filterType, selectedCategory, searchTerm]);
 
+  const handlePartNameChange = (nameVal: string) => {
+    setPartName(nameVal);
+    if (recordMode === 'change') {
+      const matched = parts.find(p => p.name.trim().toLowerCase() === nameVal.trim().toLowerCase());
+      if (matched) {
+        setOldPriceD(String(matched.d));
+        setCategory(matched.cat);
+      }
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newD = parseFloat(newPriceD);
@@ -147,8 +170,8 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
     sound.playVictory();
 
     if (recordMode === 'new_product') {
-      const newUsd = Number(((newD / 3.67) + 1.0).toFixed(2));
-      onAddPriceChange({
+      const newUsd = Number((newD / 3.67).toFixed(2));
+      const recordData: Omit<PriceChangeRecord, 'id'> = {
         name: partName.trim(),
         cat: category,
         oldD: 0,
@@ -159,8 +182,23 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
         deltaD: newD,
         percentage: 100,
         date,
-        note: note.trim() || 'New product added from Google Sheet / Catalog (Cusub)'
+        note: note.trim() || 'New product arrival (Cusub)'
+      };
+      onAddPriceChange(recordData);
+
+      // Automatically add to catalog parts so it appears in Catalog & Quiz & Photos!
+      onAddPart?.({
+        name: partName.trim(),
+        cat: category,
+        d: newD,
+        usd: newUsd,
+        yuan: Number(((newD / 3.67) * 7.23).toFixed(1)),
+        salesPrice: newUsd,
+        salesPriceD: Number((newUsd * 3.67).toFixed(1)),
+        expense: 0
       });
+
+      showToast(`✅ Diwaan-galisay New Product: "${partName.trim()}" (${newD} D / $${newUsd}) - Si toos ah ayaa loo soo bandhigay!`);
     } else {
       const oldD = parseFloat(oldPriceD);
       if (isNaN(oldD)) {
@@ -170,10 +208,10 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
       const deltaD = Math.round((newD - oldD) * 100) / 100;
       const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : 0;
       const type: 'increase' | 'decrease' = newD >= oldD ? 'increase' : 'decrease';
-      const oldUsd = Number(((oldD / 3.67) + 1.0).toFixed(2));
-      const newUsd = Number(((newD / 3.67) + 1.0).toFixed(2));
+      const oldUsd = Number((oldD / 3.67).toFixed(2));
+      const newUsd = Number((newD / 3.67).toFixed(2));
 
-      onAddPriceChange({
+      const recordData: Omit<PriceChangeRecord, 'id'> = {
         name: partName.trim(),
         cat: category,
         oldD,
@@ -184,9 +222,30 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
         deltaD,
         percentage,
         date,
-        note: note.trim()
-      });
+        note: note.trim() || (type === 'increase' ? 'Price Up (Kor ayuu u kacay)' : 'Price Down (Hoos ayuu u dhacay)')
+      };
+      onAddPriceChange(recordData);
+
+      // Automatically update price in catalog parts if matched!
+      const matched = parts.find(p => p.name.trim().toLowerCase() === partName.trim().toLowerCase());
+      if (matched && onUpdatePart) {
+        onUpdatePart(matched.id, {
+          d: newD,
+          usd: newUsd,
+          yuan: Number(((newD / 3.67) * 7.23).toFixed(1)),
+          salesPrice: newUsd,
+          salesPriceD: Number((newUsd * 3.67).toFixed(1))
+        });
+      }
+
+      showToast(`✅ Diwaan-galisay: "${partName.trim()}" ${type === 'increase' ? 'Price Up 📈 (+'+Math.abs(deltaD)+' D)' : 'Price Down 📉 (-'+Math.abs(deltaD)+' D)'} - Si toos ah ayaa loo soo bandhigay!`);
     }
+
+    // Immediately reset filter to 'all' so the new item is directly at the very top of the table!
+    setWeeklyFilter('all');
+    setFilterType('all');
+    setSearchTerm('');
+    setSelectedCategory('__all__');
 
     // Reset Form
     setPartName('');
@@ -484,19 +543,32 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             
-            {/* Part Name */}
+            {/* Part Name with Auto-Suggest Datalist */}
             <div className="lg:col-span-2">
-              <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400 mb-1.5">
-                1. Product Model Name *
+              <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400 mb-1.5 flex items-center justify-between">
+                <span>1. Product Model Name *</span>
+                {recordMode === 'change' && (
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    (Pick from list to auto-fill previous price)
+                  </span>
+                )}
               </label>
               <input
                 type="text"
                 required
+                list="allCatalogPartNames"
                 value={partName}
-                onChange={(e) => setPartName(e.target.value)}
-                placeholder="e.g. LCD SAM A17 Orginal 4G"
+                onChange={(e) => handlePartNameChange(e.target.value)}
+                placeholder={recordMode === 'change' ? "Type or select existing product (e.g. LCD SAM A17)" : "e.g. LCD REDMI NOTE 14 PRO"}
                 className="w-full px-4 py-2.5 text-xs sm:text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono"
               />
+              <datalist id="allCatalogPartNames">
+                {parts.map(p => (
+                  <option key={p.id} value={p.name}>
+                    {p.cat} — {p.d} D ($ {p.salesPrice})
+                  </option>
+                ))}
+              </datalist>
             </div>
 
             {/* Category */}
@@ -642,23 +714,41 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
                       {/* Status / Type Badge */}
                       <td className="py-3.5 px-4 font-sans whitespace-nowrap">
                         {isNew ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 text-xs font-bold">
-                            <PackagePlus className="w-3.5 h-3.5" />
-                            <span>New Product</span>
-                            {isRecent && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 text-xs font-bold">
+                              <PackagePlus className="w-3.5 h-3.5" />
+                              <span>New Product (Cusub)</span>
+                            </span>
+                            {change.date === new Date().toISOString().split('T')[0] && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-extrabold border border-cyan-400/50 animate-pulse">
+                                MAANTA / TODAY
+                              </span>
+                            )}
+                          </div>
                         ) : isDecrease ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-bold">
-                            <TrendingDown className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Price Decrease</span>
-                            {isRecent && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-bold">
+                              <TrendingDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>Price Down (Hoos)</span>
+                            </span>
+                            {change.date === new Date().toISOString().split('T')[0] && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[9px] font-extrabold border border-emerald-400/50 animate-pulse">
+                                MAANTA / TODAY
+                              </span>
+                            )}
+                          </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-400 text-xs font-bold">
-                            <TrendingUp className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Price Increase</span>
-                            {isRecent && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-400 text-xs font-bold">
+                              <TrendingUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>Price Up (Kor)</span>
+                            </span>
+                            {change.date === new Date().toISOString().split('T')[0] && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[9px] font-extrabold border border-amber-400/50 animate-pulse">
+                                MAANTA / TODAY
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
 
@@ -781,6 +871,14 @@ export const PriceTrackerView: React.FC<PriceTrackerViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-slate-950 font-bold px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 border-2 border-emerald-300 animate-in fade-in slide-in-from-bottom-2 duration-150 text-xs sm:text-sm">
+          <Check className="w-5 h-5 text-slate-950 stroke-[3]" />
+          <span>{toastMessage}</span>
         </div>
       )}
 
