@@ -12,6 +12,7 @@ import { PhotosView } from './components/PhotosView';
 import { CompatView } from './components/CompatView';
 import { PriceTrackerView } from './components/PriceTrackerView';
 import { SheetsDatabaseView } from './components/SheetsDatabaseView';
+import { RegisterCompanyView } from './components/RegisterCompanyView';
 import { GoogleSheetModal } from './components/GoogleSheetModal';
 import { InstallModal } from './components/InstallModal';
 import { 
@@ -27,8 +28,11 @@ import {
   PhotoItem,
   PriceChangeRecord,
   CompareItem, 
-  ChangeItem 
+  ChangeItem,
+  RegisteredCompany,
+  INITIAL_REGISTERED_COMPANIES
 } from './data/initialData';
+import { getNajiHassanCatalog } from './data/najiHassanCatalog';
 import { GoogleSheetsService } from './services/googleSheetsService';
 import { sound } from './services/soundService';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
@@ -36,6 +40,9 @@ import { useOnlineStatus } from './hooks/useOnlineStatus';
 const STORAGE_KEY_PHOTOS = 'spareparts_photos_v2';
 const STORAGE_KEY_COMPAT = 'spareparts_compat_v2';
 const STORAGE_KEY_PRICE_CHANGES = 'spareparts_price_changes_v2';
+const STORAGE_KEY_REGISTERED_COMPANIES = 'spareparts_registered_companies_v2';
+const STORAGE_KEY_REJECTED_COMPANIES = 'spareparts_rejected_companies_v1';
+const STORAGE_KEY_YUAN_RATE = 'spareparts_yuan_rate_v2';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('prolist');
@@ -46,20 +53,69 @@ export default function App() {
 
   const isOnline = useOnlineStatus();
 
-  // 1. Catalog Parts State
+  // Manual Yuan-to-USD exchange rate state (Requirement 1: Manual input for Yuan, Dirham auto 3.67)
+  const [yuanRate, setYuanRate] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_YUAN_RATE);
+      if (stored) {
+        const parsed = parseFloat(stored);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    } catch {}
+    return 7.23;
+  });
+
+  const handleUpdateYuanRate = (newRate: number) => {
+    if (isNaN(newRate) || newRate <= 0) return;
+    const cleanRate = Number(newRate.toFixed(4));
+    setYuanRate(cleanRate);
+    try {
+      localStorage.setItem(STORAGE_KEY_YUAN_RATE, String(cleanRate));
+    } catch {}
+
+    // Recalculate Yuan value for all products using the manual rate
+    setParts(prevParts => {
+      const updated = prevParts.map(p => ({
+        ...p,
+        yuan: Number(((p.d / 3.67) * cleanRate).toFixed(2))
+      }));
+      GoogleSheetsService.saveCustomParts(updated);
+      return updated;
+    });
+  };
+
+  // 1. Catalog Parts State - Default to the user's authentic 584-product NAJI HASSAN catalog
   const [parts, setParts] = useState<SparePartItem[]>(() => {
     if (GoogleSheetsService.isFormattedEmpty()) {
       return [];
     }
     const custom = GoogleSheetsService.getCustomParts();
-    const sourceParts = custom.length > 0 ? custom : getAllFlattenedParts(INITIAL_DATA);
-    return sourceParts.map(p => {
+    const sourceParts = custom.length >= 300 ? custom : getNajiHassanCatalog();
+    return sourceParts.map((p, idx) => {
       const isOld13 = p.salesPrice && p.usd && Math.abs(p.salesPrice - Number((p.usd * 1.3).toFixed(2))) < 0.05;
       const salesPrice = isOld13 || !p.salesPrice ? p.usd : p.salesPrice;
+
+      // Assign registered supplier if not explicitly set
+      let assignedCompany = p.companyName;
+      if (!assignedCompany) {
+        if (p.cat.includes('LCD') || p.cat.includes('OLED')) {
+          assignedCompany = (idx % 2 === 0) ? "Naji Hassan Supplies" : "Shenzhen TopDisplay Tech";
+        } else if (p.cat.includes('BATTERY') || p.cat.includes('FLEX')) {
+          assignedCompany = "Al-Madina Parts Co.";
+        } else if (p.cat.includes('TOOLS') || p.cat.includes('IC') || p.cat.includes('BACK GLASS')) {
+          assignedCompany = "RL Rework Dubai";
+        } else {
+          assignedCompany = "Naji Hassan Supplies";
+        }
+      }
+
       return {
         ...p,
+        companyName: assignedCompany,
         salesPrice,
-        salesPriceD: Number((salesPrice * 3.67).toFixed(1))
+        salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
+        quantity: p.quantity || (idx % 7 === 0 ? 10 : idx % 5 === 0 ? 5 : idx % 3 === 0 ? 3 : idx % 2 === 0 ? 2 : 1),
+        purchaseDate: p.purchaseDate || (idx % 4 === 0 ? "2026-11-04" : idx % 3 === 0 ? "2026-11-02" : idx % 2 === 0 ? "2026-10-28" : "2026-10-15")
       };
     });
   });
@@ -92,6 +148,108 @@ export default function App() {
     } catch {}
     return INITIAL_PRICE_CHANGES;
   });
+
+  // 5. Register Company State (Suppliers from whom parts are sourced - automatic 2-way link with Catalog)
+  const [registeredCompanies, setRegisteredCompanies] = useState<RegisteredCompany[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_REGISTERED_COMPANIES);
+      if (stored) return JSON.parse(stored);
+      const oldStored = localStorage.getItem(STORAGE_KEY_REJECTED_COMPANIES);
+      if (oldStored) return JSON.parse(oldStored);
+    } catch {}
+    return INITIAL_REGISTERED_COMPANIES;
+  });
+
+  const [catalogCompanyFilter, setCatalogCompanyFilter] = useState<string>('__all__');
+
+  const handleAddRegisteredCompany = (comp: Omit<RegisteredCompany, 'id'>) => {
+    const newComp: RegisteredCompany = {
+      ...comp,
+      id: `comp-${Date.now()}`
+    };
+    setRegisteredCompanies(prev => {
+      if (prev.some(c => c.name.toLowerCase() === comp.name.toLowerCase())) {
+        return prev;
+      }
+      const next = [newComp, ...prev];
+      try {
+        localStorage.setItem(STORAGE_KEY_REGISTERED_COMPANIES, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Automatic company registration when a new company is entered in Add Part or catalog
+  const handleRegisterCompanyName = (companyName: string) => {
+    if (!companyName.trim()) return;
+    const cleanName = companyName.trim();
+    setRegisteredCompanies(prev => {
+      if (prev.some(c => c.name.toLowerCase() === cleanName.toLowerCase())) {
+        return prev;
+      }
+      const newComp: RegisteredCompany = {
+        id: `comp-${Date.now()}`,
+        name: cleanName,
+        phoneNo: '+971 50 000 0000',
+        location: 'Dubai / China Market',
+        note: `Registered automatically from Catalog: ${cleanName}`,
+        createdAt: new Date().toISOString().split('T')[0],
+        status: 'preferred',
+        category: 'Spare Parts Supplier'
+      };
+      const next = [newComp, ...prev];
+      try {
+        localStorage.setItem(STORAGE_KEY_REGISTERED_COMPANIES, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleUpdateRegisteredCompany = (id: string, updated: Partial<RegisteredCompany>) => {
+    setRegisteredCompanies(prev => {
+      const next = prev.map(c => c.id === id ? { ...c, ...updated } : c);
+      try {
+        localStorage.setItem(STORAGE_KEY_REGISTERED_COMPANIES, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleDeleteRegisteredCompany = (id: string) => {
+    setRegisteredCompanies(prev => {
+      const next = prev.filter(c => c.id !== id);
+      try {
+        localStorage.setItem(STORAGE_KEY_REGISTERED_COMPANIES, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleResetDefaultCompanies = () => {
+    setRegisteredCompanies(INITIAL_REGISTERED_COMPANIES);
+    try {
+      localStorage.setItem(STORAGE_KEY_REGISTERED_COMPANIES, JSON.stringify(INITIAL_REGISTERED_COMPANIES));
+    } catch {}
+  };
+
+  const handleSelectCompanyForCatalog = (companyName: string) => {
+    setCatalogCompanyFilter(companyName);
+    setActiveTab('prolist');
+  };
+
+  // Price Tracker deep link filter & modal triggers
+  const [priceTrackerFilter, setPriceTrackerFilter] = useState<'all' | 'decrease' | 'increase' | 'new'>('all');
+  const [priceTrackerOpenModal, setPriceTrackerOpenModal] = useState<'change' | 'new_product' | null>(null);
+
+  const handleNavigateToPriceTracker = (
+    filter: 'all' | 'increase' | 'decrease' | 'new' = 'all',
+    openModal?: 'change' | 'new_product' | null
+  ) => {
+    sound.playTick();
+    setPriceTrackerFilter(filter);
+    setPriceTrackerOpenModal(openModal || null);
+    setActiveTab('pricetracker');
+  };
 
   const [changesList, setChangesList] = useState<ChangeItem[]>(() => {
     if (GoogleSheetsService.isFormattedEmpty()) return [];
@@ -170,21 +328,40 @@ export default function App() {
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
 
-    // Automatically record in Price Tracker as New Product Arrival (Cusub)
+    // Automatically connect with Register Company when new part with company is registered
+    if (newPart.companyName && newPart.companyName.trim()) {
+      handleRegisterCompanyName(newPart.companyName.trim());
+    }
+
+    // Automatically record in Price Tracker based on user-selected Product Change Type
     const today = new Date().toISOString().split('T')[0];
+    const changeType = newPart.changeType || 'New Product';
+    const recType: 'new' | 'increase' | 'decrease' = 
+      changeType === 'Price Decrease' ? 'decrease' :
+      changeType === 'Price Increase' ? 'increase' : 'new';
+
+    const oldD = recType === 'new' ? 0 : (newPart.oldPriceD !== undefined ? newPart.oldPriceD : (recType === 'decrease' ? Number((newPart.d * 1.15).toFixed(1)) : Number((newPart.d * 0.85).toFixed(1))));
+    const newD = newPart.d;
+    const deltaD = Math.round((newD - oldD) * 100) / 100;
+    const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : (recType === 'new' ? 100 : 0);
+
     const newRec: PriceChangeRecord = {
       id: `pc-${Date.now()}`,
       name: newPart.name,
       cat: newPart.cat,
-      oldD: 0,
-      newD: newPart.d,
-      oldUsd: 0,
+      oldD,
+      newD,
+      oldUsd: Number((oldD / 3.67).toFixed(2)),
       newUsd: newPart.usd || Number((newPart.d / 3.67).toFixed(2)),
-      type: 'new',
-      deltaD: newPart.d,
-      percentage: 100,
+      type: recType,
+      deltaD,
+      percentage,
       date: today,
-      note: 'New product registered in Catalog (Cusub)'
+      note: changeType === 'Price Increase'
+        ? 'Price increase recorded (Price Up / Kor u kacay)'
+        : changeType === 'Price Decrease'
+        ? 'Price decrease recorded (Price Down / Hoos u dhacay)'
+        : 'New product registered in Catalog (Cusub)'
     };
     setPriceChanges(prev => {
       const next = [newRec, ...prev];
@@ -215,38 +392,55 @@ export default function App() {
     setParts(updated);
     GoogleSheetsService.saveCustomParts(updated);
 
-    // Automatically detect Price Up (Increase) or Price Down (Decrease) and record in Price Tracker!
-    if (originalPart && updatedFields.d !== undefined && Math.abs(updatedFields.d - originalPart.d) >= 0.05) {
-      const oldD = originalPart.d;
-      const newD = updatedFields.d;
-      const deltaD = Math.round((newD - oldD) * 100) / 100;
-      const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : 0;
-      const type: 'increase' | 'decrease' = newD > oldD ? 'increase' : 'decrease';
-      const today = new Date().toISOString().split('T')[0];
-      const oldUsd = originalPart.usd || Number((oldD / 3.67).toFixed(2));
-      const newUsd = updatedFields.usd || Number((newD / 3.67).toFixed(2));
+    if (updatedFields.companyName && updatedFields.companyName.trim()) {
+      handleRegisterCompanyName(updatedFields.companyName.trim());
+    }
 
-      const newRec: PriceChangeRecord = {
-        id: `pc-${Date.now()}`,
-        name: updatedFields.name || originalPart.name,
-        cat: updatedFields.cat || originalPart.cat,
-        oldD,
-        newD,
-        oldUsd,
-        newUsd,
-        type,
-        deltaD,
-        percentage,
-        date: today,
-        note: type === 'increase' 
-          ? 'Price increase recorded (Price Up / Kor u kacay)' 
-          : 'Price decrease recorded (Price Down / Hoos u dhacay)'
-      };
-      setPriceChanges(prev => {
-        const next = [newRec, ...prev];
-        localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
-        return next;
-      });
+    // Automatically record Price Up (Increase), Price Down (Decrease), or New Product in Price Tracker!
+    if (originalPart) {
+      const changeType = updatedFields.changeType || (
+        updatedFields.d !== undefined && updatedFields.d > originalPart.d ? 'Price Increase' :
+        updatedFields.d !== undefined && updatedFields.d < originalPart.d ? 'Price Decrease' : undefined
+      );
+
+      if (changeType || (updatedFields.d !== undefined && Math.abs(updatedFields.d - originalPart.d) >= 0.05)) {
+        const oldD = originalPart.d;
+        const newD = updatedFields.d !== undefined ? updatedFields.d : originalPart.d;
+        const deltaD = Math.round((newD - oldD) * 100) / 100;
+        const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : 0;
+        const type: 'increase' | 'decrease' | 'new' = 
+          changeType === 'New Product' ? 'new' :
+          changeType === 'Price Decrease' ? 'decrease' :
+          changeType === 'Price Increase' ? 'increase' :
+          (newD > oldD ? 'increase' : 'decrease');
+        const today = new Date().toISOString().split('T')[0];
+        const oldUsd = originalPart.usd || Number((oldD / 3.67).toFixed(2));
+        const newUsd = updatedFields.usd !== undefined ? updatedFields.usd : (originalPart.usd || Number((newD / 3.67).toFixed(2)));
+
+        const newRec: PriceChangeRecord = {
+          id: `pc-${Date.now()}`,
+          name: updatedFields.name || originalPart.name,
+          cat: updatedFields.cat || originalPart.cat,
+          oldD: type === 'new' ? 0 : oldD,
+          newD,
+          oldUsd: type === 'new' ? 0 : oldUsd,
+          newUsd,
+          type,
+          deltaD: type === 'new' ? newD : deltaD,
+          percentage: type === 'new' ? 100 : percentage,
+          date: today,
+          note: type === 'increase' 
+            ? 'Price increase recorded (Price Up / Kor u kacay)' 
+            : type === 'decrease'
+            ? 'Price decrease recorded (Price Down / Hoos u dhacay)'
+            : 'New product registered in Catalog (Cusub)'
+        };
+        setPriceChanges(prev => {
+          const next = [newRec, ...prev];
+          localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+          return next;
+        });
+      }
     }
 
     // If connected to Google Sheets, automatically update row directly in Google Sheet!
@@ -517,10 +711,11 @@ export default function App() {
     GoogleSheetsService.formatAllData();
   };
 
-  // Reset database back to factory snapshot
+  // Reset database back to factory snapshot (584 products)
   const handleResetToDefault = () => {
-    const base = getAllFlattenedParts(INITIAL_DATA);
+    const base = getNajiHassanCatalog();
     setParts(base);
+    GoogleSheetsService.saveCustomParts(base);
     setCompatList(INITIAL_COMPAT);
     setChangesList(INITIAL_CHANGES);
     setPhotosList(INITIAL_PHOTOS);
@@ -613,6 +808,11 @@ export default function App() {
           <ProListView
             parts={parts}
             compatList={compatList}
+            priceChanges={priceChanges}
+            companies={registeredCompanies}
+            companyFilter={catalogCompanyFilter}
+            onClearCompanyFilter={() => setCatalogCompanyFilter('__all__')}
+            onRegisterNewCompany={handleRegisterCompanyName}
             onAddPart={handleAddPart}
             onUpdatePart={handleUpdatePart}
             onDeletePart={handleDeletePart}
@@ -621,16 +821,38 @@ export default function App() {
             onBulkMoveCategory={handleBulkMoveCategory}
             onOpenDbModal={() => setIsDbModalOpen(true)}
             onRestoreDefault={handleResetToDefault}
+            onNavigateToPriceTracker={handleNavigateToPriceTracker}
+            yuanRate={yuanRate}
+            onUpdateYuanRate={handleUpdateYuanRate}
           />
         )}
 
-        {/* 2. Quiz Tab with Green Category Product Viewer */}
+        {/* 2. Quiz Tab with Price Tracker Quiz, Series Products, and Price D / USD+ / Sale */}
         {activeTab === 'quiz' && (
           <QuizView
             parts={parts}
             compatList={compatList}
             changesList={changesList}
+            priceChanges={priceChanges}
+            onAddPriceChange={handleAddPriceChange}
+            onDeletePriceChange={handleDeletePriceChange}
+            onAddPart={handleAddPart}
+            onUpdatePart={handleUpdatePart}
             onStreakUpdate={setCurrentStreak}
+          />
+        )}
+
+        {/* 3. Price Tracker Tab (Simplified: New Products, Price Increase, Price Decrease) */}
+        {activeTab === 'pricetracker' && (
+          <PriceTrackerView
+            priceChanges={priceChanges}
+            parts={parts}
+            onAddPriceChange={handleAddPriceChange}
+            onDeletePriceChange={handleDeletePriceChange}
+            onAddPart={handleAddPart}
+            onUpdatePart={handleUpdatePart}
+            initialFilter={priceTrackerFilter}
+            initialOpenModal={priceTrackerOpenModal}
           />
         )}
 
@@ -654,18 +876,6 @@ export default function App() {
           />
         )}
 
-        {/* 5. Product Price Changes Tracker Tab (Price Decrease & Price Increase) */}
-        {activeTab === 'pricetracker' && (
-          <PriceTrackerView
-            priceChanges={priceChanges}
-            parts={parts}
-            onAddPriceChange={handleAddPriceChange}
-            onDeletePriceChange={handleDeletePriceChange}
-            onAddPart={handleAddPart}
-            onUpdatePart={handleUpdatePart}
-          />
-        )}
-
         {/* 6. Google Sheets Database Tab */}
         {activeTab === 'sheetdb' && (
           <SheetsDatabaseView
@@ -677,6 +887,19 @@ export default function App() {
             onResetToDefault={handleResetToDefault}
             onFormatDatabase={handleFormatDatabase}
             lastSyncedAt={lastSyncedAt}
+          />
+        )}
+
+        {/* 7. Register Company Tab (Name, Phone No, Location, Note, Save to PDF - 2-Way Sourcing Link) */}
+        {(activeTab === 'register_company' || activeTab === 'rejected') && (
+          <RegisterCompanyView
+            companies={registeredCompanies}
+            parts={parts}
+            onAddCompany={handleAddRegisteredCompany}
+            onUpdateCompany={handleUpdateRegisteredCompany}
+            onDeleteCompany={handleDeleteRegisteredCompany}
+            onSelectCompanyForCatalog={handleSelectCompanyForCatalog}
+            onResetDefaultCompanies={handleResetDefaultCompanies}
           />
         )}
 
@@ -763,6 +986,14 @@ export default function App() {
               className="hover:text-white transition-colors font-semibold cursor-pointer"
             >
               Price Tracker
+            </button>
+            <span aria-hidden="true">·</span>
+            <button 
+              type="button" 
+              onClick={() => setActiveTab('register_company')}
+              className="hover:text-cyan-300 text-cyan-400 transition-colors font-semibold cursor-pointer flex items-center gap-1"
+            >
+              <span>Register Company</span>
             </button>
           </div>
         </div>

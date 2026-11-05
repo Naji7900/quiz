@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { GoogleSheetsService } from '../services/googleSheetsService';
 import { SparePartItem, CompatItem, CompareItem } from '../data/initialData';
+import { getNajiHassanCatalog } from '../data/najiHassanCatalog';
 import { sound } from '../services/soundService';
 
 interface GoogleSheetModalProps {
@@ -102,6 +103,9 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   const [sheetUrl, setSheetUrl] = useState(() => {
     return GoogleSheetsService.getSavedConfig().sheetUrl || '';
   });
+  const [webAppUrl, setWebAppUrl] = useState(() => {
+    return (GoogleSheetsService.getSavedConfig() as any).webAppUrl || '';
+  });
   const [activeTab, setActiveTab] = useState<'template' | 'sync' | 'manage'>('template');
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -113,43 +117,79 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [showAppsScript, setShowAppsScript] = useState(false);
   const [copiedScript, setCopiedScript] = useState(false);
+  const [copiedCat, setCopiedCat] = useState<string | null>(null);
+
+  // Group of unique categories present in the catalog
+  const categories = Array.from(new Set(parts.map(p => (p.cat || 'General Spare Parts').trim()))).sort();
 
   if (!isOpen) return null;
+
+  // 1-Click Load the complete 584 items & 38 category pages from NAJI HASSAN dataset
+  const handleLoadNajiCatalog = () => {
+    sound.playVictory();
+    const catalog = getNajiHassanCatalog();
+    onDataSynced(catalog);
+    GoogleSheetsService.saveCustomParts(catalog);
+    const catCount = Array.from(new Set(catalog.map(p => p.cat))).length;
+    setStatusMessage({
+      type: 'success',
+      text: `Guul! Dhammaan 584 alaabood iyo ${catCount} category pages (SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, iwm.) ee NAJI HASSAN si buuxda ayaa loo soo roray!`
+    });
+  };
 
   const handleBackupToSheet = async (mode: 'all_in_one' | 'multi_tab' = 'all_in_one') => {
     if (parts.length === 0) {
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Your catalog currently has 0 products. Please add products or restore defaults before creating 1 Sheet.'
+        text: 'Your catalog currently has 0 products. Please add products or click "Soo Ror 584 Alaabood" before creating a backup.'
       });
       return;
     }
 
-    setIsBackingUp(true);
-    setStatusMessage(null);
+    const currentUrl = sheetUrl.trim();
+    const currentWebAppUrl = webAppUrl.trim();
+    if (!currentUrl && !currentWebAppUrl) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Fadlan geli link-ga Google Sheets ama Google Apps Script Web App ee kore si aad ugu backup garayso.'
+      });
+      return;
+    }
 
-    // Always copy TSV to clipboard
-    await GoogleSheetsService.copyAllProductsToClipboard(parts);
+    // Determine target Web App endpoint to send HTTP POST
+    let targetEndpoint = '';
+    if (GoogleSheetsService.isWebAppUrl(currentUrl)) {
+      targetEndpoint = currentUrl;
+    } else if (GoogleSheetsService.isWebAppUrl(currentWebAppUrl)) {
+      targetEndpoint = currentWebAppUrl;
+    }
 
-    const isWebEndpoint = sheetUrl.trim().includes('/exec') || sheetUrl.trim().includes('script.google.com');
+    if (targetEndpoint) {
+      setIsBackingUp(true);
+      setStatusMessage({
+        type: 'success',
+        text: mode === 'multi_tab' 
+          ? `Waxaa toos loogu dirayaa Google Sheet-kaaga: ${parts.length} alaabood oo loo kala saarayo ${categories.length} category spreadsheet tabs (pages: SAMSUNG - LCD, IPhone - LCD, TECNO - LCD, iwm.)...`
+          : `Waxaa toos loogu dirayaa Google Sheet-kaaga: ${parts.length} alaabood tab-ka 'ALL PRODUCT'...`
+      });
 
-    if (isWebEndpoint) {
       try {
-        const res = await GoogleSheetsService.backupAllToGoogleSheet(sheetUrl, parts, photosList, compatList, mode);
+        await GoogleSheetsService.backupAllToGoogleSheet(targetEndpoint, parts, photosList, compatList, mode);
         sound.playVictory();
-        const targetDesc = mode === 'all_in_one'
-          ? "1 single sheet tab named 'ALL PRODUCT'"
-          : "individual category sheets";
+        const modeDesc = mode === 'multi_tab' 
+          ? `Dhammaan ${parts.length} alaabood waxaa si toos ah loogu dhex sameeyay ${categories.length} category spreadsheet tabs (pages) ee Google Sheet-kaaga NAJI HASSAN!` 
+          : `Dhammaan ${parts.length} alaabood waxaa toos loogu backup gareeyay tab-ka 'ALL PRODUCT' ee Google Sheet-kaaga NAJI HASSAN!`;
         setStatusMessage({
           type: 'success',
-          text: `Success! All ${parts.length} products backed up to ${targetDesc} in your Google Sheet, and copied to clipboard!`
+          text: `Guul! ${modeDesc}`
         });
       } catch (err) {
-        sound.playVictory();
+        sound.playWrong();
         setStatusMessage({
-          type: 'success',
-          text: `All ${parts.length} products copied to clipboard in 1-Sheet format! In Google Sheets, click cell A1 and press Ctrl+V.`
+          type: 'error',
+          text: `Khalad ayaa dhacay xilligii loo dirayay Google Sheets: ${(err as Error).message || 'Hubi xiriirka internet-kaaga ama Web App-ka.'}`
         });
       } finally {
         setIsBackingUp(false);
@@ -157,13 +197,23 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       return;
     }
 
-    // Direct sheet link or empty: download CSV & copy to clipboard
-    GoogleSheetsService.exportToCSV(parts);
-    sound.playVictory();
-    setIsBackingUp(false);
+    // If standard Google Sheet URL was provided without Web App endpoint deployed yet:
+    // DO NOT DOWNLOAD ANY FILE! Explain clearly how to connect the Web App so tabs are created directly in Google Sheets.
+    const sheetId = GoogleSheetsService.extractSpreadsheetId(currentUrl);
+    sound.playTick();
+    setShowAppsScript(true);
     setStatusMessage({
       type: 'success',
-      text: `1-Sheet Ready! All ${parts.length} products copied to clipboard & downloaded as 'ALL_PRODUCT_Master_Sheet.csv'. In Google Sheets, click cell A1 and press Ctrl+V!`
+      text: `Link-ga Google Sheet-ka NAJI HASSAN waa la helay (Sheet ID: ${sheetId || 'link-gaaga'}). Si uu toos ugu dhex abuuro dhammaan ${categories.length}-ka qaybood Google Sheet-kaaga: nuqul ka qaado script-ka hoose (oo leh Sheet ID-gaaga), ku dar Google Sheet-kaaga (Extensions > Apps Script > Deploy > Web App: Anyone), kadibna Web App URL-ka ku dar sanduuqa kore!`
+    });
+  };
+
+  const handleDownloadOfflineWorkbook = () => {
+    sound.playTick();
+    GoogleSheetsService.exportToMultiTabWorkbook(parts, photosList, compatList);
+    setStatusMessage({
+      type: 'success',
+      text: `Faylka offline-ka ah (.xls) ee dhammaan ${categories.length} category tabs ayaa laguu soo dejiyay kumbuyuutarkaaga.`
     });
   };
 
@@ -616,10 +666,42 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
 
               {/* Option B: Published Google Sheet URL Sync */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4">
+                
+                {/* 584 Items Naji Hassan Catalog Quick-Loader */}
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-cyan-950/70 via-slate-900 to-indigo-950/70 border border-cyan-500/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center font-bold text-xs border border-cyan-500/40">
+                      584
+                    </div>
+                    <div>
+                      <span className="font-bold text-white text-xs block">
+                        Katalog-ga Buuxa ee NAJI HASSAN (584 Alaabood &amp; 38 Qaybood)
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Dhammaan category pages: SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, iwm.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLoadNajiCatalog}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Soo Ror 584 Alaabood (NAJI HASSAN Pages)</span>
+                  </button>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                    Or Live Google Sheet Published CSV Link
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                      Live Google Sheet Link ama Apps Script Web App URL
+                    </label>
+                    <span className="text-[11px] text-cyan-400 font-mono">
+                      {parts.length} Products Active
+                    </span>
+                  </div>
+                  
                   <div className="flex flex-col sm:flex-row gap-2.5">
                     <input
                       type="url"
@@ -630,7 +712,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                         GoogleSheetsService.saveConfig({ sheetUrl: val.trim() });
                       }}
                       onBlur={() => GoogleSheetsService.saveConfig({ sheetUrl: sheetUrl.trim() })}
-                      placeholder="https://script.google.com/macros/s/AKfy.../exec or Google Sheet link"
+                      placeholder="https://script.google.com/macros/s/AKfy.../exec ama https://docs.google.com/spreadsheets/d/..."
                       className="flex-1 bg-slate-950 border border-slate-700/80 focus:border-cyan-500 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 font-mono outline-none"
                     />
                     <div className="flex flex-wrap items-center gap-2">
@@ -649,23 +731,161 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                         type="button"
                         onClick={() => handleBackupToSheet('all_in_one')}
                         disabled={isLoading || isBackingUp}
-                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
+                        className="px-3.5 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
                         title="Backup ALL products into 1 single sheet named 'ALL PRODUCT'"
                       >
                         <Upload className={`w-4 h-4 ${isBackingUp ? 'animate-bounce' : ''}`} />
-                        <span>{isBackingUp ? 'Backing up...' : '⚡ Backup All to 1 Sheet ("ALL PRODUCT")'}</span>
+                        <span>{isBackingUp ? 'Backing up...' : '⚡ 1 Sheet ("ALL PRODUCT")'}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleBackupToSheet('multi_tab')}
                         disabled={isLoading || isBackingUp}
-                        className="px-3 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
-                        title="Split products into individual category tabs"
+                        className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
+                        title="Toos ugu dhex samee category kasta (38 qaybood) Google Sheet-kaaga NAJI HASSAN adigoon waxba soo dejisan"
                       >
-                        <span>📂 Multi-Tab</span>
+                        <FileSpreadsheet className={`w-4 h-4 ${isBackingUp ? 'animate-spin' : ''}`} />
+                        <span>{isBackingUp ? 'Ku qoraya Google Sheet...' : '📂 Multi-Tab Backup (Toos ugu qor Google Sheet)'}</span>
                       </button>
                     </div>
+                  </div>
+
+                  {/* Detected Sheet ID Banner & Web App connector */}
+                  {GoogleSheetsService.isSpreadsheetUrl(sheetUrl) && (
+                    <div className="mt-3 p-3 rounded-xl bg-slate-950/90 border border-cyan-500/40 text-xs space-y-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-cyan-300 font-mono text-[11px] flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Google Sheet ID: <strong>{GoogleSheetsService.extractSpreadsheetId(sheetUrl)}</strong></span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const sid = GoogleSheetsService.extractSpreadsheetId(sheetUrl);
+                            if (sid) {
+                              const code = GoogleSheetsService.getAppsScriptCode(sid);
+                              navigator.clipboard.writeText(code);
+                              setCopiedScript(true);
+                              sound.playVictory();
+                              setTimeout(() => setCopiedScript(false), 2500);
+                              setStatusMessage({
+                                type: 'success',
+                                text: 'Apps Script code pre-configured with this Google Sheet ID copied to clipboard!'
+                              });
+                            }
+                          }}
+                          className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1 font-semibold"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>{copiedScript ? 'Copied Pre-Configured Script!' : 'Nuqul Script (Pre-configured ID)'}</span>
+                        </button>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1 border-t border-slate-800">
+                        <span className="text-slate-400 text-[11px] shrink-0 font-medium">
+                          Web App URL (ikhtiyaari haddii la deploy gareeyay):
+                        </span>
+                        <input
+                          type="url"
+                          value={webAppUrl}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setWebAppUrl(val);
+                            GoogleSheetsService.saveConfig({ webAppUrl: val.trim() } as any);
+                          }}
+                          placeholder="https://script.google.com/macros/s/.../exec"
+                          className="flex-1 bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-lg px-2.5 py-1 text-xs text-slate-200 font-mono outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Explanation Banner */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 flex items-start gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>⚡ 1 Sheet ("ALL PRODUCT"):</strong> Writes all {parts.length} items into 1 consolidated master sheet tab.
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-blue-950/30 border border-blue-500/30 text-blue-200 flex items-start gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>📂 Multi-Tab Backup:</strong> Waxay <strong>category kasta ka dhigaysaa spreadsheet tab u gaar ah</strong> ({categories.length} tabs) oo toos loogu dhex abuurayo Google Sheet-kaaga NAJI HASSAN (ma soo dejinayo fayl).
+                    </span>
+                  </div>
+                </div>
+
+                {/* Category Spreadsheet Tabs 1-Click Copy */}
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+                        <Table className="w-4 h-4 text-blue-400" />
+                        <span>Category Spreadsheet Tabs ({categories.length} Categories Found)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-400">
+                        Copy any individual category tab to clipboard for direct Ctrl+V pasting into your Google Sheet:
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadOfflineWorkbook}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-700 shrink-0"
+                      title="Haddii aad rabto inaad fayl offline ah (.xls) ku keydiso kumbuyuutarkaaga"
+                    >
+                      <Download className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Soo Dajiso Faylka Offline (.xls)</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
+                    {categories.map(cat => {
+                      const count = parts.filter(p => (p.cat || 'General Spare Parts').trim() === cat).length;
+                      return (
+                        <div
+                          key={cat}
+                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900/80 text-xs"
+                        >
+                          <span className="font-semibold text-slate-200">{cat}</span>
+                          <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold">
+                            {count}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const ok = await GoogleSheetsService.copyCategoryProductsToClipboard(parts, cat);
+                              if (ok) {
+                                sound.playVictory();
+                                setCopiedCat(cat);
+                                setTimeout(() => setCopiedCat(null), 2500);
+                                setStatusMessage({
+                                  type: 'success',
+                                  text: `Copied ${count} items of "${cat}" to clipboard! In Google Sheets, open your "${cat}" tab and press Ctrl+V at cell A1.`
+                                });
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            {copiedCat === cat ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>{copiedCat === cat ? 'Copied!' : 'Copy'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sound.playTick();
+                              GoogleSheetsService.exportCategoryToCSV(parts, cat);
+                            }}
+                            className="p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                            title={`Download ${cat} CSV`}
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -709,11 +929,14 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                 {showAppsScript && (
                   <div className="space-y-3 pt-2 animate-in fade-in duration-200">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400">Google Apps Script Web App Code:</span>
+                      <span className="text-[11px] text-slate-400">
+                        Google Apps Script Web App Code: {GoogleSheetsService.extractSpreadsheetId(sheetUrl) && <strong className="text-cyan-400 font-mono">(Linked to Sheet ID)</strong>}
+                      </span>
                       <button
                         type="button"
                         onClick={() => {
-                          const code = GoogleSheetsService.getAppsScriptCode();
+                          const sid = GoogleSheetsService.extractSpreadsheetId(sheetUrl) || undefined;
+                          const code = GoogleSheetsService.getAppsScriptCode(sid);
                           navigator.clipboard.writeText(code);
                           setCopiedScript(true);
                           sound.playVictory();
@@ -727,7 +950,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                     </div>
 
                     <pre className="p-3 bg-[#070b14] rounded-xl border border-slate-800 text-[11px] font-mono text-cyan-300 max-h-52 overflow-y-auto select-all">
-                      {GoogleSheetsService.getAppsScriptCode()}
+                      {GoogleSheetsService.getAppsScriptCode(GoogleSheetsService.extractSpreadsheetId(sheetUrl) || undefined)}
                     </pre>
 
                     <ol className="list-decimal list-inside text-xs text-slate-400 space-y-1 bg-slate-950/60 p-3 rounded-xl border border-slate-800">

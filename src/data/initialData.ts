@@ -4,11 +4,18 @@ export interface SparePartItem {
   name: string;
   d: number;            // Price D (Dirham)
   usd: number;          // USD+ = (Dirham / 3.67 + expense)
-  yuan: number;         // Yuan ¥ = (Dirham / 3.67) * 7.23
+  yuan: number;         // Yuan ¥ = (Dirham / 3.67) * yuanRate
   salesPrice: number;   // Sales $
   salesPriceD: number;  // Sales D
   expense: number;      // Shipping & handling expense in USD
   isCustom?: boolean;
+  changeType?: 'New Product' | 'Price Decrease' | 'Price Increase';
+  oldPriceD?: number;
+  companyName?: string;
+  quantity?: number;
+  purchaseDate?: string;
+  brand?: string;
+  model?: string;
 }
 
 export interface CompatItem {
@@ -58,12 +65,12 @@ export interface CompareItem {
   url: string;
 }
 
-// Official Exchange Rate: 1 USD = 3.67 AED, 1 USD = 7.23 RMB (Yuan)
+// Official Exchange Rate: 1 USD = 3.67 AED (Dirham automatic), Yuan manually entered by user (default 7.23)
 // Exact formula: USD+ = Price D / 3.67 (+ optional custom expense)
 // 1 Dirham = (1 / 3.67) = 0.27 USD+
-// 1 Dirham = (1 / 3.67) * 7.23 = 1.97 Yuan
+// Yuan ¥ = (Dirham / 3.67) * yuanRate
 // Sales $ strictly follows the origin Google Sheet price $ (NO 1.3 markup added)
-export function calculatePricing(dirhamPrice: number, customExpense: number = 0): {
+export function calculatePricing(dirhamPrice: number, customExpense: number = 0, yuanRate: number = 7.23): {
   costUsd: number;
   yuan: number;
   salesPrice: number;
@@ -73,7 +80,8 @@ export function calculatePricing(dirhamPrice: number, customExpense: number = 0)
   const expense = customExpense || 0;
   const baseUsd = dirhamPrice / 3.67;
   const costUsd = Number((baseUsd + expense).toFixed(2));
-  const yuan = Number((baseUsd * 7.23).toFixed(2));
+  const rate = yuanRate && !isNaN(yuanRate) && yuanRate > 0 ? yuanRate : 7.23;
+  const yuan = Number((baseUsd * rate).toFixed(2));
   const salesPrice = costUsd; // Direct origin price $, no 1.3 multiplier
   const salesPriceD = Number((salesPrice * 3.67).toFixed(1));
   return { costUsd, yuan, salesPrice, salesPriceD, expense };
@@ -1198,4 +1206,87 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
     date: "2026-10-22",
     note: "New switch component added (Cusub)"
   }
+];
+
+export interface RegisteredCompany {
+  id: string;
+  name: string;
+  contactPerson?: string;
+  phoneNo: string;
+  whatsappNo?: string;
+  location: string;
+  note: string;
+  createdAt: string;
+  status?: 'active' | 'preferred' | 'verified';
+  category?: string;
+  rating?: number;
+}
+
+// Alias for backwards compatibility
+export type RejectedCompany = RegisteredCompany;
+
+export const INITIAL_REGISTERED_COMPANIES: RegisteredCompany[] = [
+  {
+    id: "comp-1",
+    name: "Naji Hassan Supplies",
+    contactPerson: "Naji Hassan",
+    phoneNo: "+971 50 882 1934",
+    whatsappNo: "+971 50 882 1934",
+    location: "Deira, Sabkha Road, Dubai, UAE",
+    note: "Primary supplier for authentic LCDs, OLEDs, and original smartphone spare parts. High reliability & fast dispatch.",
+    createdAt: "2026-10-15",
+    status: "preferred",
+    category: "LCD Screens & OLEDs"
+  },
+  {
+    id: "comp-2",
+    name: "Shenzhen TopDisplay Tech",
+    contactPerson: "David Lin",
+    phoneNo: "+86 139 7788 1234",
+    whatsappNo: "+86 139 7788 1234",
+    location: "Huaqiangbei Electronics Market, Shenzhen, China",
+    note: "Direct factory wholesale for iPhone, Samsung & Redmi screens, high refresh rate panels, and OCA glass.",
+    createdAt: "2026-10-20",
+    status: "active",
+    category: "Wholesale Displays & Glass"
+  },
+  {
+    id: "comp-3",
+    name: "Al-Madina Parts Co.",
+    contactPerson: "Ahmed Al-Madina",
+    phoneNo: "+971 55 342 9876",
+    whatsappNo: "+971 55 342 9876",
+    location: "Naif Market, Deira, Dubai",
+    note: "Batteries, charging flex cables, camera glass, and speaker components. Consistent warranty support.",
+    createdAt: "2026-10-28",
+    status: "active",
+    category: "Batteries & Flex Cables"
+  },
+  {
+    id: "comp-4",
+    name: "RL Rework Dubai",
+    contactPerson: "Rashid Khan",
+    phoneNo: "+971 52 456 7890",
+    whatsappNo: "+971 52 456 7890",
+    location: "Baniyas Square, Deira, Dubai",
+    note: "Specialized in micro-soldering IC chips, back glass housings, and precision repair tools.",
+    createdAt: "2026-11-02",
+    status: "preferred",
+    category: "Tools & IC Chips"
+  }
+];
+
+export const INITIAL_REJECTED_COMPANIES = INITIAL_REGISTERED_COMPANIES;
+
+export const PRESET_COMPANY_NAMES: string[] = [
+  "Naji Hassan Supplies",
+  "Shenzhen TopDisplay Tech",
+  "Al-Madina Parts Co.",
+  "RL Rework Dubai",
+  "Mechanic Tools & Parts",
+  "Sunshine Mobile Wholesale",
+  "JCID Official",
+  "Guangzhou Huaxin Electronics",
+  "Best Choice Spare Parts",
+  "OLED Master Tech"
 ];

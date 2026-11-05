@@ -1,7 +1,7 @@
 import { Volume2, VolumeX, Database, Download, Flame, Sparkles } from 'lucide-react';
 import { sound } from '../services/soundService';
 
-export type AppTab = 'prolist' | 'quiz' | 'photos' | 'compat' | 'pricetracker' | 'sheetdb';
+export type AppTab = 'prolist' | 'quiz' | 'photos' | 'compat' | 'pricetracker' | 'sheetdb' | 'register_company' | 'rejected';
 
 interface TopNavProps {
   activeTab: AppTab;
@@ -63,7 +63,8 @@ export const TopNav: React.FC<TopNavProps> = ({
             { id: 'photos', label: 'Photos' },
             { id: 'compat', label: 'Compatible LCDs' },
             { id: 'pricetracker', label: 'Price Tracker' },
-            { id: 'sheetdb', label: 'Google Sheets DB' }
+            { id: 'sheetdb', label: 'Google Sheets DB' },
+            { id: 'register_company', label: 'Register Company' }
           ].map(tab => {
             const isActive = activeTab === tab.id;
             return (
@@ -129,7 +130,8 @@ export const TopNav: React.FC<TopNavProps> = ({
             { id: 'photos', label: 'Photos' },
             { id: 'compat', label: 'Compatible LCDs' },
             { id: 'pricetracker', label: 'Price Tracker' },
-            { id: 'sheetdb', label: 'Google Sheets DB' }
+            { id: 'sheetdb', label: 'Google Sheets DB' },
+            { id: 'register_company', label: 'Register Company' }
           ].map(tab => {
             const isActive = activeTab === tab.id;
             return (

@@ -1,93 +1,45 @@
-# Mobile & Windows PWA Installation Suite (Reer Hassan)
+# Implementation Summary: Spare Parts Price Quiz & Inventory Suite
 
-This feature enables seamless installation and offline usage of the Spare Parts Price Quiz & Inventory Suite on Android phones and Windows PCs, allowing technicians and shop owners to run it like a native mobile app without relying on a browser address bar.
+## 1. Catalog – Currency Formulas
+- **Manual Yuan (RMB) Exchange Rate**: Replaced the automatic formula with a manual user input in the Catalog Formulas bar (`1 USD = [ 7.23 ] RMB` + "Save Rate" button).
+- **Dynamic Conversion**: Changing the rate immediately recalculates all 584+ products' Yuan prices (`p.yuan = ((p.d / 3.67) * manualRate)`) and persists the rate to `localStorage` and Google Sheets sync.
+- **Automatic Dirham**: Kept Dirham-to-USD conversion automatic (`1 USD = 3.67 AED`) as specified.
 
-## User Review & Critical Decisions
+## 2. Quiz System
+- **Quiz Modes for "Price D / USD + / Sale"**:
+  - **Multiple Choice**: Generates options displaying all 3 prices formatted (`X D · $Y · $Z`).
+  - **Type Price**: Manual inputs for Dirham (D), USD+, and Sales $ with tolerance checking and validation.
+  - **True / False**: Evaluates a candidate 3-price card against database records.
+  - **Any Quiz Mode**: Dynamically randomizes question types (MCQ, Type, and True/False) per question throughout the session.
+- **Question Count Options**:
+  - Selectable counts: `10`, `20`, `30`, `100`, and `Custom` (with numeric input).
+  - Clear `Question X of Y` progress indicator with a progress bar.
+  - Prominent `Next Question ➔` button when answering, auto-advance fallback, and final score/accuracy summary.
+- **Non-Deterministic Question Shuffling**:
+  - Implemented Fisher-Yates shuffling (`shuffleArray`) selecting questions randomly from across the entire catalog (first, middle, last, any position) on every quiz start.
+- **Speed Timer**:
+  - Selectable options: `Off`, `20s`, `25s`, `30s`.
+  - Countdown display with low-time warning sounds; timeout automatically handles unanswered items and lets the quiz continue.
 
-> [!IMPORTANT]
-> The user confirmed the target platforms are **Android phone and Windows PC**. The application will be equipped with:
-> 1. Full Progressive Web App (PWA) manifest and Service Worker with offline caching.
-> 2. A 1-click **"Install App / Ku Shub Taleefanka"** button in the header and an interactive modal guide.
-> 3. A dynamic **Mobile QR Code modal** so the user on Windows can scan their screen with their Android phone to instantly open and install the app.
-> 4. Clear bilingual (Somali & English) step-by-step instructions for Android Chrome / Samsung Internet and Windows Chrome / Edge.
+## 3. Price Tracker – Simplified Page
+- Simplified into three sections:
+  1. **New Products**: Newly added products with product name, catalog category, price, and date.
+  2. **Price Increase**: Products whose price went up, displaying Product Name, Previous Price, New Price, Price Difference (+D and %), and Date of change.
+  3. **Price Decrease**: Products whose price went down, displaying Product Name, Previous Price, New Price, Price Difference (-D and %), and Date of change.
+- Removed unrelated cards and sections.
 
----
-
-## 1. Overview & Core Concept
-
-- **What It Does**: Transforms the web application into an installable standalone application for Android and Windows. It adds an app icon to the phone home screen and Windows desktop, removes browser address bar clutter, and caches the 480+ spare parts catalog and quiz modes for offline training.
-- **Target Audience**: Mobile technicians, repair shop staff, and parts store owners who need quick access to price checks and daily memorization quizzes directly from their phone or PC desktop.
-- **Key Value**: Instant one-tap access from the home screen, zero latency loading, offline capability when internet connection drops in the shop, and a fast bridge between PC and mobile via QR code scanning.
-
----
-
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **Android Installation Flow**:
-     - User opens the app on Android Chrome/Edge.
-     - A prominent yet non-intrusive banner or top bar button reads **"Install App (Ku Shub Taleefanka)"**.
-     - Tapping the button invokes the native Android install prompt (`Add to Home screen`), placing the Reer Hassan icon directly among phone apps.
-     - Alternatively, an interactive modal illustrates: Menu (⋮) → **"Install App"** / **"Add to Home screen"**.
-  2. **Windows PC Installation Flow**:
-     - User visits the app on Chrome or Edge on Windows.
-     - The browser displays the native install icon in the address bar, while the app header displays a dedicated **"Ku Shub Windows PC"** button.
-     - Tapping it installs the app into Windows Start Menu and Taskbar as a standalone window.
-  3. **PC-to-Mobile Transfer Flow (QR Code)**:
-     - On Windows, clicking **"Open on Mobile"** opens a high-contrast QR code modal.
-     - The user points their Android phone camera at the screen to immediately launch the app on their phone.
-  4. **Offline Resilience**:
-     - When internet drops, an offline status indicator reassures the user that the full 480+ spare parts catalog and quiz practice remain functional offline.
-
-- **Visual Identity & Theme**:
-  - Consistent with the dark OLED slate theme (`#0b0f17`), neon cyan/emerald accents, and crisp JetBrains Mono typography.
-  - Modal guides feature clean visual device illustrations (Android phone mock and Windows window frame) with highlighted buttons.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: VitePWA Integration vs Manual Service Worker**
-  - *Chosen Approach*: `vite-plugin-pwa` with `registerType: 'autoUpdate'` and standard Web App Manifest.
-  - *Why*: Provides automated cache invalidation, compliant Android maskable icons, and reliable `beforeinstallprompt` lifecycle management with zero build fragility.
-- **Decision 2: In-App Install Prompt + Visual Fallback Guide**
-  - *Chosen Approach*: Dual support: programmatic install via `beforeinstallprompt` event + visual step-by-step guide for browsers that restrict programmatic prompts.
-  - *Why*: Chromium allows direct button install, while other browsers or specific mobile security profiles require manual "Add to Home Screen" taps.
-- **Decision 3: Standalone Display Mode**
-  - *Chosen Approach*: `display: 'standalone'` in Web App Manifest.
-  - *Why*: Hides browser URL bar and back/forward navigation, giving an authentic native app feeling on both Android and Windows.
-
----
-
-## 4. Technical Architecture & Data Strategy
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      User Browser Client                    │
-│   (Android Chrome / Samsung Browser / Windows Edge/Chrome)  │
-└──────────────┬──────────────────────────────┬───────────────┘
-               │                              │
-               ▼                              ▼
-┌──────────────────────────────┐ ┌────────────────────────────┐
-│   PWA Lifecycle & Hooks      │ │    PWA Install Modal & UI  │
-│  - usePWAInstall hook        │ │ - 1-Click Install Button   │
-│  - beforeinstallprompt event │ │ - Android Step Guide       │
-│  - useOnlineStatus hook      │ │ - Windows Step Guide       │
-└──────────────┬───────────────┘ │ - Mobile QR Code Scanner   │
-               │                 └────────────────────────────┘
-               ▼
-┌─────────────────────────────────────────────────────────────┐
-│             Service Worker & Workbox Pre-cache              │
-│  - App Shell (HTML, JS, CSS)                                │
-│  - Static Spare Parts Database Snapshot                     │
-│  - Google Fonts & Icon Assets Cache                         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Components to Create & Update:
-1. `vite.config.ts`: Add `vite-plugin-pwa` configuration with Web App Manifest (name: "Reer Hassan — Spare Parts", short_name: "Reer Hassan", display: "standalone", theme_color: "#0b0f17").
-2. `public/manifest.json` & PWA Icons: Provide 192x192, 512x512, and maskable application icons.
-3. `src/hooks/usePWAInstall.ts`: Custom hook detecting `beforeinstallprompt`, standalone display mode, and trigger function.
-4. `src/components/InstallModal.tsx`: Visual modal with 1-click install action, Android instructions, Windows instructions, and mobile QR code.
-5. `src/components/TopNav.tsx`: Add the **"Ku Shub (Install)"** button directly into the top bar.
-6. `index.html`: Update meta tags with `mobile-web-app-capable`, `theme-color`, and manifest links.
+## 4. Register Company – Company Product History
+- **Register Company Profile**:
+  - Fields: Company Name, Contact Person, Phone Number, WhatsApp Number, Address / Market Location, Notes & Terms, Registration Date.
+  - Quick actions for phone calls, WhatsApp chat (`https://wa.me/...`), and clipboard copying.
+- **Product Sourcing Assignment**:
+  - Select company from registered supplier list when creating or editing products. Assignment is preserved across edits.
+- **"View Products" Company Drilldown**:
+  - Dedicated "View Products" button on each company card.
+  - Displays all products sourced from that company: Product Name, Brand, Model, Part Type (Category), Product ID, Purchase Price (Price D & USD+), Currency (AED & USD), Quantity, and Purchase Date.
+- **Company Product Filters**:
+  - Search by Product Name or Model.
+  - Filter by Brand, Model, Part Type, and Purchase Date with real-time filtered totals.
+- **Export & Print**:
+  - **PDF Export**: Generates a landscape A4 report with company header, contact details, full products table, total product count, and total quantity purchased.
+  - **Print Report**: Direct in-app printing via `window.print()`.

@@ -18,43 +18,116 @@ import {
   Tag,
   DollarSign,
   Plus,
-  X
+  X,
+  TrendingDown,
+  TrendingUp,
+  Smartphone,
+  PackagePlus,
+  Layers,
+  Calendar,
+  Percent,
+  BarChart3,
+  History
 } from 'lucide-react';
-import { SparePartItem, CompatItem, ChangeItem } from '../data/initialData';
+import { SparePartItem, CompatItem, ChangeItem, PriceChangeRecord } from '../data/initialData';
 import { sound } from '../services/soundService';
 
-interface QuizViewProps {
+export interface QuizViewProps {
   parts: SparePartItem[];
   compatList: CompatItem[];
   changesList: ChangeItem[];
+  priceChanges?: PriceChangeRecord[];
+  onAddPriceChange?: (record: Omit<PriceChangeRecord, 'id'>) => void;
+  onDeletePriceChange?: (id: string) => void;
+  onAddPart?: (part: Omit<SparePartItem, 'id'>) => void;
+  onUpdatePart?: (id: string, updatedFields: Partial<SparePartItem>) => void;
+  initialQuizMode?: QuizMode;
   onStreakUpdate: (streak: number) => void;
 }
 
-type QuizMode = 'mcq' | 'type' | 'truefalse' | 'match' | 'samePrice' | 'compat' | 'changes' | 'survival';
-type CompatSubMode = 'mcq' | 'match' | 'truefalse' | 'type';
-type SelMode = 'random' | 'range' | 'custom';
-type FlowMode = 'quiz' | 'learn';
-type PricePracticeTarget = 'all' | 'dirham' | 'costUsd' | 'salesPrice';
+export type QuizMode = 'mcq' | 'type' | 'truefalse' | 'any' | 'match' | 'samePrice' | 'compat' | 'changes' | 'survival' | 'pricetracker';
+export type CompatSubMode = 'mcq' | 'match' | 'truefalse' | 'type';
+export type SelMode = 'random' | 'range' | 'custom';
+export type FlowMode = 'quiz' | 'learn';
+export type PricePracticeTarget = 'all' | 'dirham' | 'costUsd' | 'salesPrice' | 'allThree' | 'series';
 
-interface QuestionItem {
+export interface QuestionItem {
   id: string;
   title: string;
   subtitle?: string;
   correctVal: string;
-  priceKind: 'D' | 'costUsd' | 'salesPrice';
-  rawItem: SparePartItem | CompatItem | ChangeItem;
+  priceKind: 'D' | 'costUsd' | 'salesPrice' | 'allThree';
+  rawItem: SparePartItem | CompatItem | ChangeItem | PriceChangeRecord;
   breakdownStr: string;
+  assignedMode?: 'mcq' | 'type' | 'truefalse';
+  allThreeAnswers?: {
+    d: number;
+    usd: number;
+    salesPrice: number;
+  };
+  seriesModel?: string;
+  seriesPartName?: string;
+  seriesPartIndex?: number;
+  seriesTotalParts?: number;
+  priceTrackerType?: 'new' | 'increase' | 'decrease';
+  oldD?: number;
+  newD?: number;
+  oldUsd?: number;
+  newUsd?: number;
+  deltaD?: number;
+  percentage?: number;
+  date?: string;
+}
+
+export function extractPhoneModel(partName: string): string {
+  const clean = partName.trim();
+  const iphoneMatch = clean.match(/IPHONE\s+([0-9]{1,2}(?:\s*(?:PRO\s*MAX|PRO|PLUS|MINI))?|[XSRM]+(?:\s*(?:MAX|PRO))?)/i);
+  if (iphoneMatch) return `iPhone ${iphoneMatch[1].toUpperCase().replace(/\s+/g, ' ')}`;
+
+  const samsungMatch = clean.match(/SAMSUNG\s+(?:GALAXY\s+)?([A-Z][0-9]{1,3}[A-Z]?(?:\s*(?:ULTRA|PLUS|FE|5G))?|NOTE\s*[0-9]{1,2})/i);
+  if (samsungMatch) return `Samsung ${samsungMatch[1].toUpperCase()}`;
+
+  const redmiMatch = clean.match(/(?:REDMI|XIAOMI|POCO)\s+(NOTE\s*[0-9]{1,2}[A-Z]?|[0-9]{1,2}[A-Z]?|[A-Z][0-9]+)/i);
+  if (redmiMatch) return `Redmi ${redmiMatch[1].toUpperCase()}`;
+
+  const tecnoMatch = clean.match(/TECNO\s+([A-Z0-9]+(?:\s*[0-9]+[A-Z]?)?)/i);
+  if (tecnoMatch) return `Tecno ${tecnoMatch[1].toUpperCase()}`;
+
+  const infinixMatch = clean.match(/INFINIX\s+([A-Z0-9]+(?:\s*[0-9]+[A-Z]?)?)/i);
+  if (infinixMatch) return `Infinix ${infinixMatch[1].toUpperCase()}`;
+
+  const honorMatch = clean.match(/HONOR\s+([A-Z0-9]+)/i);
+  if (honorMatch) return `Honor ${honorMatch[1].toUpperCase()}`;
+
+  const words = clean.replace(/^(LCD|BATTERY|TOUCH|GLASS|BACK GLASS|FLEX|SPEAKER|HOUSING)\s+/i, '').split(' ');
+  return words.slice(0, 3).join(' ') || clean;
+}
+
+// True Fisher-Yates array shuffle for non-deterministic randomization across entire catalog
+export function shuffleArray<T>(items: T[]): T[] {
+  const array = [...items];
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
 }
 
 export const QuizView: React.FC<QuizViewProps> = ({
   parts,
   compatList,
   changesList,
+  priceChanges = [],
+  onAddPriceChange,
+  onDeletePriceChange,
+  onAddPart,
+  onUpdatePart,
+  initialQuizMode,
   onStreakUpdate
 }) => {
   // Setup configuration state
   const [flow, setFlow] = useState<FlowMode>('quiz');
-  const [mode, setMode] = useState<QuizMode>('mcq');
+  const [mode, setMode] = useState<QuizMode>(initialQuizMode || 'mcq');
   const [compatSubMode, setCompatSubMode] = useState<CompatSubMode>('mcq');
   const [changeSubMode, setChangeSubMode] = useState<'mcq' | 'type' | 'truefalse' | 'match'>('mcq');
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
@@ -62,7 +135,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [sortOrder, setSortOrder] = useState<'cheap' | 'expensive' | 'az'>('cheap');
   const [startRank, setStartRank] = useState<number>(1);
   const [questionCount, setQuestionCount] = useState<number>(20);
-  const [pricePracticeTarget, setPricePracticeTarget] = useState<PricePracticeTarget>('all');
+  const [isCustomCount, setIsCustomCount] = useState<boolean>(false);
+  const [customCountInput, setCustomCountInput] = useState<string>('20');
+  const [pricePracticeTarget, setPricePracticeTarget] = useState<PricePracticeTarget>('allThree');
   const [timerDuration, setTimerDuration] = useState<number>(0);
 
   // Category green box preview state
@@ -96,6 +171,57 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [matchSelectedLeft, setMatchSelectedLeft] = useState<string | null>(null);
   const [matchedPairs, setMatchedPairs] = useState<Set<string>>(new Set());
   const [matchFlashKey, setMatchFlashKey] = useState<string | null>(null);
+
+  // Interactive State for "Price D / USD + / Sale" (Feature 2A)
+  const [allThreeD, setAllThreeD] = useState('');
+  const [allThreeUsd, setAllThreeUsd] = useState('');
+  const [allThreeSales, setAllThreeSales] = useState('');
+  const [allThreeResult, setAllThreeResult] = useState<{ dOk: boolean; usdOk: boolean; salesOk: boolean } | null>(null);
+
+  // Series Products Configuration State (Feature 2B)
+  const [selectedSeriesModel, setSelectedSeriesModel] = useState<string>('__all__');
+  const [seriesSearchTerm, setSeriesSearchTerm] = useState('');
+
+  // Price Tracker Quiz Mode State (Feature 1 & 2C)
+  const [priceTrackerQuizFilter, setPriceTrackerQuizFilter] = useState<'all' | 'new' | 'increase' | 'decrease'>('all');
+  const [showPriceTrackerHistory, setShowPriceTrackerHistory] = useState(false);
+
+  // Phone Models grouping for Series Products Quiz Mode
+  const phoneModelsMap = useMemo(() => {
+    const map: Record<string, SparePartItem[]> = {};
+    parts.forEach(p => {
+      const model = extractPhoneModel(p.name);
+      if (!map[model]) map[model] = [];
+      map[model].push(p);
+    });
+    return map;
+  }, [parts]);
+
+  const availablePhoneModels = useMemo(() => {
+    return Object.keys(phoneModelsMap)
+      .filter(m => phoneModelsMap[m].length > 0)
+      .sort((a, b) => phoneModelsMap[b].length - phoneModelsMap[a].length);
+  }, [phoneModelsMap]);
+
+  const filteredPhoneModels = useMemo(() => {
+    if (!seriesSearchTerm.trim()) return availablePhoneModels;
+    const q = seriesSearchTerm.trim().toLowerCase();
+    return availablePhoneModels.filter(m => m.toLowerCase().includes(q));
+  }, [availablePhoneModels, seriesSearchTerm]);
+
+  // Price Tracker Stats for Quiz Page
+  const priceTrackerStats = useMemo(() => {
+    const list = priceChanges || [];
+    const increases = list.filter(c => c.type === 'increase');
+    const decreases = list.filter(c => c.type === 'decrease');
+    const newItems = list.filter(c => c.type === 'new');
+    return {
+      total: list.length,
+      increasesCount: increases.length,
+      decreasesCount: decreases.length,
+      newItemsCount: newItems.length
+    };
+  }, [priceChanges]);
 
   // Learn Mode Batches
   const [learnBatches, setLearnBatches] = useState<QuestionItem[][]>([]);
@@ -170,9 +296,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
     return r === 0 && num !== 0 ? num.toFixed(2) : r.toFixed(1);
   };
 
-  const getTargetPrice = (item: SparePartItem, target: 'D' | 'costUsd' | 'salesPrice'): string => {
+  const getTargetPrice = (item: SparePartItem, target: 'D' | 'costUsd' | 'salesPrice' | 'allThree'): string => {
     if (target === 'D') return `${fmt(item.d)} D`;
     if (target === 'costUsd') return `$${fmt(item.usd)}`;
+    if (target === 'allThree') return `${fmt(item.d)} D · $${fmt(item.usd)} · $${fmt(item.salesPrice)}`;
     return `$${fmt(item.salesPrice)}`;
   };
 
@@ -268,6 +395,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
     setIsAnswered(false);
     setSelectedOption(null);
     setTypeInputValue('');
+    setAllThreeD('');
+    setAllThreeUsd('');
+    setAllThreeSales('');
+    setAllThreeResult(null);
     setFeedback(null);
 
     if (currentIndex + 1 >= currentQuestions.length) {
@@ -275,6 +406,47 @@ export const QuizView: React.FC<QuizViewProps> = ({
     } else {
       setCurrentIndex(i => i + 1);
     }
+  };
+
+  const handleAllThreeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isAnswered) return;
+    const currentQ = currentQuestions[currentIndex];
+    if (!currentQ || !currentQ.allThreeAnswers) return;
+
+    setIsAnswered(true);
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    const userD = parseFloat(allThreeD.trim().replace(/[^0-9.]/g, ''));
+    const userUsd = parseFloat(allThreeUsd.trim().replace(/[^0-9.]/g, ''));
+    const userSales = parseFloat(allThreeSales.trim().replace(/[^0-9.]/g, ''));
+
+    const expected = currentQ.allThreeAnswers;
+    const dOk = !isNaN(userD) && Math.abs(userD - expected.d) < 0.25;
+    const usdOk = !isNaN(userUsd) && Math.abs(userUsd - expected.usd) < 0.25;
+    const salesOk = !isNaN(userSales) && Math.abs(userSales - expected.salesPrice) < 0.25;
+
+    const allOk = dOk && usdOk && salesOk;
+    setAllThreeResult({ dOk, usdOk, salesOk });
+
+    if (allOk) {
+      handleScoreIncrease();
+      setFeedback({
+        isCorrect: true,
+        message: `All 3 Prices Correct! (${fmt(expected.d)} D · $${fmt(expected.usd)} · $${fmt(expected.salesPrice)})`,
+        breakdown: currentQ.breakdownStr
+      });
+    } else {
+      const userSummary = `D: ${allThreeD || 'empty'} | USD+: ${allThreeUsd || 'empty'} | Sales: ${allThreeSales || 'empty'}`;
+      handleMistake(currentQ.title, `${fmt(expected.d)} D / $${fmt(expected.usd)} / $${fmt(expected.salesPrice)}`, currentQ.breakdownStr, userSummary);
+      setFeedback({
+        isCorrect: false,
+        message: `Incorrect! Review saved prices below:`,
+        breakdown: `Saved: ${fmt(expected.d)} D (${dOk ? '✓' : '✗ ' + (allThreeD || 'empty')}) · USD+: $${fmt(expected.usd)} (${usdOk ? '✓' : '✗ ' + (allThreeUsd || 'empty')}) · Sales $: $${fmt(expected.salesPrice)} (${salesOk ? '✓' : '✗ ' + (allThreeSales || 'empty')})`
+      });
+    }
+
+    scheduleNext(allOk);
   };
 
   const finishQuiz = () => {
@@ -292,6 +464,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
   };
 
   const buildPool = (): QuestionItem[] => {
+    // 1. Compatibility Mode
     if (mode === 'compat') {
       return compatList.map(c => ({
         id: c.id,
@@ -304,6 +477,100 @@ export const QuizView: React.FC<QuizViewProps> = ({
       }));
     }
 
+    // 2. Price Tracker Quiz Mode (Feature 1 & 2C)
+    if (mode === 'pricetracker') {
+      let trackerList = (priceChanges && priceChanges.length > 0) ? priceChanges : [];
+      if (trackerList.length === 0) {
+        trackerList = parts.slice(0, 30).map((p, i) => {
+          const type: 'new' | 'increase' | 'decrease' = (i % 3 === 0 ? 'increase' : (i % 3 === 1 ? 'decrease' : 'new'));
+          const oldD = type === 'new' ? 0 : (type === 'increase' ? Number((p.d * 0.85).toFixed(1)) : Number((p.d * 1.15).toFixed(1)));
+          const deltaD = Math.round((p.d - oldD) * 10) / 10;
+          return {
+            id: `pc-${p.id}`,
+            name: p.name,
+            cat: p.cat,
+            oldD,
+            newD: p.d,
+            oldUsd: Number((oldD / 3.67).toFixed(2)),
+            newUsd: p.usd,
+            type,
+            deltaD,
+            percentage: oldD > 0 ? Math.round(((p.d - oldD) / oldD) * 100) : 100,
+            date: new Date().toISOString().split('T')[0],
+            note: 'Tracked product change'
+          };
+        });
+      }
+
+      if (priceTrackerQuizFilter !== 'all') {
+        trackerList = trackerList.filter(c => c.type === priceTrackerQuizFilter);
+      }
+
+      return trackerList.map(item => {
+        const typeLabel = 
+          item.type === 'new' ? 'NEW PRODUCT ARRIVAL' :
+          item.type === 'increase' ? 'PRICE INCREASE (Kor u kacay)' : 'PRICE DECREASE (Hoos u dhacay)';
+        const oldInfo = item.type === 'new' 
+          ? `Category: ${item.cat} · Newly Added` 
+          : `Old Price was: ${fmt(item.oldD)} D ($${fmt(item.oldUsd)})`;
+
+        return {
+          id: `pt-${item.id}`,
+          title: item.name,
+          subtitle: `${typeLabel} · ${oldInfo}`,
+          correctVal: `${fmt(item.newD)} D`,
+          priceKind: 'D',
+          rawItem: item,
+          breakdownStr: item.type === 'new'
+            ? `New Product: ${item.name} (${item.cat}) · Current Price: ${fmt(item.newD)} D ($${fmt(item.newUsd)})`
+            : `Old: ${fmt(item.oldD)} D ($${fmt(item.oldUsd)}) ➔ New: ${fmt(item.newD)} D ($${fmt(item.newUsd)}) · Delta: ${item.deltaD > 0 ? '+' : ''}${fmt(item.deltaD)} D (${item.percentage}%)`,
+          priceTrackerType: item.type,
+          oldD: item.oldD,
+          newD: item.newD,
+          oldUsd: item.oldUsd,
+          newUsd: item.newUsd,
+          deltaD: item.deltaD,
+          percentage: item.percentage,
+          date: item.date
+        };
+      });
+    }
+
+    // 3. Series Products Mode (Feature 2B)
+    if (pricePracticeTarget === 'series') {
+      let modelsToPractice = availablePhoneModels;
+      if (selectedSeriesModel && selectedSeriesModel !== '__all__') {
+        modelsToPractice = [selectedSeriesModel];
+      }
+
+      const seriesPool: QuestionItem[] = [];
+      modelsToPractice.forEach(model => {
+        const modelParts = phoneModelsMap[model] || [];
+        modelParts.forEach((part, idx) => {
+          seriesPool.push({
+            id: `series-${model}-${part.id}`,
+            title: part.name,
+            subtitle: `📱 Series Model: ${model} (Part ${idx + 1} of ${modelParts.length}) · Category: ${part.cat}`,
+            correctVal: `${fmt(part.d)} D / $${fmt(part.usd)} / $${fmt(part.salesPrice)}`,
+            priceKind: 'allThree',
+            rawItem: part,
+            breakdownStr: `Model: ${model} · ${part.cat} ➔ Price D: ${fmt(part.d)} D · USD+: $${fmt(part.usd)} · Sales $: $${fmt(part.salesPrice)}`,
+            seriesModel: model,
+            seriesPartName: part.name,
+            seriesPartIndex: idx + 1,
+            seriesTotalParts: modelParts.length,
+            allThreeAnswers: {
+              d: part.d,
+              usd: part.usd,
+              salesPrice: part.salesPrice
+            }
+          });
+        });
+      });
+      return seriesPool;
+    }
+
+    // 4. Standard Catalog Changes Mode
     if (mode === 'changes') {
       const partsMap = new Map(parts.map(p => [p.name, p]));
       return changesList
@@ -329,6 +596,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
         .filter(Boolean) as QuestionItem[];
     }
 
+    // 5. Standard Catalog Products Mode with Category, Custom, or Range filtering
     let pool = selectedCats.length > 0 
       ? parts.filter(p => selectedCats.includes(p.cat)) 
       : [...parts];
@@ -346,7 +614,26 @@ export const QuizView: React.FC<QuizViewProps> = ({
       const startIdx = Math.max(0, startRank - 1);
       pool = pool.slice(startIdx, startIdx + questionCount);
     } else {
-      pool = [...pool].sort(() => Math.random() - 0.5);
+      pool = shuffleArray(pool);
+    }
+
+    // Feature 2A: Price D / USD + / Sale Option
+    if (pricePracticeTarget === 'allThree') {
+      return pool.map(p => ({
+        id: `allthree-${p.id}`,
+        title: p.name,
+        subtitle: `Category: ${p.cat} · Practice Price D, USD+, & Sales $`,
+        correctVal: `${fmt(p.d)} D · $${fmt(p.usd)} · $${fmt(p.salesPrice)}`,
+        priceKind: 'allThree',
+        rawItem: p,
+        breakdownStr: `Price D: ${fmt(p.d)} D · USD+: $${fmt(p.usd)} · Sales $: $${fmt(p.salesPrice)}`,
+        assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)],
+        allThreeAnswers: {
+          d: p.d,
+          usd: p.usd,
+          salesPrice: p.salesPrice
+        }
+      }));
     }
 
     return pool.map(p => {
@@ -369,7 +656,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
         correctVal: getTargetPrice(p, targetKind),
         priceKind: targetKind,
         rawItem: p,
-        breakdownStr: getBreakdown(p)
+        breakdownStr: getBreakdown(p),
+        assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)]
       };
     });
   };
@@ -385,13 +673,17 @@ export const QuizView: React.FC<QuizViewProps> = ({
       return;
     }
 
-    const selectedPool = rawPool.slice(0, questionCount);
+    const effectiveCount = isCustomCount ? (parseInt(customCountInput) || 20) : questionCount;
+    const randomizedPool = selMode === 'range' ? rawPool : shuffleArray(rawPool);
+    const selectedPool = randomizedPool.slice(0, effectiveCount);
     setCurrentIndex(0);
     setScore(0);
     setStreak(0);
     setWrongAnswers([]);
     setLives(3);
     setIsAnswered(false);
+    setSelectedOption(null);
+    setFeedback(null);
     setSelectedOption(null);
     setFeedback(null);
 
@@ -450,16 +742,38 @@ export const QuizView: React.FC<QuizViewProps> = ({
         if (options.size >= 4) break;
         options.add(fit);
       }
+    } else if (mode === 'pricetracker') {
+      if (currentQ.oldD && currentQ.oldD > 0) {
+        options.add(`${fmt(currentQ.oldD)} D`);
+      }
+      const shuffled = [...parts].sort(() => Math.random() - 0.5);
+      for (const p of shuffled) {
+        if (options.size >= 4) break;
+        options.add(`${fmt(p.d)} D`);
+      }
+    } else if (currentQ.priceKind === 'allThree') {
+      const otherParts = shuffleArray(parts.filter(p => p.name !== currentQ.title));
+      for (const p of otherParts) {
+        if (options.size >= 4) break;
+        options.add(`${fmt(p.d)} D · $${fmt(p.usd)} · $${fmt(p.salesPrice)}`);
+      }
+      if (options.size < 4 && currentQ.allThreeAnswers) {
+        const { d, usd, salesPrice } = currentQ.allThreeAnswers;
+        options.add(`${fmt(d * 1.2)} D · $${fmt(usd * 1.2)} · $${fmt(salesPrice * 1.2)}`);
+        options.add(`${fmt(d * 0.8)} D · $${fmt(usd * 0.8)} · $${fmt(salesPrice * 0.8)}`);
+        options.add(`${fmt(d * 1.5)} D · $${fmt(usd * 1.5)} · $${fmt(salesPrice * 1.5)}`);
+      }
     } else {
-      const shuffledParts = [...parts].sort(() => Math.random() - 0.5);
+      const targetKind = currentQ.priceKind as ('D' | 'costUsd' | 'salesPrice');
+      const shuffledParts = shuffleArray(parts);
       for (const p of shuffledParts) {
         if (options.size >= 4) break;
-        const candidate = getTargetPrice(p, currentQ.priceKind);
+        const candidate = getTargetPrice(p, targetKind);
         options.add(candidate);
       }
     }
 
-    return Array.from(options).sort(() => Math.random() - 0.5);
+    return shuffleArray(Array.from(options));
   }, [quizPhase, currentIndex, currentQuestions, mode, parts, compatList]);
 
   const handleSelectOption = (opt: string) => {
@@ -552,11 +866,31 @@ export const QuizView: React.FC<QuizViewProps> = ({
     if (shouldBeTrue) {
       return { shownVal: currentQ.correctVal, isActuallyTrue: true };
     } else {
+      if (currentQ.priceKind === 'allThree') {
+        const other = parts.find(p => p.name !== currentQ.title);
+        const fake = other 
+          ? `${fmt(other.d)} D · $${fmt(other.usd)} · $${fmt(other.salesPrice)}`
+          : (currentQ.allThreeAnswers 
+              ? `${fmt(currentQ.allThreeAnswers.d * 1.3)} D · $${fmt(currentQ.allThreeAnswers.usd * 1.3)} · $${fmt(currentQ.allThreeAnswers.salesPrice * 1.3)}`
+              : '24.5 D · $6.8 · $6.8');
+        return { shownVal: fake, isActuallyTrue: false };
+      }
       const other = parts.find(p => p.name !== currentQ.title);
       const fake = other ? getTargetPrice(other, currentQ.priceKind) : '$24.5';
       return { shownVal: fake, isActuallyTrue: false };
     }
   }, [quizPhase, currentIndex, currentQuestions, parts]);
+
+  // Determine active question mode (supports 'any' mode where each question can be MCQ, Type, or T/F)
+  const activeQuestionMode = useMemo<QuizMode>(() => {
+    if (quizPhase !== 'running') return mode === 'any' ? 'mcq' : mode;
+    const currentQ = currentQuestions[currentIndex];
+    if (!currentQ) return mode === 'any' ? 'mcq' : mode;
+    if (mode === 'any') {
+      return currentQ.assignedMode || 'mcq';
+    }
+    return mode;
+  }, [quizPhase, currentIndex, currentQuestions, mode]);
 
   const handleTfAnswer = (userSaysTrue: boolean) => {
     if (isAnswered) return;
@@ -585,9 +919,15 @@ export const QuizView: React.FC<QuizViewProps> = ({
     scheduleNext(isCorrect);
   };
 
-  const getQuestionLabel = (kind: 'D' | 'costUsd' | 'salesPrice') => {
-    if (kind === 'D') return "What is the Price D (Dirham)?";
-    if (kind === 'costUsd') return "What is the USD+ (Cost = D/3.67+Exp)?";
+  const getQuestionLabel = (q: QuestionItem) => {
+    if (q.priceTrackerType) {
+      if (q.priceTrackerType === 'new') return "NEW PRODUCT ARRIVAL · What is the Registered Price D?";
+      if (q.priceTrackerType === 'increase') return "PRICE INCREASE (Price Up) · What is the New Price D?";
+      return "PRICE DECREASE (Price Down) · What is the New Price D?";
+    }
+    if (q.priceKind === 'allThree') return "Price D / USD + / Sale · Enter All 3 Prices";
+    if (q.priceKind === 'D') return "What is the Price D (Dirham)?";
+    if (q.priceKind === 'costUsd') return "What is the USD+ (Cost = D/3.67+Exp)?";
     return "What is the Sales $ (Retail Price)?";
   };
 
@@ -622,12 +962,14 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
               1. Choose Price to Practice:
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {[
                 { id: 'dirham', title: 'Price D (Dirham)', desc: 'Supplier AED price (e.g. 115 D)', color: 'text-cyan-400' },
                 { id: 'costUsd', title: 'USD+ (Cost in USD)', desc: 'Formula: Price D / 3.67 + Expense', color: 'text-emerald-400' },
                 { id: 'salesPrice', title: 'Sales $ (Retail)', desc: 'Customer price = USD+ * 1.30', color: 'text-violet-400' },
-                { id: 'all', title: 'All 3 (Mixed)', desc: 'Rotate between Price D, USD+, and Sales $', color: 'text-amber-300' }
+                { id: 'allThree', title: 'Price D / USD + / Sale', desc: 'Answer all 3 prices (D, USD+, Sales $) for random product', color: 'text-emerald-300 font-bold' },
+                { id: 'series', title: 'Series Products', desc: 'Test all spare parts (LCD, Battery, Flex, etc.) for one phone model', color: 'text-amber-300 font-bold' },
+                { id: 'all', title: 'All 3 (Mixed)', desc: 'Rotate between Price D, USD+, and Sales $', color: 'text-slate-300' }
               ].map(pt => (
                 <button
                   key={pt.id}
@@ -644,6 +986,86 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Series Phone Model Selector (Feature 2B) */}
+            {pricePracticeTarget === 'series' && (
+              <div className="bg-[#070c18] border border-cyan-500/40 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xl animate-in slide-in-from-top-2 duration-150">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Select Mobile Phone Model / Series</h4>
+                      <p className="text-xs text-slate-400">Tests all spare parts for this model (LCD, Battery, Flex, etc.)</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sound.playTick();
+                        setSelectedSeriesModel('__all__');
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        selectedSeriesModel === '__all__'
+                          ? 'bg-cyan-500 text-slate-950 font-bold shadow-md'
+                          : 'bg-slate-900 border border-slate-700 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      All Series ({availablePhoneModels.length} Models)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={seriesSearchTerm}
+                    onChange={(e) => setSeriesSearchTerm(e.target.value)}
+                    placeholder="Search model (e.g. 13 Pro Max, A12, Redmi 9C, Spark 10)..."
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white font-medium outline-none"
+                  />
+                  {seriesSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSeriesSearchTerm('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
+                  {filteredPhoneModels.map(model => {
+                    const isSelected = selectedSeriesModel === model;
+                    const partsCount = phoneModelsMap[model]?.length || 0;
+                    return (
+                      <button
+                        key={model}
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setSelectedSeriesModel(model);
+                        }}
+                        className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-2 ${
+                          isSelected
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold shadow-md ring-1 ring-cyan-300'
+                            : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-600 hover:text-white'
+                        }`}
+                      >
+                        <span>{model}</span>
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
+                          isSelected ? 'bg-slate-950/30 text-slate-950 font-bold' : 'bg-slate-800 text-cyan-400'
+                        }`}>
+                          {partsCount} parts
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* STEP 2: QUIZ FORMAT / MODE - 600 SemiBold buttons */}
@@ -651,22 +1073,24 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
               2. Quiz Mode:
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
               {[
                 { id: 'mcq', label: 'Multiple Choice', desc: '4 Options (Keys 1-4)' },
                 { id: 'type', label: 'Type Price', desc: 'Fast numerical input' },
                 { id: 'truefalse', label: 'True / False', desc: 'Flashcard speed quiz' },
+                { id: 'any', label: 'Any Quiz Mode', desc: 'Randomly mix all question types' },
                 { id: 'match', label: 'Match Pairs', desc: 'Connect part with price' },
                 { id: 'compat', label: 'Compatibility', desc: 'Which LCD fits which phone' },
-                { id: 'survival', label: 'Survival Mode', desc: '3 Lives · Beat high score' }
+                { id: 'survival', label: 'Survival Mode', desc: '3 Lives · Beat high score' },
+                { id: 'pricetracker', label: 'Price Tracker Quiz', desc: 'New, Up 📈 & Down 📉' }
               ].map(m => (
                 <button
                   key={m.id}
                   type="button"
                   onClick={() => { sound.playTick(); setMode(m.id as QuizMode); }}
-                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between ${
+                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
                     mode === m.id
-                      ? 'bg-gradient-to-br from-cyan-600/30 to-indigo-600/30 border-cyan-400 text-white shadow-lg'
+                      ? 'bg-gradient-to-br from-cyan-600/30 to-indigo-600/30 border-cyan-400 text-white shadow-lg ring-1 ring-cyan-300'
                       : 'bg-[#070c18] border-slate-700/80 text-slate-300 hover:border-slate-500'
                   }`}
                 >
@@ -675,6 +1099,122 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Price Tracker Quiz Filter & History Drawer (Feature 1 & 2C) */}
+            {mode === 'pricetracker' && (
+              <div className="bg-[#070c18] border border-cyan-500/40 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl animate-in slide-in-from-top-2 duration-150">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+                      <BarChart3 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Price Tracker Quiz Filter</span>
+                        <span className="text-[10px] font-normal text-cyan-400 font-mono">· {priceTrackerStats.total} Total Records</span>
+                      </h4>
+                      <p className="text-xs text-slate-400">Select which type of price movements to practice</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setShowPriceTrackerHistory(!showPriceTrackerHistory);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer self-start sm:self-auto ${
+                      showPriceTrackerHistory
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold'
+                        : 'bg-slate-900 border-slate-700 text-cyan-300 hover:text-white'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    <span>{showPriceTrackerHistory ? 'Hide Records Table' : 'View Price History Records Table'}</span>
+                  </button>
+                </div>
+
+                {/* Filter Pills */}
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {[
+                    { id: 'all', label: `All Changes (${priceTrackerStats.total})`, color: 'text-white' },
+                    { id: 'new', label: `New Products (${priceTrackerStats.newItemsCount})`, color: 'text-cyan-300' },
+                    { id: 'increase', label: `Price Increases (${priceTrackerStats.increasesCount})`, color: 'text-amber-300' },
+                    { id: 'decrease', label: `Price Decreases (${priceTrackerStats.decreasesCount})`, color: 'text-emerald-300' }
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => {
+                        sound.playTick();
+                        setPriceTrackerQuizFilter(f.id as any);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                        priceTrackerQuizFilter === f.id
+                          ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold shadow-md'
+                          : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Expandable Price History Records Table */}
+                {showPriceTrackerHistory && (
+                  <div className="pt-2 animate-in fade-in duration-150 space-y-2">
+                    <div className="overflow-x-auto rounded-xl border border-slate-800 max-h-72">
+                      <table className="w-full text-left text-xs font-sans">
+                        <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] font-bold border-b border-slate-800">
+                          <tr>
+                            <th className="py-2.5 px-3">Type</th>
+                            <th className="py-2.5 px-3">Product Name</th>
+                            <th className="py-2.5 px-3">Category</th>
+                            <th className="py-2.5 px-3 text-right">Old Price</th>
+                            <th className="py-2.5 px-3 text-right">New Price</th>
+                            <th className="py-2.5 px-3 text-right">Difference</th>
+                            <th className="py-2.5 px-3 text-right">Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60 font-mono">
+                          {(priceChanges || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-4 text-center text-slate-500 font-sans">
+                                No price changes recorded yet. You can log changes in Catalog or Add Part.
+                              </td>
+                            </tr>
+                          ) : (
+                            (priceChanges || []).map(r => (
+                              <tr key={r.id} className="hover:bg-slate-900/50">
+                                <td className="py-2 px-3 whitespace-nowrap font-sans font-semibold">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] ${
+                                    r.type === 'increase'
+                                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                      : r.type === 'decrease'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                      : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                  }`}>
+                                    {r.type === 'increase' ? 'Up 📈' : r.type === 'decrease' ? 'Down 📉' : 'New 📦'}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 font-sans font-medium text-white whitespace-nowrap">{r.name}</td>
+                                <td className="py-2 px-3 font-sans text-slate-400 text-[11px] whitespace-nowrap">{r.cat}</td>
+                                <td className="py-2 px-3 text-right text-slate-400">{r.type === 'new' ? '—' : `${fmt(r.oldD)} D`}</td>
+                                <td className="py-2 px-3 text-right font-bold text-cyan-300">{fmt(r.newD)} D</td>
+                                <td className={`py-2 px-3 text-right font-bold ${r.deltaD > 0 ? 'text-amber-400' : (r.type === 'new' ? 'text-cyan-400' : 'text-emerald-400')}`}>
+                                  {r.type === 'new' ? 'New' : `${r.deltaD > 0 ? '+' : ''}${fmt(r.deltaD)} D`}
+                                </td>
+                                <td className="py-2 px-3 text-right text-slate-500 text-[11px] whitespace-nowrap">{r.date}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* STEP 3: PRODUCT & CATEGORY SELECTION */}
@@ -959,20 +1499,21 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   Questions Limit
                 </label>
                 <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded-lg border border-cyan-800/60">
-                  {questionCount} Questions
+                  {isCustomCount ? `${customCountInput || 0} Questions (Custom)` : `${questionCount} Questions`}
                 </span>
               </div>
-              <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
-                {[10, 25, 50, 100, 150, 200, 250].map(cnt => (
+              <div className="grid grid-cols-5 gap-1.5">
+                {[10, 20, 30, 100].map(cnt => (
                   <button
                     key={cnt}
                     type="button"
                     onClick={() => {
                       sound.playTick();
+                      setIsCustomCount(false);
                       setQuestionCount(cnt);
                     }}
                     className={`py-2 px-1 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer text-center ${
-                      questionCount === cnt
+                      !isCustomCount && questionCount === cnt
                         ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold shadow-md ring-1 ring-cyan-300'
                         : 'bg-[#070c18] border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'
                     }`}
@@ -980,9 +1521,39 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     {cnt}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setIsCustomCount(true);
+                  }}
+                  className={`py-2 px-1 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer text-center ${
+                    isCustomCount
+                      ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold shadow-md ring-1 ring-cyan-300'
+                      : 'bg-[#070c18] border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'
+                  }`}
+                >
+                  Custom
+                </button>
               </div>
+
+              {isCustomCount && (
+                <div className="mt-2.5 flex items-center gap-2 animate-in slide-in-from-top-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max={parts.length || 584}
+                    value={customCountInput}
+                    onChange={(e) => setCustomCountInput(e.target.value)}
+                    placeholder="e.g. 15 or 45"
+                    className="w-full bg-[#070c18] border border-cyan-500 rounded-xl px-3 py-1.5 text-xs sm:text-sm font-mono font-bold text-white focus:outline-none ring-1 ring-cyan-400"
+                  />
+                  <span className="text-xs text-cyan-300 font-semibold shrink-0">custom count</span>
+                </div>
+              )}
+
               <p className="text-[11px] text-slate-400 mt-1.5">
-                Practice up to <strong>250 questions</strong> continuously in any mode.
+                Practice 10, 20, 30, 100, or your own custom number of questions.
               </p>
             </div>
 
@@ -993,17 +1564,20 @@ export const QuizView: React.FC<QuizViewProps> = ({
               <div className="flex gap-2">
                 {[
                   { sec: 0, label: 'Off' },
-                  { sec: 15, label: '15s' },
-                  { sec: 10, label: '10s' },
-                  { sec: 5, label: '5s' }
+                  { sec: 20, label: '20s' },
+                  { sec: 25, label: '25s' },
+                  { sec: 30, label: '30s' }
                 ].map(t => (
                   <button
                     key={t.sec}
                     type="button"
-                    onClick={() => setTimerDuration(t.sec)}
+                    onClick={() => {
+                      sound.playTick();
+                      setTimerDuration(t.sec);
+                    }}
                     className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
                       timerDuration === t.sec
-                        ? 'bg-cyan-500 text-slate-950 border-cyan-400'
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold shadow-md'
                         : 'bg-[#070c18] border-slate-700 text-slate-300 hover:border-slate-500'
                     }`}
                   >
@@ -1011,6 +1585,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   </button>
                 ))}
               </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                Per-question countdown: 20s, 25s, or 30s.
+              </p>
             </div>
 
             <div className="flex items-end">
@@ -1197,60 +1774,134 @@ export const QuizView: React.FC<QuizViewProps> = ({
       {quizPhase === 'running' && currentQuestions[currentIndex] && (
         <div className="bg-[#0b111e] border-2 border-slate-700/80 rounded-3xl p-6 sm:p-10 lg:p-12 shadow-2xl space-y-8 w-full">
           
-          {/* Top Status Row */}
-          <div className="flex items-center justify-between pb-6 border-b border-slate-800 gap-4">
-            
-            {/* Progress */}
-            <div className="flex items-center gap-3">
-              <span className="font-mono font-bold text-xl sm:text-2xl text-cyan-400">
-                {currentIndex + 1}
-              </span>
-              <span className="text-slate-500 font-mono text-base sm:text-lg">/</span>
-              <span className="font-mono text-slate-400 font-medium text-base sm:text-lg">
-                {currentQuestions.length}
-              </span>
+          {/* Top Status Row with Progress & Speed Timer */}
+          <div className="space-y-3 pb-6 border-b border-slate-800">
+            <div className="flex items-center justify-between gap-4">
+              {/* Question Progress Indicator */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-400">Question</span>
+                <span className="font-mono font-bold text-xl sm:text-2xl text-cyan-400">
+                  {currentIndex + 1}
+                </span>
+                <span className="text-slate-500 font-mono text-base sm:text-lg">/</span>
+                <span className="font-mono text-slate-400 font-medium text-base sm:text-lg">
+                  {currentQuestions.length}
+                </span>
+              </div>
+
+              {/* Speed Timer Countdown */}
+              {timerDuration > 0 && (
+                <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border font-mono font-bold text-sm shadow-md transition-all ${
+                  timeLeft <= 5 
+                    ? 'bg-rose-950/80 border-rose-500 text-rose-300 animate-pulse ring-1 ring-rose-500' 
+                    : 'bg-slate-900 border-cyan-500/50 text-cyan-300'
+                }`}>
+                  <Timer className={`w-4 h-4 ${timeLeft <= 5 ? 'text-rose-400 animate-spin' : 'text-cyan-400'}`} />
+                  <span>{timeLeft}s remaining</span>
+                </div>
+              )}
+
+              {/* Streak & Score & Exit */}
+              <div className="flex items-center gap-2.5 sm:gap-4">
+                {streak > 1 && (
+                  <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono font-bold text-xs animate-pulse">
+                    <Flame className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    <span>{streak} STREAK</span>
+                  </div>
+                )}
+
+                {mode === 'survival' && (
+                  <div className="flex items-center gap-1">
+                    {[...Array(3)].map((_, i) => (
+                      <Heart
+                        key={i}
+                        className={`w-5 h-5 ${i < lives ? 'fill-rose-500 text-rose-500' : 'text-slate-700'}`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <span className="font-mono text-xs sm:text-sm font-bold text-emerald-400 bg-emerald-950/40 px-3 py-1 rounded-xl border border-emerald-900/40">
+                  Score: {score}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setQuizPhase('setup')}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  title="Exit Quiz"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            {/* Streak & Score */}
-            <div className="flex items-center gap-3 sm:gap-5">
-              {streak > 1 && (
-                <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-mono font-bold text-sm animate-pulse">
-                  <Flame className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  <span>{streak} STREAK</span>
-                </div>
-              )}
-
-              {mode === 'survival' && (
-                <div className="flex items-center gap-1">
-                  {[...Array(3)].map((_, i) => (
-                    <Heart
-                      key={i}
-                      className={`w-6 h-6 ${i < lives ? 'fill-rose-500 text-rose-500' : 'text-slate-700'}`}
-                    />
-                  ))}
-                </div>
-              )}
-
-              <span className="font-mono text-sm sm:text-base font-bold text-emerald-400 bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-900/40">
-                Score: {score}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setQuizPhase('setup')}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
-                title="Exit Quiz"
-              >
-                <RotateCcw className="w-5 h-5" />
-              </button>
+            {/* Sleek Progress Bar */}
+            <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+              <div 
+                className="h-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 transition-all duration-300 rounded-full"
+                style={{ width: `${((currentIndex + 1) / currentQuestions.length) * 100}%` }}
+              />
             </div>
           </div>
 
           {/* Question Banner - 700 Bold headings */}
           <div className="text-center space-y-3 py-4">
-            <span className="inline-block px-4 py-1.5 rounded-xl bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 font-mono text-xs sm:text-sm font-semibold uppercase tracking-wider">
-              {getQuestionLabel(currentQuestions[currentIndex].priceKind)}
-            </span>
+            
+            {/* Series Model Progress Badge (Feature 2B) */}
+            {currentQuestions[currentIndex].seriesModel && (
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-950/70 border border-indigo-500/50 text-indigo-300 text-xs sm:text-sm font-semibold mb-1 shadow-md">
+                <Smartphone className="w-4 h-4 text-indigo-400" />
+                <span>Series Phone Model: <strong>{currentQuestions[currentIndex].seriesModel}</strong></span>
+                <span className="px-2 py-0.5 rounded-md bg-indigo-900/80 text-[11px] font-mono font-bold text-white">
+                  Part {currentQuestions[currentIndex].seriesPartIndex} of {currentQuestions[currentIndex].seriesTotalParts}
+                </span>
+              </div>
+            )}
+
+            {/* Price Tracker Change Context Badge (Feature 1 & 2C) */}
+            {currentQuestions[currentIndex].priceTrackerType && (
+              <div className="max-w-xl mx-auto p-3.5 sm:p-4 rounded-2xl bg-[#070c18] border border-cyan-500/40 text-left space-y-2 mb-2">
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                    currentQuestions[currentIndex].priceTrackerType === 'increase'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      : currentQuestions[currentIndex].priceTrackerType === 'decrease'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                  }`}>
+                    {currentQuestions[currentIndex].priceTrackerType === 'increase' ? '📈 Price Increase' : currentQuestions[currentIndex].priceTrackerType === 'decrease' ? '📉 Price Decrease' : '📦 New Product Arrival'}
+                  </span>
+                  {currentQuestions[currentIndex].date && (
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {currentQuestions[currentIndex].date}
+                    </span>
+                  )}
+                </div>
+                {currentQuestions[currentIndex].priceTrackerType !== 'new' && (
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-1">
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-sans">Old Price was:</span>
+                      <span className="font-bold text-slate-200">{fmt(currentQuestions[currentIndex].oldD || 0)} D</span>
+                      <span className="text-slate-400 ml-1.5">(${fmt(currentQuestions[currentIndex].oldUsd || 0)})</span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-sans">Price Movement:</span>
+                      <span className={`font-bold ${currentQuestions[currentIndex].priceTrackerType === 'increase' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        {currentQuestions[currentIndex].priceTrackerType === 'increase' ? 'Supplier Price Up 📈' : 'Supplier Price Down 📉'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <span className="inline-block px-4 py-1.5 rounded-xl bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 font-mono text-xs sm:text-sm font-semibold uppercase tracking-wider">
+                {getQuestionLabel(currentQuestions[currentIndex])}
+              </span>
+            </div>
+
             <h1 className="text-2xl sm:text-4xl md:text-5xl font-bold text-white tracking-tight leading-tight">
               {currentQuestions[currentIndex].title}
             </h1>
@@ -1261,8 +1912,132 @@ export const QuizView: React.FC<QuizViewProps> = ({
             )}
           </div>
 
-          {/* MCQ Mode Options - 600 SemiBold buttons */}
-          {(mode === 'mcq' || (mode === 'compat' && compatSubMode === 'mcq') || mode === 'survival' || mode === 'changes') && (
+          {/* 1. Type Price Mode for Price D / USD + / Sale (3 inputs) */}
+          {activeQuestionMode === 'type' && currentQuestions[currentIndex].priceKind === 'allThree' && (
+            <form onSubmit={handleAllThreeSubmit} className="max-w-2xl mx-auto space-y-5">
+              <div className="bg-[#070c18] border-2 border-cyan-500/40 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+                <div className="text-center pb-2 border-b border-slate-800">
+                  <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                    Input All 3 Relevant Prices for This Spare Part
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  {/* 1. Price D */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-cyan-400 uppercase tracking-wide">
+                      1. Price D (Dirham) *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                        autoFocus
+                        disabled={isAnswered}
+                        value={allThreeD}
+                        onChange={(e) => setAllThreeD(e.target.value)}
+                        placeholder="e.g. 115"
+                        className={`w-full bg-slate-900 border-2 rounded-xl px-3.5 py-3 text-lg font-mono font-bold text-white outline-none transition-colors ${
+                          isAnswered
+                            ? allThreeResult?.dOk
+                              ? 'border-emerald-500 bg-emerald-950/30 text-emerald-200'
+                              : 'border-rose-500 bg-rose-950/30 text-rose-200'
+                            : 'border-slate-700 focus:border-cyan-400'
+                        }`}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-cyan-400 pointer-events-none">
+                        AED
+                      </span>
+                    </div>
+                    {isAnswered && (
+                      <span className={`text-[11px] font-mono font-bold block ${allThreeResult?.dOk ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {allThreeResult?.dOk ? '✓ Correct' : `✗ Correct: ${fmt(currentQuestions[currentIndex].allThreeAnswers?.d || 0)} D`}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 2. USD+ Cost */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-emerald-400 uppercase tracking-wide">
+                      2. USD+ (Cost) *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                        disabled={isAnswered}
+                        value={allThreeUsd}
+                        onChange={(e) => setAllThreeUsd(e.target.value)}
+                        placeholder="e.g. 31.33"
+                        className={`w-full bg-slate-900 border-2 rounded-xl px-3.5 py-3 text-lg font-mono font-bold text-white outline-none transition-colors ${
+                          isAnswered
+                            ? allThreeResult?.usdOk
+                              ? 'border-emerald-500 bg-emerald-950/30 text-emerald-200'
+                              : 'border-rose-500 bg-rose-950/30 text-rose-200'
+                            : 'border-slate-700 focus:border-emerald-400'
+                        }`}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-emerald-400 pointer-events-none">
+                        USD
+                      </span>
+                    </div>
+                    {isAnswered && (
+                      <span className={`text-[11px] font-mono font-bold block ${allThreeResult?.usdOk ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {allThreeResult?.usdOk ? '✓ Correct' : `✗ Correct: $${fmt(currentQuestions[currentIndex].allThreeAnswers?.usd || 0)}`}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 3. Sale Price */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold text-violet-400 uppercase tracking-wide">
+                      3. Sale Price ($) *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                        disabled={isAnswered}
+                        value={allThreeSales}
+                        onChange={(e) => setAllThreeSales(e.target.value)}
+                        placeholder="e.g. 31.33"
+                        className={`w-full bg-slate-900 border-2 rounded-xl px-3.5 py-3 text-lg font-mono font-bold text-white outline-none transition-colors ${
+                          isAnswered
+                            ? allThreeResult?.salesOk
+                              ? 'border-emerald-500 bg-emerald-950/30 text-emerald-200'
+                              : 'border-rose-500 bg-rose-950/30 text-rose-200'
+                            : 'border-slate-700 focus:border-violet-400'
+                        }`}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-violet-400 pointer-events-none">
+                        USD
+                      </span>
+                    </div>
+                    {isAnswered && (
+                      <span className={`text-[11px] font-mono font-bold block ${allThreeResult?.salesOk ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {allThreeResult?.salesOk ? '✓ Correct' : `✗ Correct: $${fmt(currentQuestions[currentIndex].allThreeAnswers?.salesPrice || 0)}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {!isAnswered && (
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-sm sm:text-base shadow-lg cursor-pointer transition-all active:scale-95 mt-2"
+                  >
+                    Check All 3 Prices (Press Enter)
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+
+          {/* 2. Multiple Choice Mode (MCQ) - Supports allThree and standard price targets */}
+          {(activeQuestionMode === 'mcq' || activeQuestionMode === 'survival' || activeQuestionMode === 'pricetracker' || (activeQuestionMode === 'compat' && compatSubMode === 'mcq')) && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto">
               {currentMcqOptions.map((opt, idx) => {
                 const isSelected = selectedOption === opt;
@@ -1285,25 +2060,25 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     type="button"
                     disabled={isAnswered}
                     onClick={() => handleSelectOption(opt)}
-                    className={`p-5 sm:p-6 rounded-2xl flex items-center justify-between font-mono text-xl sm:text-2xl font-semibold transition-all active:scale-95 cursor-pointer ${btnStyle}`}
+                    className={`p-4 sm:p-5 rounded-2xl flex items-center justify-between font-mono text-base sm:text-lg font-semibold transition-all active:scale-95 cursor-pointer ${btnStyle}`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-xl bg-slate-800 text-slate-400 text-xs font-sans font-medium flex items-center justify-center">
+                      <span className="w-8 h-8 rounded-xl bg-slate-800 text-slate-400 text-xs font-sans font-medium flex items-center justify-center shrink-0">
                         {idx + 1}
                       </span>
-                      <span>{opt}</span>
+                      <span className="text-left">{opt}</span>
                     </div>
 
-                    {isAnswered && isCorrect && <CheckCircle2 className="w-7 h-7 text-emerald-400 shrink-0" />}
-                    {isAnswered && isSelected && !isCorrect && <XCircle className="w-7 h-7 text-rose-400 shrink-0" />}
+                    {isAnswered && isCorrect && <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 ml-2" />}
+                    {isAnswered && isSelected && !isCorrect && <XCircle className="w-6 h-6 text-rose-400 shrink-0 ml-2" />}
                   </button>
                 );
               })}
             </div>
           )}
 
-          {/* Type Mode - 500 Medium inputs */}
-          {mode === 'type' && (
+          {/* 3. Single Price Type Mode (for dirham, costUsd, salesPrice) */}
+          {activeQuestionMode === 'type' && currentQuestions[currentIndex].priceKind !== 'allThree' && (
             <form onSubmit={handleTypeSubmit} className="max-w-xl mx-auto space-y-4">
               <div className="relative">
                 <input
@@ -1327,13 +2102,18 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </form>
           )}
 
-          {/* True / False Mode */}
-          {mode === 'truefalse' && (
+          {/* 4. True / False Mode - Works for both allThree and single prices */}
+          {activeQuestionMode === 'truefalse' && (
             <div className="max-w-2xl mx-auto space-y-6 text-center">
-              <div className="p-6 rounded-2xl bg-[#070c18] border border-slate-700">
-                <span className="text-slate-400 text-sm font-normal block mb-1">Does this product cost:</span>
-                <span className="text-3xl sm:text-4xl font-mono font-bold text-cyan-300">
+              <div className="p-6 rounded-2xl bg-[#070c18] border-2 border-slate-700 shadow-xl space-y-2">
+                <span className="text-slate-400 text-xs sm:text-sm font-semibold uppercase tracking-wider block">
+                  Proposed Price Evaluation:
+                </span>
+                <span className="text-2xl sm:text-3xl font-mono font-bold text-cyan-300 block">
                   {currentTfData.shownVal}
+                </span>
+                <span className="text-xs text-slate-400 block">
+                  Is this the correct recorded price for {currentQuestions[currentIndex].title}?
                 </span>
               </div>
 
@@ -1342,7 +2122,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   type="button"
                   disabled={isAnswered}
                   onClick={() => handleTfAnswer(true)}
-                  className="py-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xl shadow-lg transition-all"
+                  className="py-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xl shadow-lg transition-all cursor-pointer"
                 >
                   TRUE
                 </button>
@@ -1350,7 +2130,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   type="button"
                   disabled={isAnswered}
                   onClick={() => handleTfAnswer(false)}
-                  className="py-5 rounded-2xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-semibold text-xl shadow-lg transition-all"
+                  className="py-5 rounded-2xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xl shadow-lg transition-all cursor-pointer"
                 >
                   FALSE
                 </button>
@@ -1373,8 +2153,43 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   {feedback.breakdown}
                 </div>
               )}
-              <div className="text-xs text-slate-400 pt-1 font-normal">
-                Advancing automatically... or press <strong>Enter</strong>
+
+              {/* Price Tracker Old Price vs New Price Review Box (Feature 1 & 2C) */}
+              {currentQuestions[currentIndex].priceTrackerType && (
+                <div className="mt-3 p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs font-mono max-w-lg mx-auto grid grid-cols-2 gap-2 text-left">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-sans">Previous Old Price:</span>
+                    <span className="font-bold text-slate-300">
+                      {currentQuestions[currentIndex].priceTrackerType === 'new' ? 'None (New)' : `${fmt(currentQuestions[currentIndex].oldD || 0)} D ($${fmt(currentQuestions[currentIndex].oldUsd || 0)})`}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-emerald-400 block font-sans">Current New Price:</span>
+                    <span className="font-bold text-emerald-300">{fmt(currentQuestions[currentIndex].newD || 0)} D (${fmt(currentQuestions[currentIndex].newUsd || 0)})</span>
+                  </div>
+                  {currentQuestions[currentIndex].deltaD !== undefined && currentQuestions[currentIndex].priceTrackerType !== 'new' && (
+                    <div className="col-span-2 pt-1 border-t border-slate-800 text-[11px] text-slate-300">
+                      Difference: <strong className={currentQuestions[currentIndex].deltaD > 0 ? 'text-amber-400' : 'text-emerald-400'}>
+                        {currentQuestions[currentIndex].deltaD > 0 ? '+' : ''}{fmt(currentQuestions[currentIndex].deltaD)} D ({currentQuestions[currentIndex].percentage}%)
+                      </strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={goNextQuestion}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 active:scale-95 text-white font-bold text-sm sm:text-base shadow-lg shadow-cyan-900/40 flex items-center gap-2 cursor-pointer transition-all"
+                >
+                  <span>{currentIndex + 1 >= currentQuestions.length ? 'Finish Quiz' : 'Next Question'}</span>
+                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              </div>
+
+              <div className="text-xs text-slate-400 pt-0.5 font-normal">
+                Auto-advancing in a few seconds... or click <strong>Next Question</strong> / press <strong>Enter</strong>
               </div>
             </div>
           )}

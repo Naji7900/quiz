@@ -581,6 +581,254 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Export an authentic Multi-Tab Workbook (.xls / SpreadsheetML XML) where
+   * EVERY category gets its own spreadsheet tab, alongside master "ALL PRODUCT",
+   * "Photos", and "Compatible LCDs" worksheets.
+   * Can be opened directly in Excel or imported directly into Google Sheets (File > Import > Upload).
+   */
+  public static exportToMultiTabWorkbook(
+    parts: SparePartItem[],
+    photos: PhotoItem[] = [],
+    compat: CompatItem[] = []
+  ) {
+    const xmlEscape = (str: any) =>
+      String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+    // 1. Group parts by category
+    const categoriesMap: { [cat: string]: SparePartItem[] } = {};
+    for (const p of parts) {
+      const cat = (p.cat || 'General Spare Parts').trim();
+      if (!categoriesMap[cat]) categoriesMap[cat] = [];
+      categoriesMap[cat].push(p);
+    }
+
+    const cleanSheetName = (name: string, usedNames: Set<string>): string => {
+      // Excel tab names cannot contain: \ / ? * [ ] : and max length is 31 chars
+      let clean = name.replace(/[:\\?*\[\]\/]/g, ' - ').replace(/\s+/g, ' ').trim();
+      if (!clean) clean = 'Sheet';
+      if (clean.length > 28) clean = clean.substring(0, 28);
+      let candidate = clean;
+      let counter = 1;
+      while (usedNames.has(candidate.toLowerCase())) {
+        candidate = `${clean.substring(0, 25)}_${counter}`;
+        counter++;
+      }
+      usedNames.add(candidate.toLowerCase());
+      return candidate;
+    };
+
+    const usedNames = new Set<string>();
+    let worksheetsXml = '';
+
+    // Sheet 1: Master "ALL PRODUCT" tab
+    const allProdTabName = cleanSheetName('ALL PRODUCT', usedNames);
+    worksheetsXml += `
+  <Worksheet ss:Name="${xmlEscape(allProdTabName)}">
+    <Table>
+      <Row ss:StyleID="HeaderStyle">
+        <Cell><Data ss:Type="String">Product Name</Data></Cell>
+        <Cell><Data ss:Type="String">Category (Brand _Part Type)</Data></Cell>
+        <Cell><Data ss:Type="String">Price D</Data></Cell>
+        <Cell><Data ss:Type="String">Yuan ¥</Data></Cell>
+        <Cell><Data ss:Type="String">USD+</Data></Cell>
+        <Cell><Data ss:Type="String">Sales $</Data></Cell>
+      </Row>
+      ${parts.map(p => {
+        const yuan = p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1));
+        return `
+      <Row>
+        <Cell><Data ss:Type="String">${xmlEscape(p.name)}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(p.cat)}</Data></Cell>
+        <Cell><Data ss:Type="Number">${p.d}</Data></Cell>
+        <Cell><Data ss:Type="Number">${yuan}</Data></Cell>
+        <Cell><Data ss:Type="Number">${p.usd}</Data></Cell>
+        <Cell><Data ss:Type="Number">${p.salesPrice}</Data></Cell>
+      </Row>`;
+      }).join('')}
+    </Table>
+  </Worksheet>`;
+
+    // Sheet 2..N: Every single category as its own dedicated worksheet!
+    const sortedCategories = Object.keys(categoriesMap).sort((a, b) => a.localeCompare(b));
+    for (const cat of sortedCategories) {
+      const catParts = categoriesMap[cat];
+      const tabName = cleanSheetName(cat, usedNames);
+      worksheetsXml += `
+  <Worksheet ss:Name="${xmlEscape(tabName)}">
+    <Table>
+      <Row ss:StyleID="HeaderStyle">
+        <Cell><Data ss:Type="String">Product Name</Data></Cell>
+        <Cell><Data ss:Type="String">Category (Brand _Part Type)</Data></Cell>
+        <Cell><Data ss:Type="String">Price D</Data></Cell>
+        <Cell><Data ss:Type="String">Yuan ¥</Data></Cell>
+        <Cell><Data ss:Type="String">USD+</Data></Cell>
+        <Cell><Data ss:Type="String">Sales $</Data></Cell>
+      </Row>
+      ${catParts.map(p => {
+        const yuan = p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1));
+        return `
+      <Row>
+        <Cell><Data ss:Type="String">${xmlEscape(p.name)}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(p.cat)}</Data></Cell>
+        <Cell><Data ss:Type="Number">${p.d}</Data></Cell>
+        <Cell><Data ss:Type="Number">${yuan}</Data></Cell>
+        <Cell><Data ss:Type="Number">${p.usd}</Data></Cell>
+        <Cell><Data ss:Type="Number">${p.salesPrice}</Data></Cell>
+      </Row>`;
+      }).join('')}
+    </Table>
+  </Worksheet>`;
+    }
+
+    // Photos tab
+    if (photos.length > 0) {
+      const photosTabName = cleanSheetName('Photos', usedNames);
+      worksheetsXml += `
+  <Worksheet ss:Name="${xmlEscape(photosTabName)}">
+    <Table>
+      <Row ss:StyleID="HeaderStyleEmerald">
+        <Cell><Data ss:Type="String">Photo Name</Data></Cell>
+        <Cell><Data ss:Type="String">Image URL / Link</Data></Cell>
+        <Cell><Data ss:Type="String">Description</Data></Cell>
+        <Cell><Data ss:Type="String">Brand / Category</Data></Cell>
+        <Cell><Data ss:Type="String">Date Added</Data></Cell>
+      </Row>
+      ${photos.map(ph => `
+      <Row>
+        <Cell><Data ss:Type="String">${xmlEscape(ph.name)}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(ph.url || ph.link || '')}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(ph.description || '')}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(ph.brand || '')}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(ph.createdAt || '')}</Data></Cell>
+      </Row>`).join('')}
+    </Table>
+  </Worksheet>`;
+    }
+
+    // Compatible LCDs tab
+    if (compat.length > 0) {
+      const compatTabName = cleanSheetName('Compatible LCDs', usedNames);
+      worksheetsXml += `
+  <Worksheet ss:Name="${xmlEscape(compatTabName)}">
+    <Table>
+      <Row ss:StyleID="HeaderStyleAmber">
+        <Cell><Data ss:Type="String">Main Model (LCD)</Data></Cell>
+        <Cell><Data ss:Type="String">Compatible Models (Fits)</Data></Cell>
+        <Cell><Data ss:Type="String">Notes</Data></Cell>
+      </Row>
+      ${compat.map(c => `
+      <Row>
+        <Cell><Data ss:Type="String">${xmlEscape(c.lcd)}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(c.fits)}</Data></Cell>
+        <Cell><Data ss:Type="String">${xmlEscape(c.note || '')}</Data></Cell>
+      </Row>`).join('')}
+    </Table>
+  </Worksheet>`;
+    }
+
+    const xmlWorkbook = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Bottom"/>
+   <Borders/>
+   <Font ss:FontName="Segoe UI" x:Family="Swiss" ss:Size="10" ss:Color="#000000"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="HeaderStyle">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Segoe UI" x:Family="Swiss" ss:Size="11" ss:Color="#38BDF8" ss:Bold="1"/>
+   <Interior ss:Color="#0B1324" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="HeaderStyleAmber">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Segoe UI" x:Family="Swiss" ss:Size="11" ss:Color="#F59E0B" ss:Bold="1"/>
+   <Interior ss:Color="#0B1324" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="HeaderStyleEmerald">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Segoe UI" x:Family="Swiss" ss:Size="11" ss:Color="#34D399" ss:Bold="1"/>
+   <Interior ss:Color="#0B1324" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+${worksheetsXml}
+</Workbook>`;
+
+    const blob = new Blob([xmlWorkbook], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Spare_Parts_MultiTab_Workbook_${new Date().toISOString().slice(0, 10)}.xls`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export a single category to CSV file
+   */
+  public static exportCategoryToCSV(parts: SparePartItem[], categoryName: string) {
+    const filtered = parts.filter(p => p.cat.toLowerCase().trim() === categoryName.toLowerCase().trim());
+    const headers = ['Product Name', 'Category (Brand _Part Type)', 'Price D', 'Yuan ¥', 'USD+', 'Sales $'];
+    const rows = filtered.map(p => [
+      `"${p.name.replace(/"/g, '""')}"`,
+      `"${p.cat.replace(/"/g, '""')}"`,
+      p.d,
+      p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+      p.usd,
+      p.salesPrice
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const cleanFileCat = categoryName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    link.setAttribute('download', `${cleanFileCat}_Sheet_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Copy specific category products formatted for direct Ctrl+V pasting into that category's Google Sheet tab
+   */
+  public static async copyCategoryProductsToClipboard(parts: SparePartItem[], categoryName: string): Promise<boolean> {
+    try {
+      const filtered = parts.filter(p => p.cat.toLowerCase().trim() === categoryName.toLowerCase().trim());
+      const headers = ['Product Name', 'Category (Brand _Part Type)', 'Price D', 'Yuan ¥', 'USD+', 'Sales $'];
+      const rows = filtered.map(p => [
+        p.name,
+        p.cat,
+        p.d,
+        p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+        p.usd,
+        p.salesPrice
+      ]);
+      const tsvContent = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
+      await navigator.clipboard.writeText(tsvContent);
+      return true;
+    } catch (e) {
+      console.warn('Category clipboard write failed', e);
+      return false;
+    }
+  }
+
+  /**
    * Copy all products as tab-delimited values (TSV) directly to the clipboard
    * so the user can paste directly into Google Sheets cell A1 with Ctrl+V
    */
@@ -1025,8 +1273,24 @@ export class GoogleSheetsService {
     }
 
     try {
+      // Group items by category for clean multi-tab writing
+      const byCategory: { [cat: string]: any[] } = {};
+      for (const p of items) {
+        const catName = (p.cat || 'General Spare Parts').trim();
+        if (!byCategory[catName]) byCategory[catName] = [];
+        byCategory[catName].push([
+          p.name,
+          p.cat,
+          p.d,
+          p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+          p.usd,
+          p.salesPrice
+        ]);
+      }
+
       const payloadRows = items.map(p => ({
         sheetName: mode === 'all_in_one' ? 'ALL PRODUCT' : (p.cat || 'General Spare Parts'),
+        category: p.cat || 'General Spare Parts',
         row: [
           p.name,
           p.cat,
@@ -1060,6 +1324,8 @@ export class GoogleSheetsService {
           mode: mode,
           is_all_in_one: mode === 'all_in_one',
           sheetName: mode === 'all_in_one' ? 'ALL PRODUCT' : 'General Spare Parts',
+          categories: Object.keys(byCategory),
+          byCategory: byCategory,
           items: payloadRows,
           parts: payloadRows,
           photos: payloadPhotos,
@@ -1085,6 +1351,36 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Check if URL is a Google Apps Script Web App endpoint (/exec)
+   */
+  public static isWebAppUrl(url: string): boolean {
+    if (!url) return false;
+    const trimmed = url.trim().toLowerCase();
+    return (
+      trimmed.includes('/exec') ||
+      trimmed.includes('script.google.com') ||
+      trimmed.includes('script.googleusercontent.com')
+    );
+  }
+
+  /**
+   * Check if URL is a standard Google Sheet link
+   */
+  public static isSpreadsheetUrl(url: string): boolean {
+    if (!url) return false;
+    return url.includes('/spreadsheets/d/');
+  }
+
+  /**
+   * Extract spreadsheet ID from Google Sheet URL
+   */
+  public static extractSpreadsheetId(url: string): string | null {
+    if (!url) return null;
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match && match[1] ? match[1] : null;
+  }
+
+  /**
    * Copy-ready Google Apps Script for the user's Google Sheet
    * Supports:
    * 1. 1-Sheet All-In-One Mode: Reads/Writes all products to a single sheet named "ALL PRODUCT"
@@ -1092,8 +1388,10 @@ export class GoogleSheetsService {
    * 3. Dedicated "Photos" and "Compatible LCDs" backup and restore tabs
    * 4. Automatic bidirectional deletion (deleting in app deletes in Google Sheet)
    * 5. Auto-creating new sheets on add
+   * 6. Automatically binds to customSpreadsheetId if provided
    */
-  public static getAppsScriptCode(): string {
+  public static getAppsScriptCode(customSpreadsheetId?: string): string {
+    const boundId = (customSpreadsheetId || '').trim();
     return `// ========================================================
 // SPARE PARTS MASTERY - LIVE ALL-IN-ONE & MULTI-CATEGORY GOOGLE APPS SCRIPT
 // Features:
@@ -1116,17 +1414,31 @@ export class GoogleSheetsService {
 //    and paste it into the app's Google Sheets Database tab!
 // ========================================================
 
+// Automatically linked to your Google Sheet:
+var TARGET_SPREADSHEET_ID = "${boundId}";
+
+function _getSpreadsheet() {
+  if (TARGET_SPREADSHEET_ID && TARGET_SPREADSHEET_ID.length > 5) {
+    try {
+      return SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+    } catch (e) {
+      // fallback to active container sheet
+    }
+  }
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
 // Helper: Normalize product names for fuzzy matching (IP 8 + <-> LCD IPHONE X8 +)
 function _normName(str) {
   if (!str) return '';
   return String(str).toLowerCase()
-    .replace(/^lcd\s+/i, '')
-    .replace(/^battery\s+/i, '')
-    .replace(/^flex charger\s+/i, '')
-    .replace(/\biphone\b/g, 'ip')
-    .replace(/\bsamsung\b/g, 'sam')
+    .replace(/^lcd\\s+/i, '')
+    .replace(/^battery\\s+/i, '')
+    .replace(/^flex charger\\s+/i, '')
+    .replace(/\\biphone\\b/g, 'ip')
+    .replace(/\\bsamsung\\b/g, 'sam')
     .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/\\s+/g, ' ')
     .trim();
 }
 
@@ -1176,7 +1488,7 @@ function _updateSheetRow(sh, oldTarget, newTarget, rowData) {
 }
 
 function doGet(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = _getSpreadsheet();
   var params = (e && e.parameter) ? e.parameter : {};
   var action = params ? params.action : null;
 
@@ -1580,7 +1892,7 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = _getSpreadsheet();
     var payload = {};
     if (e && e.postData && e.postData.contents) {
       try {
@@ -1873,32 +2185,73 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 4. MULTI-TAB BATCH BACKUP: Splits into individual category sheets
+    // 4. MULTI-TAB BATCH BACKUP: Splits into individual category sheets (Every Category is its own Spreadsheet tab)
     if (action === 'batch_backup_all') {
       var partsList = payload.parts || payload.items || [];
-      
-      // Group parts by sheet name
-      var bySheet = {};
-      for (var i = 0; i < partsList.length; i++) {
-        var item = partsList[i];
-        var sName = item.sheetName || (item.row ? item.row[1] : null) || "General Spare Parts";
-        if (!bySheet[sName]) bySheet[sName] = [];
-        if (item.row) {
-          bySheet[sName].push(item.row);
+      var bySheet = payload.byCategory || {};
+
+      // If byCategory wasn't provided directly, group items by category name
+      if (Object.keys(bySheet).length === 0) {
+        for (var i = 0; i < partsList.length; i++) {
+          var item = partsList[i];
+          var sName = item.category || (item.row ? item.row[1] : null) || item.sheetName || "General Spare Parts";
+          sName = String(sName).trim();
+          if (!bySheet[sName]) bySheet[sName] = [];
+          if (item.row) {
+            bySheet[sName].push(item.row);
+          }
         }
       }
 
-      for (var sheetName in bySheet) {
-        var sh = ss.getSheetByName(sheetName);
+      // Also create or refresh master "ALL PRODUCT" tab
+      var masterSheet = ss.getSheetByName("ALL PRODUCT");
+      if (!masterSheet) {
+        masterSheet = ss.insertSheet("ALL PRODUCT");
+      } else {
+        masterSheet.clearContents();
+      }
+      masterSheet.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
+      masterSheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      masterSheet.setFrozenRows(1);
+      var allMasterRows = [];
+      for (var i = 0; i < partsList.length; i++) {
+        if (partsList[i].row) allMasterRows.push(partsList[i].row);
+      }
+      if (allMasterRows.length > 0) {
+        masterSheet.getRange(2, 1, allMasterRows.length, 6).setValues(allMasterRows);
+      }
+
+      // Process EVERY category tab: clear contents and overwrite cleanly (prevents row duplication)
+      var allExistingSheets = ss.getSheets();
+      for (var catName in bySheet) {
+        var cleanTabName = String(catName).replace(/[\/\\?*\[\]:]/g, " - ").replace(/\s+/g, " ").trim();
+        if (cleanTabName.startsWith("'")) cleanTabName = cleanTabName.substring(1);
+        if (cleanTabName.endsWith("'")) cleanTabName = cleanTabName.substring(0, cleanTabName.length - 1);
+        if (!cleanTabName) cleanTabName = "General Spare Parts";
+        if (cleanTabName.length > 85) cleanTabName = cleanTabName.substring(0, 85);
+
+        var sh = ss.getSheetByName(cleanTabName);
         if (!sh) {
-          sh = ss.insertSheet(sheetName);
-          sh.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
-          sh.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+          for (var sIdx = 0; sIdx < allExistingSheets.length; sIdx++) {
+            var esName = allExistingSheets[sIdx].getName().trim().toLowerCase();
+            if (esName === cleanTabName.toLowerCase() || esName === String(catName).trim().toLowerCase()) {
+              sh = allExistingSheets[sIdx];
+              break;
+            }
+          }
         }
-        var rowsToAdd = bySheet[sheetName];
-        if (rowsToAdd.length > 0) {
-          var startR = sh.getLastRow() + 1;
-          sh.getRange(startR, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+        if (!sh) {
+          sh = ss.insertSheet(cleanTabName);
+        } else {
+          sh.clearContents();
+        }
+        sh.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
+        sh.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        sh.setFrozenRows(1);
+
+        var rowsToAdd = bySheet[catName];
+        if (rowsToAdd && rowsToAdd.length > 0) {
+          sh.getRange(2, 1, rowsToAdd.length, 6).setValues(rowsToAdd);
         }
       }
 
@@ -1907,15 +2260,17 @@ function doPost(e) {
         var photoSheet = ss.getSheetByName("Photos");
         if (!photoSheet) {
           photoSheet = ss.insertSheet("Photos");
-          photoSheet.appendRow(["Photo Name", "Image URL / Link", "Description", "Brand / Category", "Date Added"]);
-          photoSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0b1324").setFontColor("#34d399");
+        } else {
+          photoSheet.clearContents();
         }
+        photoSheet.appendRow(["Photo Name", "Image URL / Link", "Description", "Brand / Category", "Date Added"]);
+        photoSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0b1324").setFontColor("#34d399");
+        photoSheet.setFrozenRows(1);
         var photoRows = payload.photos.map(function(ph) {
           return [ph.name || '', ph.url || '', ph.description || '', ph.brand || ph.category || '', ph.createdAt || ''];
         });
         if (photoRows.length > 0) {
-          var startR = photoSheet.getLastRow() + 1;
-          photoSheet.getRange(startR, 1, photoRows.length, 5).setValues(photoRows);
+          photoSheet.getRange(2, 1, photoRows.length, 5).setValues(photoRows);
         }
       }
 
@@ -1924,21 +2279,25 @@ function doPost(e) {
         var compatSheet = ss.getSheetByName("Compatible LCDs");
         if (!compatSheet) {
           compatSheet = ss.insertSheet("Compatible LCDs");
-          compatSheet.appendRow(["Main Model (LCD)", "Compatible Models (Fits)", "Notes"]);
-          compatSheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#0b1324").setFontColor("#f59e0b");
+        } else {
+          compatSheet.clearContents();
         }
+        compatSheet.appendRow(["Main Model (LCD)", "Compatible Models (Fits)", "Notes"]);
+        compatSheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#0b1324").setFontColor("#f59e0b");
+        compatSheet.setFrozenRows(1);
         var compatRows = payload.compat.map(function(c) {
           return [c.lcd || '', c.fits || '', c.note || ''];
         });
         if (compatRows.length > 0) {
-          var startR = compatSheet.getLastRow() + 1;
-          compatSheet.getRange(startR, 1, compatRows.length, 3).setValues(compatRows);
+          compatSheet.getRange(2, 1, compatRows.length, 3).setValues(compatRows);
         }
       }
 
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
-        message: "Successfully backed up parts, photos, and compatible LCDs to Google Sheets!"
+        categoriesCount: Object.keys(bySheet).length,
+        productsCount: partsList.length,
+        message: "Successfully backed up " + partsList.length + " products into " + Object.keys(bySheet).length + " category spreadsheet tabs + Photos & Compatibility!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

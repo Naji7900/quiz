@@ -25,14 +25,34 @@ import {
   CheckSquare,
   Square,
   Check,
-  Filter
+  Filter,
+  TrendingDown,
+  TrendingUp,
+  PackagePlus,
+  BarChart3,
+  ArrowRight,
+  Building2
 } from 'lucide-react';
-import { SparePartItem, CompatItem, PART_CATEGORY_GROUPS, calculatePricing } from '../data/initialData';
+import { 
+  SparePartItem, 
+  CompatItem, 
+  PriceChangeRecord, 
+  PART_CATEGORY_GROUPS, 
+  calculatePricing,
+  PRESET_COMPANY_NAMES,
+  RegisteredCompany 
+} from '../data/initialData';
 import { sound } from '../services/soundService';
 
 interface ProListViewProps {
   parts: SparePartItem[];
   compatList: CompatItem[];
+  priceChanges?: PriceChangeRecord[];
+  companies?: RegisteredCompany[];
+  rejectedCompanies?: RegisteredCompany[];
+  companyFilter?: string;
+  onClearCompanyFilter?: () => void;
+  onRegisterNewCompany?: (companyName: string) => void;
   onAddPart: (part: Omit<SparePartItem, 'id'>) => void;
   onUpdatePart?: (id: string, updatedFields: Partial<SparePartItem>) => void;
   onDeletePart?: (id: string) => void;
@@ -41,11 +61,20 @@ interface ProListViewProps {
   onBulkMoveCategory?: (ids: string[], newCategory: string) => void;
   onOpenDbModal?: () => void;
   onRestoreDefault?: () => void;
+  onNavigateToPriceTracker?: (filter: 'all' | 'increase' | 'decrease' | 'new', openModal?: 'change' | 'new_product' | null) => void;
+  yuanRate?: number;
+  onUpdateYuanRate?: (rate: number) => void;
 }
 
 export const ProListView: React.FC<ProListViewProps> = ({
   parts,
   compatList,
+  priceChanges = [],
+  companies = [],
+  rejectedCompanies = [],
+  companyFilter = '__all__',
+  onClearCompanyFilter,
+  onRegisterNewCompany,
   onAddPart,
   onUpdatePart,
   onDeletePart,
@@ -53,7 +82,10 @@ export const ProListView: React.FC<ProListViewProps> = ({
   onBulkDeleteParts,
   onBulkMoveCategory,
   onOpenDbModal,
-  onRestoreDefault
+  onRestoreDefault,
+  onNavigateToPriceTracker,
+  yuanRate = 7.23,
+  onUpdateYuanRate
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -62,10 +94,22 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const [recentlyAddedPart, setRecentlyAddedPart] = useState<SparePartItem | null>(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('__all__');
 
+  // Manual Yuan-to-USD Exchange Rate state (Requirement 1)
+  const currentYuanRate = yuanRate && !isNaN(yuanRate) && yuanRate > 0 ? yuanRate : 7.23;
+  const [tempYuanRate, setTempYuanRate] = useState<string>(() => String(currentYuanRate));
+
+  // Keep tempYuanRate synchronized if external yuanRate changes
+  React.useEffect(() => {
+    setTempYuanRate(String(currentYuanRate));
+  }, [currentYuanRate]);
+
   // New Part Form State
   const [newPartName, setNewPartName] = useState('');
   const [newPartCat, setNewPartCat] = useState('iPhone LCD');
   const [customCatInput, setCustomCatInput] = useState('');
+  const [newPartCompany, setNewPartCompany] = useState('');
+  const [customCompanyInput, setCustomCompanyInput] = useState('');
+  const [newPartChangeType, setNewPartChangeType] = useState<'New Product' | 'Price Decrease' | 'Price Increase'>('New Product');
   const [newPartD, setNewPartD] = useState('');
   const [newPartYuan, setNewPartYuan] = useState('');
   const [newPartUsd, setNewPartUsd] = useState('');
@@ -80,6 +124,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const [editName, setEditName] = useState('');
   const [editCat, setEditCat] = useState('');
   const [customEditCat, setCustomEditCat] = useState('');
+  const [editCompany, setEditCompany] = useState('');
+  const [customEditCompany, setCustomEditCompany] = useState('');
+  const [editChangeType, setEditChangeType] = useState<'New Product' | 'Price Decrease' | 'Price Increase'>('Price Increase');
   const [editD, setEditD] = useState('');
   const [editYuan, setEditYuan] = useState('');
   const [editUsd, setEditUsd] = useState('');
@@ -106,10 +153,41 @@ export const ProListView: React.FC<ProListViewProps> = ({
     return Array.from(set).sort();
   }, [parts]);
 
+  // Live Price Changes Stats directly synchronized with Price Tracker page
+  const priceStats = useMemo(() => {
+    const list = priceChanges || [];
+    const increases = list.filter(c => c.type === 'increase');
+    const decreases = list.filter(c => c.type === 'decrease');
+    const newItems = list.filter(c => c.type === 'new');
+    const totalSavedAED = decreases.reduce((acc, c) => acc + Math.abs(c.deltaD), 0);
+    const totalIncreasedAED = increases.reduce((acc, c) => acc + Math.abs(c.deltaD), 0);
+    return {
+      total: list.length,
+      increasesCount: increases.length,
+      decreasesCount: decreases.length,
+      newItemsCount: newItems.length,
+      totalSavedAED: Math.round(totalSavedAED * 10) / 10,
+      totalIncreasedAED: Math.round(totalIncreasedAED * 10) / 10
+    };
+  }, [priceChanges]);
+
   const formatNum = (val: number) => {
     const rounded = Math.round(val * 10) / 10;
     return rounded === 0 && val !== 0 ? val.toFixed(2) : rounded.toFixed(1);
   };
+
+  // Available Company / Vendor options (Combined from Register Company, Catalog parts, and presets)
+  const availableCompanies = useMemo(() => {
+    const set = new Set<string>(PRESET_COMPANY_NAMES);
+    const compList = (companies && companies.length > 0) ? companies : (rejectedCompanies || []);
+    compList.forEach(rc => {
+      if (rc.name && rc.name.trim()) set.add(rc.name.trim());
+    });
+    parts.forEach(p => {
+      if (p.companyName && p.companyName.trim()) set.add(p.companyName.trim());
+    });
+    return Array.from(set).sort();
+  }, [parts, companies, rejectedCompanies]);
 
   const isProfileMode = searchTerm.trim().length >= 2;
 
@@ -159,9 +237,13 @@ export const ProListView: React.FC<ProListViewProps> = ({
     };
   }, [parts, compatList, searchTerm, isProfileMode]);
 
-  // Real-time instant search filter across all parts with category filter
+  // Real-time instant search filter across all parts with category and company filter
   const filteredParts = useMemo(() => {
     let result = [...parts];
+
+    if (companyFilter && companyFilter !== '__all__') {
+      result = result.filter(p => p.companyName?.toLowerCase() === companyFilter.toLowerCase());
+    }
 
     if (selectedCategoryFilter !== '__all__') {
       result = result.filter(p => p.cat.toLowerCase() === selectedCategoryFilter.toLowerCase());
@@ -171,32 +253,33 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const q = searchTerm.trim().toLowerCase();
       result = result.filter(p => 
         p.name.toLowerCase().includes(q) || 
-        p.cat.toLowerCase().includes(q)
+        p.cat.toLowerCase().includes(q) ||
+        (p.companyName && p.companyName.toLowerCase().includes(q))
       );
     }
 
     return result;
-  }, [parts, searchTerm, selectedCategoryFilter]);
+  }, [parts, searchTerm, selectedCategoryFilter, companyFilter]);
 
-  // Synchronize prices when user types Dirham (1 / 3.67 = 0.27 USD, (1/3.67)*7.23 = 1.97 Yuan)
+  // Synchronize prices when user types Dirham (1 / 3.67 = 0.27 USD, (1/3.67)*currentYuanRate = Yuan)
   const handleDirhamChange = (val: string) => {
     setNewPartD(val);
     const d = parseFloat(val);
     if (!isNaN(d) && d >= 0) {
       const exp = parseFloat(newPartExpense) || 0;
-      const pricing = calculatePricing(d, exp);
+      const pricing = calculatePricing(d, exp, currentYuanRate);
       setNewPartYuan(String(pricing.yuan));
       setNewPartUsd(String(pricing.costUsd));
       setNewPartSalesPrice(String(pricing.salesPrice));
     }
   };
 
-  // Synchronize prices when user types Yuan
+  // Synchronize prices when user types Yuan (Manual Exchange Rate)
   const handleYuanChange = (val: string) => {
     setNewPartYuan(val);
     const y = parseFloat(val);
     if (!isNaN(y) && y >= 0) {
-      const baseUsd = y / 7.23;
+      const baseUsd = y / currentYuanRate;
       const d = Number((baseUsd * 3.67).toFixed(2));
       const exp = parseFloat(newPartExpense) || 0;
       const costUsd = Number((baseUsd + exp).toFixed(2));
@@ -215,7 +298,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const exp = parseFloat(newPartExpense) || 0;
       const baseUsd = Math.max(0, u - exp);
       const d = Number((baseUsd * 3.67).toFixed(2));
-      const yuan = Number((baseUsd * 7.23).toFixed(2));
+      const yuan = Number((baseUsd * currentYuanRate).toFixed(2));
       const sales = u; // Direct origin price $, no 1.3 multiplier
       setNewPartD(String(d));
       setNewPartYuan(String(yuan));
@@ -232,7 +315,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     const exp = parseFloat(expVal) || 0;
     const d = parseFloat(newPartD);
     if (!isNaN(d) && d >= 0) {
-      const pricing = calculatePricing(d, exp);
+      const pricing = calculatePricing(d, exp, currentYuanRate);
       setNewPartUsd(String(pricing.costUsd));
       setNewPartSalesPrice(String(pricing.salesPrice));
     }
@@ -248,11 +331,19 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
     const dirham = parseFloat(newPartD) || 0;
     const exp = parseFloat(newPartExpense) || 0;
-    const pricing = calculatePricing(dirham, exp);
+    const pricing = calculatePricing(dirham, exp, currentYuanRate);
 
     const yuan = newPartYuan ? (parseFloat(newPartYuan) || pricing.yuan) : pricing.yuan;
     const usd = newPartUsd ? (parseFloat(newPartUsd) || pricing.costUsd) : pricing.costUsd;
     const salesPrice = newPartSalesPrice ? (parseFloat(newPartSalesPrice) || pricing.salesPrice) : pricing.salesPrice;
+
+    const finalCompany = newPartCompany === '__custom__' && customCompanyInput.trim()
+      ? customCompanyInput.trim()
+      : (newPartCompany.trim() || undefined);
+
+    if (finalCompany) {
+      onRegisterNewCompany?.(finalCompany);
+    }
 
     const createdPart: SparePartItem = {
       id: `custom-${Date.now()}`,
@@ -264,7 +355,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
       salesPrice,
       salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
       expense: exp,
-      isCustom: true
+      isCustom: true,
+      changeType: newPartChangeType,
+      companyName: finalCompany
     };
 
     onAddPart(createdPart);
@@ -274,11 +367,14 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setShowAllCatalog(true);
     setSearchTerm('');
     setNewPartName('');
+    setNewPartCompany('');
+    setCustomCompanyInput('');
     setNewPartD('');
     setNewPartYuan('');
     setNewPartUsd('');
     setNewPartSalesPrice('');
     setCustomCatInput('');
+    setNewPartChangeType('New Product');
     setShowAddModal(false);
   };
 
@@ -317,6 +413,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setEditName(part.name);
     setEditCat(part.cat);
     setCustomEditCat('');
+    setEditCompany(part.companyName || '');
+    setCustomEditCompany('');
+    setEditChangeType(part.changeType || 'Price Increase');
     setEditD(String(part.d));
     setEditYuan(String(part.yuan ?? Number(((part.d / 3.67) * 7.23).toFixed(1))));
     setEditUsd(String(part.usd));
@@ -329,7 +428,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     const d = parseFloat(val);
     if (!isNaN(d) && d >= 0) {
       const exp = parseFloat(editExpense) || 0;
-      const pricing = calculatePricing(d, exp);
+      const pricing = calculatePricing(d, exp, currentYuanRate);
       setEditYuan(String(pricing.yuan));
       setEditUsd(String(pricing.costUsd));
       // Sales Price is strictly MANUAL — do not overwrite automatically
@@ -340,7 +439,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setEditYuan(val);
     const y = parseFloat(val);
     if (!isNaN(y) && y >= 0) {
-      const baseUsd = y / 7.23;
+      const baseUsd = y / currentYuanRate;
       const d = Number((baseUsd * 3.67).toFixed(2));
       const exp = parseFloat(editExpense) || 0;
       const costUsd = Number((baseUsd + exp).toFixed(2));
@@ -357,7 +456,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       const exp = parseFloat(editExpense) || 0;
       const baseUsd = Math.max(0, u - exp);
       const d = Number((baseUsd * 3.67).toFixed(2));
-      const yuan = Number((baseUsd * 7.23).toFixed(2));
+      const yuan = Number((baseUsd * currentYuanRate).toFixed(2));
       setEditD(String(d));
       setEditYuan(String(yuan));
       // Sales Price is strictly MANUAL — do not overwrite automatically
@@ -369,7 +468,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     const exp = parseFloat(expVal) || 0;
     const d = parseFloat(editD);
     if (!isNaN(d) && d >= 0) {
-      const pricing = calculatePricing(d, exp);
+      const pricing = calculatePricing(d, exp, currentYuanRate);
       setEditUsd(String(pricing.costUsd));
       // Sales Price is strictly MANUAL — do not overwrite automatically
     }
@@ -385,11 +484,19 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
     const dirham = parseFloat(editD) || 0;
     const exp = parseFloat(editExpense) || 0;
-    const pricing = calculatePricing(dirham, exp);
+    const pricing = calculatePricing(dirham, exp, currentYuanRate);
 
     const yuan = editYuan ? (parseFloat(editYuan) || pricing.yuan) : pricing.yuan;
     const usd = editUsd ? (parseFloat(editUsd) || pricing.costUsd) : pricing.costUsd;
     const salesPrice = editSalesPrice ? (parseFloat(editSalesPrice) || pricing.salesPrice) : pricing.salesPrice;
+
+    const finalCompany = editCompany === '__custom__' && customEditCompany.trim()
+      ? customEditCompany.trim()
+      : (editCompany.trim() || undefined);
+
+    if (finalCompany) {
+      onRegisterNewCompany?.(finalCompany);
+    }
 
     onUpdatePart?.(editingPart.id, {
       name: editName.trim(),
@@ -399,7 +506,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
       yuan,
       salesPrice,
       salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
-      expense: exp
+      expense: exp,
+      changeType: editChangeType,
+      companyName: finalCompany
     });
 
     sound.playVictory();
@@ -567,40 +676,6 @@ export const ProListView: React.FC<ProListViewProps> = ({
               <span>Category:</span>
             </div>
 
-            {/* Quick Brand Filter Pills */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {[
-                { label: 'All', value: '__all__' },
-                { label: 'iPhone', value: 'iPhone LCD' },
-                { label: 'Samsung', value: 'Samsung LCD' },
-                { label: 'Tecno', value: 'Tecno LCD' },
-                { label: 'Infinix', value: 'Infinix LCD' },
-                { label: 'Redmi', value: 'Redmi LCD' },
-                { label: 'Honor', value: 'Honor LCD' },
-                { label: 'Battery', value: 'Battery' },
-                { label: 'Touch', value: 'iPad / Touch' },
-                { label: 'Glass', value: 'Glass & OCA' },
-              ].map(brand => {
-                const isActive = selectedCategoryFilter === brand.value || (brand.value === '__all__' && selectedCategoryFilter === '__all__');
-                return (
-                  <button
-                    key={brand.value}
-                    type="button"
-                    onClick={() => {
-                      sound.playTick();
-                      setSelectedCategoryFilter(brand.value);
-                    }}
-                    className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      isActive
-                        ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
-                        : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
-                    }`}
-                  >
-                    {brand.label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           {/* Full Category Dropdown Picker */}
@@ -656,13 +731,50 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   Exact exchange rate: 1 USD = 3.67 AED (1 AED = 0.27 USD).
                 </span>
               </div>
-              <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-400 block font-sans font-medium">Yuan ¥ (China RMB):</span>
-                <span className="text-amber-300 font-bold text-sm sm:text-base">
-                  (Price D / 3.67) * 7.23 (1 D = ¥1.97)
-                </span>
-                <span className="text-[11px] text-slate-400 block font-sans font-normal mt-0.5">
-                  Direct Guangzhou factory market rate: 1 USD = 7.23 RMB.
+              <div className="p-3 bg-slate-900/90 rounded-xl border border-amber-500/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-amber-300 font-sans font-bold">
+                    Yuan ¥ (Manual Exchange Rate):
+                  </span>
+                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                    Manual Input
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-slate-300">1 USD =</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={tempYuanRate}
+                    onChange={(e) => setTempYuanRate(e.target.value)}
+                    onBlur={() => {
+                      const val = parseFloat(tempYuanRate);
+                      if (!isNaN(val) && val > 0 && onUpdateYuanRate) {
+                        onUpdateYuanRate(val);
+                        showToast(`Updated Yuan Exchange Rate: 1 USD = ${val} RMB (All product prices updated)`);
+                      }
+                    }}
+                    placeholder="7.23"
+                    className="w-24 bg-slate-950 border border-amber-500/60 focus:border-amber-400 rounded-lg px-2.5 py-1 text-sm font-mono font-bold text-amber-300 focus:outline-none"
+                  />
+                  <span className="text-xs font-mono text-amber-400 font-bold">RMB</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = parseFloat(tempYuanRate);
+                      if (!isNaN(val) && val > 0 && onUpdateYuanRate) {
+                        onUpdateYuanRate(val);
+                        sound.playVictory();
+                        showToast(`✅ Saved Yuan Exchange Rate: 1 USD = ${val} RMB! All product prices recalculated.`);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Save Rate
+                  </button>
+                </div>
+                <span className="text-[11px] text-slate-400 block font-sans font-normal">
+                  Conversion: Yuan ¥ = (Price D / 3.67) * {currentYuanRate} · USD = Yuan / {currentYuanRate}
                 </span>
               </div>
               <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
@@ -935,40 +1047,118 @@ export const ProListView: React.FC<ProListViewProps> = ({
         </div>
       )}
 
-      {/* SEARCH PROMPT / CLEAN STATE (When search bar is empty and parts exist) */}
+      {/* QUICK ACTIONS HUB DIV - PRICE INCREASE, PRICE DECREASE & ADD NEW PRODUCT (Directly connected to Price Tracker) */}
       {!isProfileMode && !searchTerm.trim() && !showAllCatalog && parts.length > 0 && (
-        <div className="bg-[#0b111e] border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl text-center space-y-5 animate-in fade-in duration-150">
-          <div className="w-16 h-16 rounded-3xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400">
-            <Search className="w-8 h-8" />
-          </div>
-          <div className="max-w-md mx-auto space-y-2">
-            <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-              Spare Parts Catalog Search
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-400 font-normal">
-              Type any phone model (e.g. 13 Pro Max, A12, Note 13) or spare part name in the search bar above to look up prices, Guangzhou Yuan rates, and USD profit margins.
-            </p>
+        <div className="space-y-5 animate-in fade-in duration-150">
+          {/* Catalog Search & Browse Box */}
+          <div className="bg-[#0b111e] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400">
+              <Search className="w-7 h-7" />
+            </div>
+            <div className="max-w-md mx-auto space-y-1.5">
+              <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                Spare Parts Catalog Search
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-400 font-normal">
+                Type any phone model (e.g. 13 Pro Max, A12, Note 13) or spare part name in the search bar above to look up prices, Guangzhou Yuan rates, and USD profit margins.
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTick();
+                  setShowAllCatalog(true);
+                }}
+                className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-700/80 text-xs sm:text-sm font-semibold text-slate-200 hover:text-white flex items-center gap-2 transition-all active:scale-95 shadow-md cursor-pointer"
+              >
+                <span>Browse All {parts.length} Spare Parts</span>
+                <ChevronDown className="w-4 h-4 text-cyan-400" />
+              </button>
+            </div>
           </div>
 
-          <div className="pt-2 flex items-center justify-center">
-            <button
-              type="button"
-              onClick={() => {
-                sound.playTick();
-                setShowAllCatalog(true);
-              }}
-              className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs sm:text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2 transition-all active:scale-95 shadow-md cursor-pointer"
-            >
-              <span>Browse All {parts.length} Spare Parts</span>
-              <ChevronDown className="w-4 h-4 text-cyan-400" />
-            </button>
-          </div>
         </div>
       )}
 
       {/* FULL-PAGE CATALOG BROWSER TABLE (Active when user types in search or chooses to browse all) */}
       {!isProfileMode && (searchTerm.trim() !== '' || showAllCatalog) && (
         <div className="space-y-4 w-full animate-in fade-in duration-150">
+
+          {/* Quick Price Tracker & New Product Link Bar */}
+          <div className="bg-[#0b111e]/90 border border-slate-800 rounded-2xl p-3 px-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-300">
+              <BarChart3 className="w-4 h-4 text-cyan-400" />
+              <span className="font-bold text-white">Price Tracker Quick Links:</span>
+              <span className="text-slate-400 hidden sm:inline">Jump directly to filtered price changes or add new items</span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTick();
+                  onNavigateToPriceTracker?.('increase');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>Price Increase ({priceStats.increasesCount})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTick();
+                  onNavigateToPriceTracker?.('decrease');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <TrendingDown className="w-3.5 h-3.5" />
+                <span>Price Decrease ({priceStats.decreasesCount})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTick();
+                  setShowAddModal(true);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                <span>+ Add New Product</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Active Company Filter Banner if active */}
+          {companyFilter && companyFilter !== '__all__' && (
+            <div className="bg-cyan-950/60 border border-cyan-500/50 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 shadow-lg animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <Building2 className="w-5 h-5 text-cyan-400" />
+                <span className="text-xs sm:text-sm text-slate-200">
+                  Showing spare parts sourced from: <strong className="text-cyan-300 font-bold">{companyFilter}</strong>
+                </span>
+                <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-cyan-900/80 text-white font-bold">
+                  {filteredParts.length} parts
+                </span>
+              </div>
+              {onClearCompanyFilter && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    onClearCompanyFilter();
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+                >
+                  Show All Companies
+                </button>
+              )}
+            </div>
+          )}
           
           {/* Bulk Selection Actions Bar */}
           {selectedPartIds.size > 0 && (
@@ -1133,9 +1323,16 @@ export const ProListView: React.FC<ProListViewProps> = ({
                           )}
                         </td>
                         <td className="py-3.5 px-4 border-b border-slate-700/80">
-                          <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs font-medium text-slate-300 whitespace-nowrap">
-                            {item.cat}
-                          </span>
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs font-medium text-slate-300 whitespace-nowrap">
+                              {item.cat}
+                            </span>
+                            {item.companyName && (
+                              <span className="text-[10px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-md border border-purple-800/40 whitespace-nowrap">
+                                🏢 {item.companyName}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3.5 px-5 text-right font-mono text-cyan-300 font-bold text-base tabular-nums border-b border-slate-700/80">
                           {formatNum(item.d)} D
@@ -1223,9 +1420,16 @@ export const ProListView: React.FC<ProListViewProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] font-medium text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 shrink-0">
-                        {item.cat}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[11px] font-medium text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 shrink-0">
+                          {item.cat}
+                        </span>
+                        {item.companyName && (
+                          <span className="text-[10px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/40 shrink-0">
+                            🏢 {item.companyName}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 font-mono text-xs mt-2 font-medium">
@@ -1324,16 +1528,17 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 />
               </div>
 
-              {/* Select Category + Custom Category */}
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Select Category *
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* Select Category & Select Company Name (Side by Side Grid - Exactly as requested in user screenshot) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Column 1: Select Category */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
+                    Select Category *
+                  </label>
                   <select
                     value={newPartCat}
                     onChange={(e) => setNewPartCat(e.target.value)}
-                    className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none"
+                    className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none transition-colors"
                   >
                     {categories.map((c) => (
                       <option key={c} value={c}>{c}</option>
@@ -1348,9 +1553,78 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       value={customCatInput}
                       onChange={(e) => setCustomCatInput(e.target.value)}
                       placeholder="Type custom category name..."
-                      className="w-full bg-[#070c18] border border-cyan-500/70 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none"
+                      className="mt-2 w-full bg-[#070c18] border border-cyan-500/70 focus:border-cyan-400 rounded-xl px-3 py-2.5 text-xs text-white font-medium outline-none animate-in fade-in"
                     />
                   )}
+                </div>
+
+                {/* Column 2: Select Company Name (Linked with Register Company) */}
+                <div>
+                  <label className="block text-xs font-semibold text-cyan-300 uppercase mb-1 tracking-wider flex items-center justify-between">
+                    <span>Select Company Name</span>
+                    <span className="text-[10px] text-cyan-400 font-mono font-medium">
+                      AUTO-LINKED
+                    </span>
+                  </label>
+                  <select
+                    value={newPartCompany}
+                    onChange={(e) => setNewPartCompany(e.target.value)}
+                    className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none transition-colors"
+                  >
+                    <option value="">-- Select Company (Register Company) --</option>
+                    {availableCompanies.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    <option value="__custom__">+ Register New Company...</option>
+                  </select>
+
+                  {newPartCompany === '__custom__' && (
+                    <div className="mt-2 space-y-1 animate-in fade-in">
+                      <input
+                        type="text"
+                        required
+                        value={customCompanyInput}
+                        onChange={(e) => setCustomCompanyInput(e.target.value)}
+                        placeholder="Type company name to register..."
+                        className="w-full bg-[#070c18] border border-cyan-500/70 focus:border-cyan-400 rounded-xl px-3 py-2.5 text-xs text-white font-medium outline-none"
+                      />
+                      <p className="text-[10px] text-cyan-400 font-medium">
+                        ✓ Will be automatically registered in "Register Company" directory
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Product Change Type (Required) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                  <span>Product Change Type *</span>
+                  <span className="text-[10px] text-cyan-400 font-mono font-bold">REQUIRED</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'New Product', label: 'New Product', desc: 'Newly registered', color: 'border-cyan-500/50 bg-cyan-950/40 text-cyan-300' },
+                    { id: 'Price Decrease', label: 'Price Decrease', desc: 'Price drop / down', color: 'border-emerald-500/50 bg-emerald-950/40 text-emerald-300' },
+                    { id: 'Price Increase', label: 'Price Increase', desc: 'Price hike / up', color: 'border-amber-500/50 bg-amber-950/40 text-amber-300' }
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        sound.playTick();
+                        setNewPartChangeType(opt.id as any);
+                      }}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        newPartChangeType === opt.id
+                          ? `${opt.color} ring-2 ring-cyan-400 font-bold shadow-md scale-[1.02]`
+                          : 'bg-[#070c18] border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="block text-xs font-bold">{opt.label}</span>
+                      <span className="block text-[10px] opacity-75">{opt.desc}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1528,37 +1802,107 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
-                  Category *
-                </label>
-                <select
-                  value={editCat}
-                  onChange={(e) => setEditCat(e.target.value)}
-                  className="w-full bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-sm sm:text-base text-white font-medium outline-none"
-                >
-                  {categories.map((c) => (
-                    <option key={c} value={c} className="bg-slate-900 text-white">
-                      {c}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
+                    Category *
+                  </label>
+                  <select
+                    value={editCat}
+                    onChange={(e) => setEditCat(e.target.value)}
+                    className="w-full bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-medium outline-none"
+                  >
+                    {categories.map((c) => (
+                      <option key={c} value={c} className="bg-slate-900 text-white">
+                        {c}
+                      </option>
+                    ))}
+                    <option value="__custom__" className="bg-slate-900 text-amber-300 font-semibold">
+                      + Create Custom Category...
                     </option>
-                  ))}
-                  <option value="__custom__" className="bg-slate-900 text-amber-300 font-semibold">
-                    + Create Custom Category...
-                  </option>
-                </select>
+                  </select>
 
-                {editCat === '__custom__' && (
-                  <div className="mt-2 animate-in fade-in duration-100">
-                    <input
-                      type="text"
-                      required
-                      value={customEditCat}
-                      onChange={(e) => setCustomEditCat(e.target.value)}
-                      placeholder="Type custom category name..."
-                      className="w-full bg-[#070c18] border-2 border-amber-500 rounded-xl px-3.5 py-2 text-sm text-white font-medium outline-none placeholder-slate-500"
-                    />
-                  </div>
-                )}
+                  {editCat === '__custom__' && (
+                    <div className="mt-2 animate-in fade-in duration-100">
+                      <input
+                        type="text"
+                        required
+                        value={customEditCat}
+                        onChange={(e) => setCustomEditCat(e.target.value)}
+                        placeholder="Type custom category name..."
+                        className="w-full bg-[#070c18] border-2 border-amber-500 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white font-medium outline-none placeholder-slate-500"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 tracking-wider flex items-center justify-between">
+                    <span>Company Name</span>
+                    <span className="text-[10px] text-cyan-400 font-mono font-medium">
+                      AUTO-LINKED
+                    </span>
+                  </label>
+                  <select
+                    value={editCompany}
+                    onChange={(e) => setEditCompany(e.target.value)}
+                    className="w-full bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-medium outline-none"
+                  >
+                    <option value="">-- No Company Specified --</option>
+                    {availableCompanies.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    <option value="__custom__">+ Register New Company...</option>
+                  </select>
+
+                  {editCompany === '__custom__' && (
+                    <div className="mt-2 space-y-1 animate-in fade-in duration-100">
+                      <input
+                        type="text"
+                        required
+                        value={customEditCompany}
+                        onChange={(e) => setCustomEditCompany(e.target.value)}
+                        placeholder="Type company name to register..."
+                        className="w-full bg-[#070c18] border-2 border-amber-500 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white font-medium outline-none placeholder-slate-500"
+                      />
+                      <p className="text-[10px] text-cyan-400 font-medium">
+                        ✓ Will be automatically registered in "Register Company" directory
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Product Change Type (Required) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                  <span>Product Change Type *</span>
+                  <span className="text-[10px] text-amber-400 font-mono font-bold">REQUIRED</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'New Product', label: 'New Product', desc: 'Newly registered', color: 'border-cyan-500/50 bg-cyan-950/40 text-cyan-300' },
+                    { id: 'Price Decrease', label: 'Price Decrease', desc: 'Price drop / down', color: 'border-emerald-500/50 bg-emerald-950/40 text-emerald-300' },
+                    { id: 'Price Increase', label: 'Price Increase', desc: 'Price hike / up', color: 'border-amber-500/50 bg-amber-950/40 text-amber-300' }
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        sound.playTick();
+                        setEditChangeType(opt.id as any);
+                      }}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        editChangeType === opt.id
+                          ? `${opt.color} ring-2 ring-amber-400 font-bold shadow-md scale-[1.02]`
+                          : 'bg-[#070c18] border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="block text-xs font-bold">{opt.label}</span>
+                      <span className="block text-[10px] opacity-75">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Price Options: Dirham, Yuan, USD+, Sales Price */}
