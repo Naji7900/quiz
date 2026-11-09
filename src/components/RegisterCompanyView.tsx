@@ -24,13 +24,21 @@ import {
   MessageCircle,
   Printer,
   Filter,
-  RotateCcw
+  RotateCcw,
+  CheckSquare,
+  Square,
+  Smartphone,
+  Cloud,
+  CloudUpload,
+  Database,
+  Table
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { RegisteredCompany, SparePartItem } from '../data/initialData';
+import { RegisteredCompany, SparePartItem, AUTHENTIC_GOOGLE_SHEET_CATEGORIES } from '../data/initialData';
 import { sound } from '../services/soundService';
 import { extractPhoneModel, detectBrand } from '../utils/productUtils';
+import { GoogleSheetsService } from '../services/googleSheetsService';
 
 interface RegisterCompanyViewProps {
   companies: RegisteredCompany[];
@@ -39,7 +47,8 @@ interface RegisterCompanyViewProps {
   onUpdateCompany: (id: string, updated: Partial<RegisteredCompany>) => void;
   onDeleteCompany: (id: string) => void;
   onSelectCompanyForCatalog?: (companyName: string) => void;
-  onResetDefaultCompanies?: () => void;
+  onClearAllCompanies?: () => void;
+  onAssignCompanyToParts?: (companyName: string, partIds: string[]) => void;
 }
 
 const fmt = (n: number | undefined) => {
@@ -54,12 +63,46 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
   onUpdateCompany,
   onDeleteCompany,
   onSelectCompanyForCatalog,
-  onResetDefaultCompanies
+  onClearAllCompanies,
+  onAssignCompanyToParts
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
   const [copiedWhatsAppId, setCopiedWhatsAppId] = useState<string | null>(null);
+  const [isSyncingSheet, setIsSyncingSheet] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  // Sync to Google Spreadsheet tab "REGISTERED COMPANIES"
+  const handleSyncToGoogleSpreadsheet = async () => {
+    sound.playTick();
+    const config = GoogleSheetsService.getSavedConfig();
+    if (!config.sheetUrl) {
+      alert("No Google Sheet connected yet. Please click 'Google Sheets DB' in the top bar to connect your Google Web App or Spreadsheet URL.");
+      return;
+    }
+    setIsSyncingSheet(true);
+    setSyncMessage(null);
+    try {
+      const res = await GoogleSheetsService.syncAllCompaniesToGoogleSheet(config.sheetUrl, companies);
+      if (res.success) {
+        sound.playVictory();
+        setSyncMessage(`☁️ Successfully synced ${companies.length} companies to Google Spreadsheet tab "REGISTERED COMPANIES"!`);
+        setTimeout(() => setSyncMessage(null), 6000);
+      } else {
+        alert(res.message);
+      }
+    } catch (e: any) {
+      alert(e.message || 'Failed to sync with Google Sheet');
+    } finally {
+      setIsSyncingSheet(false);
+    }
+  };
+
+  const handleExportCompaniesXls = () => {
+    sound.playVictory();
+    GoogleSheetsService.exportCompaniesSpreadsheet(companies, parts);
+  };
 
   // Modal States
   const [showAddModal, setShowAddModal] = useState(false);
@@ -68,7 +111,13 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
   // Requirement 4C: Company Product History Drilldown State
   const [viewingCompanyProducts, setViewingCompanyProducts] = useState<RegisteredCompany | null>(null);
 
-  // Company Products Filter States
+  // Requirement: Assign LCDs to Supplier State ("Ogoon halka aan ka keenay LCD kasta")
+  const [assigningCompany, setAssigningCompany] = useState<RegisteredCompany | null>(null);
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignCatFilter, setAssignCatFilter] = useState('ALL_LCD');
+  const [assignSelectedIds, setAssignSelectedIds] = useState<Set<string>>(new Set());
+
+  // Company Products Filter States (for Drilldown)
   const [productSearch, setProductSearch] = useState('');
   const [brandFilter, setBrandFilter] = useState('ALL');
   const [modelFilter, setModelFilter] = useState('ALL');
@@ -81,7 +130,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
   const [addWhatsApp, setAddWhatsApp] = useState('');
   const [addLocation, setAddLocation] = useState('');
   const [addNote, setAddNote] = useState('');
-  const [addCategory, setAddCategory] = useState('LCD Screens & OLEDs');
+  const [addCategory, setAddCategory] = useState('All LCD Screens (Multi-Brand)');
+  const [addCustomCategory, setAddCustomCategory] = useState('');
   const [addContactPerson, setAddContactPerson] = useState('');
   const [addStatus, setAddStatus] = useState<'preferred' | 'active' | 'verified'>('preferred');
 
@@ -92,8 +142,51 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
   const [editLocation, setEditLocation] = useState('');
   const [editNote, setEditNote] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [editCustomCategory, setEditCustomCategory] = useState('');
   const [editContactPerson, setEditContactPerson] = useState('');
   const [editStatus, setEditStatus] = useState<'preferred' | 'active' | 'verified'>('active');
+
+  // Extract ALL actual categories existing across the catalog and Google Sheet in the app
+  const allAppCategories = useMemo(() => {
+    const set = new Set<string>(AUTHENTIC_GOOGLE_SHEET_CATEGORIES);
+    parts.forEach(p => {
+      if (p.cat && p.cat.trim()) set.add(p.cat.trim());
+    });
+    return Array.from(set).sort();
+  }, [parts]);
+
+  // Grouped category subsets for quick navigation
+  const lcdCategories = useMemo(() => {
+    return allAppCategories.filter(c => 
+      c.toUpperCase().includes('LCD') || 
+      c.toUpperCase().includes('SCREEN') || 
+      c.toUpperCase().includes('OLED')
+    );
+  }, [allAppCategories]);
+
+  const batteryCategories = useMemo(() => {
+    return allAppCategories.filter(c => 
+      c.toUpperCase().includes('BATTERY') || 
+      c.toUpperCase().includes('BATT')
+    );
+  }, [allAppCategories]);
+
+  const flexCategories = useMemo(() => {
+    return allAppCategories.filter(c => 
+      c.toUpperCase().includes('FLEX') || 
+      c.toUpperCase().includes('CHARGER') || 
+      c.toUpperCase().includes('CABLE') || 
+      c.toUpperCase().includes('PORT')
+    );
+  }, [allAppCategories]);
+
+  const otherCategories = useMemo(() => {
+    return allAppCategories.filter(c => 
+      !lcdCategories.includes(c) && 
+      !batteryCategories.includes(c) && 
+      !flexCategories.includes(c)
+    );
+  }, [allAppCategories, lcdCategories, batteryCategories, flexCategories]);
 
   // Count products sourced from each company
   const sourcedCounts = useMemo(() => {
@@ -107,9 +200,26 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     return map;
   }, [parts]);
 
+  // Count specifically LCD products sourced from each company
+  const lcdSourcedCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    parts.forEach(p => {
+      if (p.companyName && (p.cat.toUpperCase().includes('LCD') || p.cat.toUpperCase().includes('OLED'))) {
+        const key = p.companyName.trim().toLowerCase();
+        map[key] = (map[key] || 0) + 1;
+      }
+    });
+    return map;
+  }, [parts]);
+
   // Total products with company assignment
   const totalSourcedParts = useMemo(() => {
     return parts.filter(p => p.companyName && p.companyName.trim()).length;
+  }, [parts]);
+
+  // Total LCD products across catalog
+  const totalLcdPartsCount = useMemo(() => {
+    return parts.filter(p => p.cat.toUpperCase().includes('LCD') || p.cat.toUpperCase().includes('OLED')).length;
   }, [parts]);
 
   // Filtered companies
@@ -125,7 +235,9 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
         (c.contactPerson && c.contactPerson.toLowerCase().includes(q)) ||
         (c.category && c.category.toLowerCase().includes(q));
 
-      const matchesCategory = selectedCategoryFilter === 'ALL' || c.category === selectedCategoryFilter;
+      const matchesCategory = selectedCategoryFilter === 'ALL' || 
+        (selectedCategoryFilter === 'LCD' && (c.category?.toUpperCase().includes('LCD') || c.category?.toUpperCase().includes('SCREEN'))) ||
+        c.category === selectedCategoryFilter;
 
       return matchesSearch && matchesCategory;
     });
@@ -152,13 +264,17 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     e.preventDefault();
     if (!addName.trim() || !addPhone.trim()) return;
 
+    const finalCategory = addCategory === '__custom__' && addCustomCategory.trim()
+      ? addCustomCategory.trim()
+      : (addCategory || 'All LCD Screens (Multi-Brand)');
+
     onAddCompany({
       name: addName.trim(),
       phoneNo: addPhone.trim(),
       whatsappNo: addWhatsApp.trim() || addPhone.trim(),
       location: addLocation.trim() || 'Dubai / China Market',
       note: addNote.trim() || 'Direct parts supplier.',
-      category: addCategory,
+      category: finalCategory,
       contactPerson: addContactPerson.trim() || 'Sales Representative',
       status: addStatus,
       createdAt: new Date().toISOString().split('T')[0]
@@ -171,6 +287,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     setAddLocation('');
     setAddNote('');
     setAddContactPerson('');
+    setAddCategory('All LCD Screens (Multi-Brand)');
+    setAddCustomCategory('');
     setShowAddModal(false);
   };
 
@@ -182,7 +300,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     setEditWhatsApp(comp.whatsappNo || comp.phoneNo);
     setEditLocation(comp.location);
     setEditNote(comp.note);
-    setEditCategory(comp.category || 'LCD Screens');
+    setEditCategory(comp.category || 'All LCD Screens (Multi-Brand)');
+    setEditCustomCategory('');
     setEditContactPerson(comp.contactPerson || '');
     setEditStatus(comp.status || 'active');
   };
@@ -192,19 +311,80 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     e.preventDefault();
     if (!editingCompany || !editName.trim()) return;
 
+    const finalCategory = editCategory === '__custom__' && editCustomCategory.trim()
+      ? editCustomCategory.trim()
+      : (editCategory || 'All LCD Screens (Multi-Brand)');
+
     onUpdateCompany(editingCompany.id, {
       name: editName.trim(),
       phoneNo: editPhone.trim(),
       whatsappNo: editWhatsApp.trim() || editPhone.trim(),
       location: editLocation.trim(),
       note: editNote.trim(),
-      category: editCategory,
+      category: finalCategory,
       contactPerson: editContactPerson.trim(),
       status: editStatus
     });
 
     sound.playVictory();
     setEditingCompany(null);
+  };
+
+  // =========================================================================
+  // ASSIGN LCDs / PRODUCTS TO SUPPLIER HANDLERS
+  // =========================================================================
+  const handleOpenAssignModal = (comp: RegisteredCompany) => {
+    sound.playTick();
+    setAssigningCompany(comp);
+    setAssignSearch('');
+    setAssignCatFilter('ALL_LCD');
+
+    // Pre-select items currently assigned to this company
+    const current = new Set<string>();
+    parts.forEach(p => {
+      if (p.companyName && p.companyName.trim().toLowerCase() === comp.name.trim().toLowerCase()) {
+        current.add(p.id);
+      }
+    });
+    setAssignSelectedIds(current);
+  };
+
+  // Filtered parts candidate list inside Assign Modal
+  const assignCandidateParts = useMemo(() => {
+    if (!assigningCompany) return [];
+    return parts.filter(p => {
+      // Category filter inside modal
+      const isLcd = p.cat.toUpperCase().includes('LCD') || p.cat.toUpperCase().includes('OLED');
+      const matchesCategory = 
+        assignCatFilter === 'ALL' ? true :
+        assignCatFilter === 'ALL_LCD' ? isLcd :
+        p.cat === assignCatFilter;
+
+      if (!matchesCategory) return false;
+
+      if (!assignSearch.trim()) return true;
+      const q = assignSearch.trim().toLowerCase();
+      return p.name.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q) || p.id.toLowerCase().includes(q);
+    });
+  }, [parts, assigningCompany, assignCatFilter, assignSearch]);
+
+  const handleBulkSelectCategory = (catName: string) => {
+    sound.playTick();
+    const next = new Set(assignSelectedIds);
+    parts.forEach(p => {
+      const isMatch = catName === 'ALL_LCD'
+        ? (p.cat.toUpperCase().includes('LCD') || p.cat.toUpperCase().includes('OLED'))
+        : p.cat === catName;
+      if (isMatch) next.add(p.id);
+    });
+    setAssignSelectedIds(next);
+  };
+
+  const handleSaveAssignments = () => {
+    if (!assigningCompany) return;
+    sound.playVictory();
+    onAssignCompanyToParts?.(assigningCompany.name, Array.from(assignSelectedIds));
+    setAssigningCompany(null);
   };
 
   // Products belonging to the currently selected company in "View Products"
@@ -316,11 +496,11 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     });
 
     // Top Header Banner
-    doc.setFillColor(11, 17, 30); // #0b111e
+    doc.setFillColor(11, 17, 30);
     doc.rect(0, 0, pageWidth, 75, 'F');
 
     // Accent line
-    doc.setFillColor(6, 182, 212); // #06b6d4
+    doc.setFillColor(6, 182, 212);
     doc.rect(0, 75, pageWidth, 4, 'F');
 
     // Brand and Report Title
@@ -501,6 +681,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     // Table Content
     const tableData = companies.map((c, idx) => {
       const sourcedCount = sourcedCounts[c.name.trim().toLowerCase()] || 0;
+      const lcdCount = lcdSourcedCounts[c.name.trim().toLowerCase()] || 0;
       return [
         String(idx + 1),
         c.name,
@@ -508,8 +689,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
         c.phoneNo,
         c.whatsappNo || c.phoneNo,
         c.location,
-        c.category || 'Spare Parts',
-        `${sourcedCount} Parts`,
+        c.category || 'All LCD Screens',
+        `${sourcedCount} Parts (${lcdCount} LCDs)`,
         c.note,
         c.createdAt || 'N/A'
       ];
@@ -517,7 +698,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
 
     autoTable(doc, {
       startY: 150,
-      head: [['#', 'Company Name', 'Contact', 'Phone Number', 'WhatsApp', 'Location / Market', 'Category', 'Sourced', 'Notes / Terms', 'Date']],
+      head: [['#', 'Company Name', 'Contact', 'Phone Number', 'WhatsApp', 'Location / Market', 'Category Supplied', 'Sourced', 'Notes / Terms', 'Date']],
       body: tableData,
       theme: 'grid',
       headStyles: {
@@ -577,6 +758,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const sourcedCount = sourcedCounts[company.name.trim().toLowerCase()] || 0;
+    const lcdCount = lcdSourcedCounts[company.name.trim().toLowerCase()] || 0;
 
     // Cyan/indigo banner
     doc.setFillColor(14, 116, 144);
@@ -618,10 +800,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     addField('Phone Number', company.phoneNo);
     addField('WhatsApp Number', company.whatsappNo || company.phoneNo);
     addField('Location / Address', company.location);
-    if (company.category) {
-      addField('Parts Category Supplied', company.category);
-    }
-    addField('Catalog Inventory Link', `${sourcedCount} Spare Parts currently sourced from this company in Catalog`);
+    addField('Category Supplied', company.category || 'All LCD Screens');
+    addField('Sourcing Inventory Records', `${sourcedCount} Total Spare Parts (${lcdCount} LCDs) sourced from this company`);
     addField('Notes & Payment Terms', company.note);
     addField('Date Registered', company.createdAt || 'N/A');
 
@@ -657,22 +837,43 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
-                  Diwaan gali shirkadaha aad ka soo qaadato alaabta (Suppliers where you buy spare parts). Linked automatically with Catalog & Add Part!
+                  Diwaan gali shirkadaha aad ka soo qaadato alaabta & LCD kasta (Suppliers where you source each LCD and spare part).
                 </p>
               </div>
             </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              type="button"
+              disabled={isSyncingSheet}
+              onClick={handleSyncToGoogleSpreadsheet}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-teal-950/60 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+              title="Sync registered companies into Google Spreadsheet tab 'REGISTERED COMPANIES'"
+            >
+              <Cloud className={`w-4 h-4 ${isSyncingSheet ? 'animate-spin' : ''}`} />
+              <span>{isSyncingSheet ? 'Syncing...' : 'Sync Google Sheet'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportCompaniesXls}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-emerald-300 hover:text-white border border-emerald-500/40 font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-95"
+              title="Download Excel / Google Sheet (.xls) for registered companies and supplied parts"
+            >
+              <Table className="w-4 h-4" />
+              <span>Export Sheet (.xls)</span>
+            </button>
+
             <button
               type="button"
               onClick={handleSaveAllToPdf}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 hover:from-emerald-500 hover:to-cyan-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/60 transition-all cursor-pointer active:scale-95"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 hover:text-white border border-cyan-500/40 font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-95"
               title="Download suppliers directory as PDF"
             >
               <FileDown className="w-4 h-4" />
-              <span>Save to PDF</span>
+              <span>Save PDF</span>
             </button>
 
             <button
@@ -687,18 +888,41 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
               <span>+ Register Company</span>
             </button>
 
-            {onResetDefaultCompanies && (
+            {onClearAllCompanies && companies.length > 0 && (
               <button
                 type="button"
-                onClick={onResetDefaultCompanies}
-                className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-                title="Reset to default company samples"
+                onClick={() => {
+                  sound.playTick();
+                  if (window.confirm('Remove all registered companies? You can then add new companies with new names.')) {
+                    onClearAllCompanies();
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white border border-rose-800/50 text-xs font-semibold transition-colors cursor-pointer"
+                title="Remove all registered companies"
               >
-                <RefreshCw className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" />
+                <span>Remove All</span>
               </button>
             )}
           </div>
         </div>
+
+        {/* Sync Success / Progress Banner */}
+        {syncMessage && (
+          <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-2xl text-emerald-200 text-xs sm:text-sm font-semibold flex items-center justify-between gap-3 animate-in fade-in duration-200 shadow-lg">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{syncMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSyncMessage(null)}
+              className="text-emerald-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Quick Stats Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 pt-5 relative z-10">
@@ -710,24 +934,24 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
           </div>
 
           <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-            <span className="text-[11px] font-sans text-slate-400 block font-medium">Parts Sourced</span>
+            <span className="text-[11px] font-sans text-slate-400 block font-medium">LCD Screens Sourced</span>
             <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-400 mt-0.5 block">
-              {totalSourcedParts} items
+              {Object.values(lcdSourcedCounts).reduce((a, b) => a + b, 0)} / {totalLcdPartsCount} LCDs
             </span>
           </div>
 
           <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-            <span className="text-[11px] font-sans text-slate-400 block font-medium">Sourcing Markets</span>
+            <span className="text-[11px] font-sans text-slate-400 block font-medium">All Parts Sourced</span>
             <span className="text-xl sm:text-2xl font-bold font-mono text-amber-400 mt-0.5 block">
-              {new Set(companies.map(c => c.location)).size}
+              {totalSourcedParts} / {parts.length} items
             </span>
           </div>
 
           <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800">
-            <span className="text-[11px] font-sans text-slate-400 block font-medium">Catalog 2-Way Link</span>
-            <span className="text-xs sm:text-sm font-bold font-mono text-cyan-300 mt-1.5 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-              Automatic Sync
+            <span className="text-[11px] font-sans text-slate-400 block font-medium">Google Spreadsheet</span>
+            <span className="text-xs sm:text-sm font-bold font-mono text-emerald-300 mt-1.5 flex items-center gap-1.5">
+              <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+              Tab: "REGISTERED COMPANIES"
             </span>
           </div>
         </div>
@@ -756,13 +980,13 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
           )}
         </div>
 
-        {/* Filter Pills */}
+        {/* Filter Pills with App Categories */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
           {[
             { id: 'ALL', label: 'All Companies' },
-            { id: 'LCD Screens & OLEDs', label: 'Screens & OLEDs' },
-            { id: 'Batteries & Flex Cables', label: 'Batteries & Flex' },
-            { id: 'Tools & IC Chips', label: 'Tools & IC Chips' }
+            { id: 'LCD', label: '📱 LCD Suppliers' },
+            { id: 'Batteries & Flex Cables', label: '🔋 Batteries' },
+            { id: 'Tools & IC Chips', label: '🔧 Tools & IC' }
           ].map(tag => (
             <button
               key={tag.id}
@@ -785,21 +1009,37 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
 
       {/* Companies List */}
       {filteredCompanies.length === 0 ? (
-        <div className="p-12 text-center bg-[#0b111e] border border-slate-800 rounded-3xl space-y-3">
+        <div className="p-12 text-center bg-[#0b111e] border border-slate-800 rounded-3xl space-y-4">
           <Building2 className="w-12 h-12 text-slate-600 mx-auto" />
-          <h3 className="text-base font-bold text-white">No registered companies match your search</h3>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Click "+ Register Company" above to add your spare parts suppliers.
+          <h3 className="text-base sm:text-lg font-bold text-white">
+            {companies.length === 0 ? 'No Companies Registered Yet' : 'No companies match your search'}
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+            {companies.length === 0 
+              ? 'Diwaan gali shirkadaha aad ka soo qaadato alaabta & LCD kasta. Click "+ Register Company" below to add your first supplier.' 
+              : 'Try adjusting your search terms or category filter.'}
           </p>
-          {searchTerm && (
+          <div className="pt-1 flex items-center justify-center gap-2">
             <button
               type="button"
-              onClick={() => setSearchTerm('')}
-              className="px-4 py-1.5 rounded-xl bg-slate-800 text-xs text-slate-200 font-medium"
+              onClick={() => {
+                sound.playTick();
+                setShowAddModal(true);
+              }}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-950/60 transition-all cursor-pointer"
             >
-              Clear Search
+              + Register New Company
             </button>
-          )}
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-xs text-slate-200 font-medium"
+              >
+                Clear Search
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -807,6 +1047,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
             const isCopiedPhone = copiedPhoneId === company.id;
             const isCopiedWA = copiedWhatsAppId === company.id;
             const sourcedCount = sourcedCounts[company.name.trim().toLowerCase()] || 0;
+            const lcdCount = lcdSourcedCounts[company.name.trim().toLowerCase()] || 0;
             const waNumber = company.whatsappNo || company.phoneNo;
             const cleanWa = waNumber.replace(/[^0-9]/g, '');
 
@@ -841,6 +1082,14 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                   {/* Phone & WhatsApp & Location Rows */}
                   <div className="space-y-2 pt-1 border-t border-slate-800/80 text-xs">
                     
+                    {/* Category Supplied Badge */}
+                    <div className="flex items-center justify-between gap-2 bg-slate-950/40 px-3 py-1.5 rounded-xl border border-slate-800/40">
+                      <span className="text-[11px] text-slate-400 font-medium">Category Supplied:</span>
+                      <span className="text-[11px] font-bold text-cyan-300 truncate max-w-[170px]" title={company.category}>
+                        {company.category || 'All LCD Screens'}
+                      </span>
+                    </div>
+
                     {/* Contact Person */}
                     {company.contactPerson && (
                       <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/40 border border-slate-800/40 text-slate-300 text-xs">
@@ -910,15 +1159,27 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                       <span className="truncate">{company.location}</span>
                     </div>
 
-                    {/* Sourced Parts Badge */}
-                    <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-cyan-950/30 border border-cyan-800/40 text-xs">
-                      <div className="flex items-center gap-1.5 text-cyan-300 font-medium">
-                        <Package className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Catalog Inventory:</span>
+                    {/* Sourced LCDs & Parts Badge */}
+                    <div className="grid grid-cols-2 gap-2 pt-0.5">
+                      <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 text-xs">
+                        <div className="flex items-center gap-1 text-emerald-300 text-[11px] font-medium">
+                          <Smartphone className="w-3 h-3 text-emerald-400" />
+                          <span>LCDs:</span>
+                        </div>
+                        <span className="font-mono font-bold text-white bg-emerald-900/60 px-1.5 py-0.5 rounded text-[10px]">
+                          {lcdCount} LCDs
+                        </span>
                       </div>
-                      <span className="font-mono font-bold text-white bg-cyan-900/60 px-2 py-0.5 rounded text-[11px]">
-                        {sourcedCount} Sourced Parts
-                      </span>
+
+                      <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-cyan-950/30 border border-cyan-800/40 text-xs">
+                        <div className="flex items-center gap-1 text-cyan-300 text-[11px] font-medium">
+                          <Package className="w-3 h-3 text-cyan-400" />
+                          <span>All Parts:</span>
+                        </div>
+                        <span className="font-mono font-bold text-white bg-cyan-900/60 px-1.5 py-0.5 rounded text-[10px]">
+                          {sourcedCount}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Note Box */}
@@ -934,7 +1195,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                 {/* Card Actions Footer */}
                 <div className="pt-4 mt-3 border-t border-slate-800 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* Requirement 4C: View Products Button */}
+                    {/* View Products Button */}
                     <button
                       type="button"
                       onClick={() => {
@@ -942,18 +1203,29 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                         setViewingCompanyProducts(company);
                         resetProductFilters();
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-cyan-950/60 transition-all cursor-pointer active:scale-95"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-cyan-950/60 transition-all cursor-pointer active:scale-95"
                       title="View all products sourced from this company"
                     >
                       <Layers className="w-3.5 h-3.5" />
-                      <span>View Products</span>
+                      <span>View ({sourcedCount})</span>
+                    </button>
+
+                    {/* Assign LCDs Button (Direct answer to "Waxaan rabaa in aan ogaado halka aan ka keenay LCD kasta") */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAssignModal(company)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 text-xs font-semibold border border-emerald-800/50 transition-colors cursor-pointer"
+                      title="Assign LCD screens & parts sourced from this supplier"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Assign LCDs</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => handleSaveCompanyPdf(company)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
-                      title="Export single company profile PDF"
+                      className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+                      title="Export company profile PDF"
                     >
                       <FileDown className="w-3.5 h-3.5 text-cyan-400" />
                       <span>PDF</span>
@@ -985,6 +1257,204 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* REQUIREMENT: ASSIGN LCDs / PRODUCTS TO SUPPLIER MODAL                     */}
+      {/* ========================================================================= */}
+      {assigningCompany && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-[#0b111e] border-2 border-emerald-500/50 rounded-3xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-150 my-auto max-h-[92vh] flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-slate-800 shrink-0">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                    Assign LCDs Sourced from {assigningCompany.name}
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Dooro LCD-yada aad shirkadaan ka keentay si aad u ogaato halka LCD kasta ka yimid ({assignSelectedIds.size} LCDs selected).
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAssigningCompany(null)}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 1-Click Quick Category Buttons */}
+            <div className="py-3 border-b border-slate-800 space-y-2 shrink-0">
+              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                ⚡ 1-Click Bulk Assign by Category:
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleBulkSelectCategory('ALL_LCD')}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 font-semibold text-xs cursor-pointer transition-colors"
+                >
+                  + Select All LCDs ({totalLcdPartsCount})
+                </button>
+                {lcdCategories.map(cat => {
+                  const count = parts.filter(p => p.cat === cat).length;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => handleBulkSelectCategory(cat)}
+                      className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs cursor-pointer transition-colors"
+                    >
+                      + {cat} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="py-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={assignSearch}
+                  onChange={(e) => setAssignSearch(e.target.value)}
+                  placeholder="Search LCD model name (e.g. 13 Pro Max, A12, Note 12)..."
+                  className="w-full bg-[#070c18] border border-slate-800 focus:border-emerald-400 rounded-xl pl-9 pr-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 outline-none"
+                />
+              </div>
+
+              <select
+                value={assignCatFilter}
+                onChange={(e) => setAssignCatFilter(e.target.value)}
+                className="bg-[#070c18] border border-slate-800 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none cursor-pointer"
+              >
+                <option value="ALL_LCD">All LCD Categories ({lcdCategories.length})</option>
+                <option value="ALL">All Categories in App ({allAppCategories.length})</option>
+                {allAppCategories.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(assignSelectedIds);
+                    assignCandidateParts.forEach(p => next.add(p.id));
+                    setAssignSelectedIds(next);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 font-semibold cursor-pointer"
+                >
+                  Select Filtered ({assignCandidateParts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignSelectedIds(new Set())}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-400 hover:text-white cursor-pointer"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+
+            {/* Candidate Products List */}
+            <div className="flex-1 overflow-y-auto border border-slate-800 rounded-2xl bg-[#070c18] p-2 space-y-1.5">
+              {assignCandidateParts.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500">
+                  No LCDs match your search or filter.
+                </div>
+              ) : (
+                assignCandidateParts.map(p => {
+                  const isSelected = assignSelectedIds.has(p.id);
+                  const currentCompany = p.companyName;
+                  const isCurrentThisComp = currentCompany?.trim().toLowerCase() === assigningCompany.name.trim().toLowerCase();
+
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        sound.playTick();
+                        const next = new Set(assignSelectedIds);
+                        if (isSelected) next.delete(p.id);
+                        else next.add(p.id);
+                        setAssignSelectedIds(next);
+                      }}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                        isSelected 
+                          ? 'bg-emerald-950/40 border-emerald-500 text-white' 
+                          : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {isSelected ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-600 shrink-0" />
+                        )}
+                        <span className="font-semibold text-xs truncate">{p.name}</span>
+                        <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">({p.cat})</span>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        {currentCompany ? (
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                            isCurrentThisComp 
+                              ? 'bg-emerald-950 text-emerald-300 border-emerald-800' 
+                              : 'bg-amber-950 text-amber-300 border-amber-800'
+                          }`}>
+                            🏢 {currentCompany}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            No Supplier Yet
+                          </span>
+                        )}
+                        <span className="font-mono font-bold text-xs text-cyan-300">
+                          {p.d} D
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-4 mt-3 border-t border-slate-800 flex items-center justify-between gap-3 shrink-0">
+              <span className="text-xs text-slate-400">
+                <strong className="text-emerald-400">{assignSelectedIds.size}</strong> LCDs selected to be sourced from <strong>{assigningCompany.name}</strong>
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAssigningCompany(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAssignments}
+                  className="px-6 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-950/60 cursor-pointer"
+                >
+                  Save Supplier Assignment ({assignSelectedIds.size})
+                </button>
+              </div>
+            </div>
+
+          </div>
         </div>
       )}
 
@@ -1277,7 +1747,9 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
         </div>
       )}
 
-      {/* Add Company Modal */}
+      {/* ========================================================================= */}
+      {/* ADD COMPANY MODAL (TARGETED CSS SELECTOR)                                 */}
+      {/* ========================================================================= */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-[#0b111e] border-2 border-cyan-500/50 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150 my-6">
@@ -1310,7 +1782,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                   required
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
-                  placeholder="e.g. Naji Hassan Supplies, RL Rework Dubai"
+                  placeholder="e.g. Al-Burooj LCDs, Dubai Parts Wholesale"
                   className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-sm text-white font-medium outline-none"
                 />
               </div>
@@ -1375,22 +1847,96 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                 </div>
               </div>
 
+              {/* FOCUSED ELEMENT: ALL APP CATEGORIES SHOWN HERE */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
-                  Primary Parts Category
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-cyan-300 uppercase tracking-wider">
+                    Categories App Ku Jiro (All App Categories) *
+                  </label>
+                  <span className="text-[10px] text-cyan-400 font-mono font-bold">
+                    {allAppCategories.length} Categories ({totalLcdPartsCount} LCDs)
+                  </span>
+                </div>
                 <select
                   value={addCategory}
-                  onChange={(e) => setAddCategory(e.target.value)}
-                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-xs text-white font-medium outline-none"
+                  onChange={(e) => {
+                    setAddCategory(e.target.value);
+                    if (e.target.value !== '__custom__') setAddCustomCategory('');
+                  }}
+                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3.5 py-3 text-xs text-white font-medium outline-none transition-colors"
                 >
-                  <option value="LCD Screens & OLEDs">LCD Screens & OLEDs</option>
-                  <option value="Batteries & Flex Cables">Batteries & Flex Cables</option>
-                  <option value="Tools & IC Chips">Tools & IC Chips</option>
-                  <option value="Charging Ports & Speakers">Charging Ports & Speakers</option>
-                  <option value="Back Glass & Housings">Back Glass & Housings</option>
-                  <option value="General Spare Parts">General Spare Parts</option>
+                  <optgroup label="🌟 MULTI-CATEGORY / GENERAL SUPPLIER">
+                    <option value="All LCD Screens (Multi-Brand)">📱 All LCD Screens (Multi-Brand)</option>
+                    <option value="All App Categories (General Supplier)">🌟 All App Categories (General Supplier)</option>
+                  </optgroup>
+
+                  {lcdCategories.length > 0 && (
+                    <optgroup label="📱 LCD DISPLAY CATEGORIES IN APP">
+                      {lcdCategories.map(cat => {
+                        const count = parts.filter(p => p.cat === cat).length;
+                        return (
+                          <option key={cat} value={cat}>
+                            📱 {cat} ({count} LCDs in Catalog)
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+
+                  {batteryCategories.length > 0 && (
+                    <optgroup label="🔋 BATTERY CATEGORIES IN APP">
+                      {batteryCategories.map(cat => {
+                        const count = parts.filter(p => p.cat === cat).length;
+                        return (
+                          <option key={cat} value={cat}>
+                            🔋 {cat} ({count} Batteries)
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+
+                  {flexCategories.length > 0 && (
+                    <optgroup label="⚡ FLEX CHARGER & CABLES IN APP">
+                      {flexCategories.map(cat => {
+                        const count = parts.filter(p => p.cat === cat).length;
+                        return (
+                          <option key={cat} value={cat}>
+                            ⚡ {cat} ({count} Items)
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+
+                  {otherCategories.length > 0 && (
+                    <optgroup label="🔧 OTHER SPARE PARTS IN APP">
+                      {otherCategories.map(cat => {
+                        const count = parts.filter(p => p.cat === cat).length;
+                        return (
+                          <option key={cat} value={cat}>
+                            🔧 {cat} ({count} Items)
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+
+                  <option value="__custom__">+ Custom Category Name...</option>
                 </select>
+
+                {addCategory === '__custom__' && (
+                  <div className="mt-2 space-y-1 animate-in fade-in">
+                    <input
+                      type="text"
+                      required
+                      value={addCustomCategory}
+                      onChange={(e) => setAddCustomCategory(e.target.value)}
+                      placeholder="Type custom category name..."
+                      className="w-full bg-[#070c18] border border-cyan-500/70 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-xs text-white font-medium outline-none"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1407,27 +1953,34 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                 />
               </div>
 
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-cyan-950/60 cursor-pointer"
-                >
-                  Save & Register Company
-                </button>
+              <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-800/80">
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
+                  <CloudUpload className="w-3.5 h-3.5 shrink-0" />
+                  <span>Auto-backs up to Google Sheet ("REGISTERED COMPANIES") on save</span>
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-cyan-950/60 cursor-pointer transition-all active:scale-95"
+                  >
+                    <CloudUpload className="w-4 h-4" />
+                    Save & Auto-Backup to Sheet
+                  </button>
+                </div>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Edit Company Modal */}
+      {/* EDIT COMPANY MODAL */}
       {editingCompany && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-[#0b111e] border-2 border-amber-500/50 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150 my-6">
@@ -1438,7 +1991,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-white">Edit Company Details</h3>
-                  <p className="text-xs text-slate-400">Update supplier contact, phone, WhatsApp, location, and notes</p>
+                  <p className="text-xs text-slate-400">Update supplier contact, phone, WhatsApp, location, category, and notes</p>
                 </div>
               </div>
               <button
@@ -1521,17 +2074,79 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                 </div>
               </div>
 
+              {/* EDIT CATEGORY SELECTOR WITH ALL APP CATEGORIES */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
-                  Parts Category
+                <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 tracking-wider">
+                  Parts Category Supplied (All App Categories)
                 </label>
-                <input
-                  type="text"
+                <select
                   value={editCategory}
-                  onChange={(e) => setEditCategory(e.target.value)}
-                  placeholder="e.g. Screens, Batteries"
+                  onChange={(e) => {
+                    setEditCategory(e.target.value);
+                    if (e.target.value !== '__custom__') setEditCustomCategory('');
+                  }}
                   className="w-full bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs text-white font-medium outline-none"
-                />
+                >
+                  <optgroup label="🌟 MULTI-CATEGORY / GENERAL SUPPLIER">
+                    <option value="All LCD Screens (Multi-Brand)">📱 All LCD Screens (Multi-Brand)</option>
+                    <option value="All App Categories (General Supplier)">🌟 All App Categories (General Supplier)</option>
+                  </optgroup>
+
+                  {lcdCategories.length > 0 && (
+                    <optgroup label="📱 LCD DISPLAY CATEGORIES IN APP">
+                      {lcdCategories.map(cat => (
+                        <option key={cat} value={cat}>
+                          📱 {cat} ({parts.filter(p => p.cat === cat).length} LCDs)
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  {batteryCategories.length > 0 && (
+                    <optgroup label="🔋 BATTERY CATEGORIES IN APP">
+                      {batteryCategories.map(cat => (
+                        <option key={cat} value={cat}>
+                          🔋 {cat} ({parts.filter(p => p.cat === cat).length} Batteries)
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  {flexCategories.length > 0 && (
+                    <optgroup label="⚡ FLEX CHARGER & CABLES IN APP">
+                      {flexCategories.map(cat => (
+                        <option key={cat} value={cat}>
+                          ⚡ {cat} ({parts.filter(p => p.cat === cat).length} Items)
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  {otherCategories.length > 0 && (
+                    <optgroup label="🔧 OTHER SPARE PARTS IN APP">
+                      {otherCategories.map(cat => (
+                        <option key={cat} value={cat}>
+                          🔧 {cat} ({parts.filter(p => p.cat === cat).length} Items)
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  <option value="__custom__">+ Custom Category Name...</option>
+                </select>
+
+                {editCategory === '__custom__' && (
+                  <div className="mt-2 space-y-1 animate-in fade-in">
+                    <input
+                      type="text"
+                      required
+                      value={editCustomCategory}
+                      onChange={(e) => setEditCustomCategory(e.target.value)}
+                      placeholder="Type custom category name..."
+                      className="w-full bg-[#070c18] border border-amber-500/70 focus:border-amber-400 rounded-xl px-3.5 py-2 text-xs text-white font-medium outline-none"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>

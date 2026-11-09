@@ -17,6 +17,7 @@ import {
   Upload,
   RotateCcw,
   CheckCircle2,
+  CloudUpload,
   Sparkles,
   Pencil,
   Trash2,
@@ -31,7 +32,9 @@ import {
   PackagePlus,
   BarChart3,
   ArrowRight,
-  Building2
+  Building2,
+  Plane,
+  Ship
 } from 'lucide-react';
 import { 
   SparePartItem, 
@@ -40,7 +43,9 @@ import {
   PART_CATEGORY_GROUPS, 
   calculatePricing,
   PRESET_COMPANY_NAMES,
-  RegisteredCompany 
+  RegisteredCompany,
+  generateSmartPartId,
+  AUTHENTIC_GOOGLE_SHEET_CATEGORIES
 } from '../data/initialData';
 import { sound } from '../services/soundService';
 
@@ -52,6 +57,7 @@ interface ProListViewProps {
   rejectedCompanies?: RegisteredCompany[];
   companyFilter?: string;
   onClearCompanyFilter?: () => void;
+  onSetCompanyFilter?: (company: string) => void;
   onRegisterNewCompany?: (companyName: string) => void;
   onAddPart: (part: Omit<SparePartItem, 'id'>) => void;
   onUpdatePart?: (id: string, updatedFields: Partial<SparePartItem>) => void;
@@ -64,6 +70,8 @@ interface ProListViewProps {
   onNavigateToPriceTracker?: (filter: 'all' | 'increase' | 'decrease' | 'new', openModal?: 'change' | 'new_product' | null) => void;
   yuanRate?: number;
   onUpdateYuanRate?: (rate: number) => void;
+  expenseRate?: number;
+  onUpdateExpenseRate?: (rate: number, applyToAll?: boolean) => void;
 }
 
 export const ProListView: React.FC<ProListViewProps> = ({
@@ -74,6 +82,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
   rejectedCompanies = [],
   companyFilter = '__all__',
   onClearCompanyFilter,
+  onSetCompanyFilter,
   onRegisterNewCompany,
   onAddPart,
   onUpdatePart,
@@ -85,7 +94,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
   onRestoreDefault,
   onNavigateToPriceTracker,
   yuanRate = 7.23,
-  onUpdateYuanRate
+  onUpdateYuanRate,
+  expenseRate = 0,
+  onUpdateExpenseRate
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -98,14 +109,24 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const currentYuanRate = yuanRate && !isNaN(yuanRate) && yuanRate > 0 ? yuanRate : 7.23;
   const [tempYuanRate, setTempYuanRate] = useState<string>(() => String(currentYuanRate));
 
+  // Saved Optional Expense $ (Shipping / Customs) Rate state (User Requirement 1)
+  const currentExpenseRate = typeof expenseRate === 'number' && !isNaN(expenseRate) && expenseRate >= 0 ? expenseRate : 0;
+  const [tempExpenseRate, setTempExpenseRate] = useState<string>(() => String(currentExpenseRate));
+
   // Keep tempYuanRate synchronized if external yuanRate changes
   React.useEffect(() => {
     setTempYuanRate(String(currentYuanRate));
   }, [currentYuanRate]);
 
+  // Keep tempExpenseRate synchronized if external expenseRate changes
+  React.useEffect(() => {
+    setTempExpenseRate(String(currentExpenseRate));
+  }, [currentExpenseRate]);
+
   // New Part Form State
+  const [newPartId, setNewPartId] = useState('');
   const [newPartName, setNewPartName] = useState('');
-  const [newPartCat, setNewPartCat] = useState('iPhone LCD');
+  const [newPartCat, setNewPartCat] = useState('IPhone / LCD');
   const [customCatInput, setCustomCatInput] = useState('');
   const [newPartCompany, setNewPartCompany] = useState('');
   const [customCompanyInput, setCustomCompanyInput] = useState('');
@@ -115,12 +136,15 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const [newPartUsd, setNewPartUsd] = useState('');
   const [newPartSalesPrice, setNewPartSalesPrice] = useState('');
   const [newPartExpense, setNewPartExpense] = useState('');
+  const [newPartShippingMethod, setNewPartShippingMethod] = useState<'air' | 'sea'>('air');
+  const [newPartOrigin, setNewPartOrigin] = useState<'Dubai' | 'China'>('Dubai');
 
   // Multi-select state for bulk actions
   const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
 
   // Edit Product Modal State
   const [editingPart, setEditingPart] = useState<SparePartItem | null>(null);
+  const [editPartId, setEditPartId] = useState('');
   const [editName, setEditName] = useState('');
   const [editCat, setEditCat] = useState('');
   const [customEditCat, setCustomEditCat] = useState('');
@@ -132,11 +156,13 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const [editUsd, setEditUsd] = useState('');
   const [editSalesPrice, setEditSalesPrice] = useState('');
   const [editExpense, setEditExpense] = useState('0');
+  const [editShippingMethod, setEditShippingMethod] = useState<'air' | 'sea'>('air');
+  const [editOrigin, setEditOrigin] = useState<'Dubai' | 'China'>('Dubai');
 
   // Move Product Modal State (single or bulk)
   const [movingPart, setMovingPart] = useState<SparePartItem | null>(null);
   const [isBulkMoveOpen, setIsBulkMoveOpen] = useState(false);
-  const [targetMoveCat, setTargetMoveCat] = useState('');
+  const [targetMoveCat, setTargetMoveCat] = useState('IPhone / LCD');
   const [customMoveCat, setCustomMoveCat] = useState('');
 
   // Delete Confirmation Modal State (single or bulk)
@@ -146,11 +172,13 @@ export const ProListView: React.FC<ProListViewProps> = ({
   // Quick Action Notification Toast
   const [notification, setNotification] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
-  // Categories list for Add Part modal
+  // Categories list directly synchronized with Google Sheet column "Category (Brand _Part Type)"
   const categories = useMemo(() => {
-    const set = new Set<string>();
-    parts.forEach(p => set.add(p.cat));
-    return Array.from(set).sort();
+    const set = new Set<string>(AUTHENTIC_GOOGLE_SHEET_CATEGORIES);
+    parts.forEach(p => {
+      if (p.cat && p.cat.trim()) set.add(p.cat.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [parts]);
 
   // Live Price Changes Stats directly synchronized with Price Tracker page
@@ -237,12 +265,21 @@ export const ProListView: React.FC<ProListViewProps> = ({
     };
   }, [parts, compatList, searchTerm, isProfileMode]);
 
+  const [internalCompanyFilter, setInternalCompanyFilter] = useState<string>('__all__');
+  const activeCompanyFilter = companyFilter && companyFilter !== '__all__' ? companyFilter : internalCompanyFilter;
+
+  const handleSetCompanyFilter = (comp: string) => {
+    sound.playTick();
+    setInternalCompanyFilter(comp);
+    onSetCompanyFilter?.(comp);
+  };
+
   // Real-time instant search filter across all parts with category and company filter
   const filteredParts = useMemo(() => {
     let result = [...parts];
 
-    if (companyFilter && companyFilter !== '__all__') {
-      result = result.filter(p => p.companyName?.toLowerCase() === companyFilter.toLowerCase());
+    if (activeCompanyFilter && activeCompanyFilter !== '__all__') {
+      result = result.filter(p => p.companyName?.toLowerCase() === activeCompanyFilter.toLowerCase());
     }
 
     if (selectedCategoryFilter !== '__all__') {
@@ -259,50 +296,48 @@ export const ProListView: React.FC<ProListViewProps> = ({
     }
 
     return result;
-  }, [parts, searchTerm, selectedCategoryFilter, companyFilter]);
+  }, [parts, searchTerm, selectedCategoryFilter, activeCompanyFilter]);
 
-  // Synchronize prices when user types Dirham (1 / 3.67 = 0.27 USD, (1/3.67)*currentYuanRate = Yuan)
+  // Convert Dirham to USD only (1 / 3.67 = 0.27 USD). DO NOT convert Dirham to Yuan!
   const handleDirhamChange = (val: string) => {
     setNewPartD(val);
     const d = parseFloat(val);
     if (!isNaN(d) && d >= 0) {
-      const exp = parseFloat(newPartExpense) || 0;
-      const pricing = calculatePricing(d, exp, currentYuanRate);
-      setNewPartYuan(String(pricing.yuan));
-      setNewPartUsd(String(pricing.costUsd));
-      setNewPartSalesPrice(String(pricing.salesPrice));
+      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : currentExpenseRate;
+      const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+      setNewPartUsd(String(costUsd));
+      setNewPartSalesPrice(String(costUsd));
+      // Do NOT touch newPartYuan - keep Dirham and Yuan completely independent!
+    } else if (!val && !newPartYuan) {
+      setNewPartUsd('');
+      setNewPartSalesPrice('');
     }
   };
 
-  // Synchronize prices when user types Yuan (Manual Exchange Rate)
+  // Convert Yuan to USD only (Yuan / currentYuanRate). DO NOT convert Yuan to Dirham!
   const handleYuanChange = (val: string) => {
     setNewPartYuan(val);
     const y = parseFloat(val);
     if (!isNaN(y) && y >= 0) {
       const baseUsd = y / currentYuanRate;
-      const d = Number((baseUsd * 3.67).toFixed(2));
-      const exp = parseFloat(newPartExpense) || 0;
+      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : currentExpenseRate;
       const costUsd = Number((baseUsd + exp).toFixed(2));
-      const sales = costUsd; // Direct origin price $, no 1.3 multiplier
-      setNewPartD(String(d));
       setNewPartUsd(String(costUsd));
-      setNewPartSalesPrice(String(sales));
+      setNewPartSalesPrice(String(costUsd));
+      // Do NOT touch newPartD - keep Dirham and Yuan completely independent!
+    } else if (!val && !newPartD) {
+      setNewPartUsd('');
+      setNewPartSalesPrice('');
     }
   };
 
-  // Synchronize prices when user types USD+
+  // Synchronize when user types USD+
   const handleUsdChange = (val: string) => {
     setNewPartUsd(val);
     const u = parseFloat(val);
     if (!isNaN(u) && u >= 0) {
-      const exp = parseFloat(newPartExpense) || 0;
-      const baseUsd = Math.max(0, u - exp);
-      const d = Number((baseUsd * 3.67).toFixed(2));
-      const yuan = Number((baseUsd * currentYuanRate).toFixed(2));
-      const sales = u; // Direct origin price $, no 1.3 multiplier
-      setNewPartD(String(d));
-      setNewPartYuan(String(yuan));
-      setNewPartSalesPrice(String(sales));
+      // User directly enters USD - update sales price suggestion without overriding entered D or Yuan
+      setNewPartSalesPrice(String(u));
     }
   };
 
@@ -312,12 +347,18 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
   const handleExpenseChange = (expVal: string) => {
     setNewPartExpense(expVal);
-    const exp = parseFloat(expVal) || 0;
+    const exp = expVal.trim() !== '' ? (parseFloat(expVal) || 0) : currentExpenseRate;
     const d = parseFloat(newPartD);
-    if (!isNaN(d) && d >= 0) {
-      const pricing = calculatePricing(d, exp, currentYuanRate);
-      setNewPartUsd(String(pricing.costUsd));
-      setNewPartSalesPrice(String(pricing.salesPrice));
+    const y = parseFloat(newPartYuan);
+    if (!isNaN(d) && d > 0) {
+      const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+      setNewPartUsd(String(costUsd));
+      setNewPartSalesPrice(String(costUsd));
+    } else if (!isNaN(y) && y > 0) {
+      const baseUsd = y / currentYuanRate;
+      const costUsd = Number((baseUsd + exp).toFixed(2));
+      setNewPartUsd(String(costUsd));
+      setNewPartSalesPrice(String(costUsd));
     }
   };
 
@@ -329,13 +370,22 @@ export const ProListView: React.FC<ProListViewProps> = ({
       ? customCatInput.trim()
       : newPartCat;
 
-    const dirham = parseFloat(newPartD) || 0;
-    const exp = parseFloat(newPartExpense) || 0;
-    const pricing = calculatePricing(dirham, exp, currentYuanRate);
+    const dirham = newPartD.trim() ? (parseFloat(newPartD) || 0) : 0;
+    const yuan = newPartYuan.trim() ? (parseFloat(newPartYuan) || 0) : 0;
+    const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : currentExpenseRate;
 
-    const yuan = newPartYuan ? (parseFloat(newPartYuan) || pricing.yuan) : pricing.yuan;
-    const usd = newPartUsd ? (parseFloat(newPartUsd) || pricing.costUsd) : pricing.costUsd;
-    const salesPrice = newPartSalesPrice ? (parseFloat(newPartSalesPrice) || pricing.salesPrice) : pricing.salesPrice;
+    let computedUsd = 0;
+    if (newPartUsd.trim()) {
+      computedUsd = parseFloat(newPartUsd) || 0;
+    } else if (dirham > 0) {
+      computedUsd = Number(((dirham / 3.67) + exp).toFixed(2));
+    } else if (yuan > 0) {
+      computedUsd = Number(((yuan / currentYuanRate) + exp).toFixed(2));
+    }
+
+    const salesPrice = newPartSalesPrice.trim()
+      ? (parseFloat(newPartSalesPrice) || computedUsd)
+      : computedUsd;
 
     const finalCompany = newPartCompany === '__custom__' && customCompanyInput.trim()
       ? customCompanyInput.trim()
@@ -345,19 +395,29 @@ export const ProListView: React.FC<ProListViewProps> = ({
       onRegisterNewCompany?.(finalCompany);
     }
 
+    const partId = newPartId.trim() || generateSmartPartId(
+      newPartName.trim(),
+      finalCompany,
+      newPartShippingMethod,
+      newPartOrigin,
+      new Set(parts.map(p => p.id))
+    );
+
     const createdPart: SparePartItem = {
-      id: `custom-${Date.now()}`,
+      id: partId,
       name: newPartName.trim(),
       cat: finalCat,
       d: dirham,
-      usd,
-      yuan,
+      usd: computedUsd,
+      yuan: yuan,
       salesPrice,
-      salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
+      salesPriceD: dirham > 0 ? dirham : Number((salesPrice * 3.67).toFixed(1)),
       expense: exp,
       isCustom: true,
       changeType: newPartChangeType,
-      companyName: finalCompany
+      companyName: finalCompany,
+      shippingMethod: newPartShippingMethod,
+      origin: newPartOrigin
     };
 
     onAddPart(createdPart);
@@ -366,9 +426,12 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setRecentlyAddedPart(createdPart);
     setShowAllCatalog(true);
     setSearchTerm('');
+    setNewPartId('');
     setNewPartName('');
     setNewPartCompany('');
     setCustomCompanyInput('');
+    setNewPartShippingMethod('air');
+    setNewPartOrigin('Dubai');
     setNewPartD('');
     setNewPartYuan('');
     setNewPartUsd('');
@@ -410,6 +473,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
   // Edit Handlers
   const handleOpenEdit = (part: SparePartItem) => {
     setEditingPart(part);
+    setEditPartId(part.id);
     setEditName(part.name);
     setEditCat(part.cat);
     setCustomEditCat('');
@@ -417,10 +481,12 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setCustomEditCompany('');
     setEditChangeType(part.changeType || 'Price Increase');
     setEditD(String(part.d));
-    setEditYuan(String(part.yuan ?? Number(((part.d / 3.67) * 7.23).toFixed(1))));
+    setEditYuan(String(part.yuan ?? 0));
     setEditUsd(String(part.usd));
     setEditSalesPrice(String(part.salesPrice));
     setEditExpense(String(part.expense ?? 0));
+    setEditShippingMethod((part.shippingMethod as any) || 'air');
+    setEditOrigin((part.origin as any) || (part.cat && part.cat.includes('LCD') ? 'China' : 'Dubai'));
   };
 
   const handleEditDirhamChange = (val: string) => {
@@ -428,10 +494,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
     const d = parseFloat(val);
     if (!isNaN(d) && d >= 0) {
       const exp = parseFloat(editExpense) || 0;
-      const pricing = calculatePricing(d, exp, currentYuanRate);
-      setEditYuan(String(pricing.yuan));
-      setEditUsd(String(pricing.costUsd));
-      // Sales Price is strictly MANUAL — do not overwrite automatically
+      const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+      setEditUsd(String(costUsd));
+      // Do NOT touch editYuan - keep Dirham and Yuan completely independent!
     }
   };
 
@@ -440,37 +505,30 @@ export const ProListView: React.FC<ProListViewProps> = ({
     const y = parseFloat(val);
     if (!isNaN(y) && y >= 0) {
       const baseUsd = y / currentYuanRate;
-      const d = Number((baseUsd * 3.67).toFixed(2));
       const exp = parseFloat(editExpense) || 0;
       const costUsd = Number((baseUsd + exp).toFixed(2));
-      setEditD(String(d));
       setEditUsd(String(costUsd));
-      // Sales Price is strictly MANUAL — do not overwrite automatically
+      // Do NOT touch editD - keep Dirham and Yuan completely independent!
     }
   };
 
   const handleEditUsdChange = (val: string) => {
     setEditUsd(val);
-    const u = parseFloat(val);
-    if (!isNaN(u) && u >= 0) {
-      const exp = parseFloat(editExpense) || 0;
-      const baseUsd = Math.max(0, u - exp);
-      const d = Number((baseUsd * 3.67).toFixed(2));
-      const yuan = Number((baseUsd * currentYuanRate).toFixed(2));
-      setEditD(String(d));
-      setEditYuan(String(yuan));
-      // Sales Price is strictly MANUAL — do not overwrite automatically
-    }
+    // User directly edits USD - keep editD and editYuan independent
   };
 
   const handleEditExpenseChange = (expVal: string) => {
     setEditExpense(expVal);
     const exp = parseFloat(expVal) || 0;
     const d = parseFloat(editD);
-    if (!isNaN(d) && d >= 0) {
-      const pricing = calculatePricing(d, exp, currentYuanRate);
-      setEditUsd(String(pricing.costUsd));
-      // Sales Price is strictly MANUAL — do not overwrite automatically
+    const y = parseFloat(editYuan);
+    if (!isNaN(d) && d > 0) {
+      const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+      setEditUsd(String(costUsd));
+    } else if (!isNaN(y) && y > 0) {
+      const baseUsd = y / currentYuanRate;
+      const costUsd = Number((baseUsd + exp).toFixed(2));
+      setEditUsd(String(costUsd));
     }
   };
 
@@ -482,13 +540,22 @@ export const ProListView: React.FC<ProListViewProps> = ({
       ? customEditCat.trim()
       : editCat;
 
-    const dirham = parseFloat(editD) || 0;
+    const dirham = editD.trim() ? (parseFloat(editD) || 0) : 0;
+    const yuan = editYuan.trim() ? (parseFloat(editYuan) || 0) : 0;
     const exp = parseFloat(editExpense) || 0;
-    const pricing = calculatePricing(dirham, exp, currentYuanRate);
 
-    const yuan = editYuan ? (parseFloat(editYuan) || pricing.yuan) : pricing.yuan;
-    const usd = editUsd ? (parseFloat(editUsd) || pricing.costUsd) : pricing.costUsd;
-    const salesPrice = editSalesPrice ? (parseFloat(editSalesPrice) || pricing.salesPrice) : pricing.salesPrice;
+    let computedUsd = 0;
+    if (editUsd.trim()) {
+      computedUsd = parseFloat(editUsd) || 0;
+    } else if (dirham > 0) {
+      computedUsd = Number(((dirham / 3.67) + exp).toFixed(2));
+    } else if (yuan > 0) {
+      computedUsd = Number(((yuan / currentYuanRate) + exp).toFixed(2));
+    }
+
+    const salesPrice = editSalesPrice.trim()
+      ? (parseFloat(editSalesPrice) || computedUsd)
+      : computedUsd;
 
     const finalCompany = editCompany === '__custom__' && customEditCompany.trim()
       ? customEditCompany.trim()
@@ -498,17 +565,22 @@ export const ProListView: React.FC<ProListViewProps> = ({
       onRegisterNewCompany?.(finalCompany);
     }
 
+    const updatedId = editPartId.trim() || editingPart.id;
+
     onUpdatePart?.(editingPart.id, {
+      id: updatedId,
       name: editName.trim(),
       cat: finalCat,
       d: dirham,
-      usd,
-      yuan,
+      usd: computedUsd,
+      yuan: yuan,
       salesPrice,
-      salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
+      salesPriceD: dirham > 0 ? dirham : Number((salesPrice * 3.67).toFixed(1)),
       expense: exp,
       changeType: editChangeType,
-      companyName: finalCompany
+      companyName: finalCompany,
+      shippingMethod: editShippingMethod,
+      origin: editOrigin
     });
 
     sound.playVictory();
@@ -721,16 +793,82 @@ export const ProListView: React.FC<ProListViewProps> = ({
               <Calculator className="w-4 h-4" />
               <span>Official Price Formulas & Conversions</span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 font-mono">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 font-mono">
               <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800">
                 <span className="text-xs text-slate-400 block font-sans font-medium">USD+ (Cost in USD):</span>
                 <span className="text-emerald-400 font-bold text-sm sm:text-base">
-                  Price D / 3.67 (1 D = $0.27)
+                  Price D / 3.67 + Expense
                 </span>
                 <span className="text-[11px] text-slate-400 block font-sans font-normal mt-0.5">
-                  Exact exchange rate: 1 USD = 3.67 AED (1 AED = 0.27 USD).
+                  Exact rate: 1 USD = 3.67 AED (1 AED = 0.27 USD) + saved shipping/customs expense.
                 </span>
               </div>
+
+              {/* Optional Expense $ (Shipping / Customs) Rate Card (User Requirement 1) */}
+              <div className="p-3 bg-slate-900/90 rounded-xl border border-cyan-500/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-cyan-300 font-sans font-bold">
+                    Optional Expense $ (Shipping / Customs):
+                  </span>
+                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold">
+                    Saved Rate
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-slate-300">+ $</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={tempExpenseRate}
+                    onChange={(e) => setTempExpenseRate(e.target.value)}
+                    onBlur={() => {
+                      const val = parseFloat(tempExpenseRate);
+                      if (!isNaN(val) && val >= 0 && onUpdateExpenseRate) {
+                        onUpdateExpenseRate(val, false);
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="w-20 bg-slate-950 border border-cyan-500/60 focus:border-cyan-400 rounded-lg px-2 py-1 text-sm font-mono font-bold text-cyan-300 focus:outline-none"
+                  />
+                  <span className="text-xs font-mono text-cyan-400 font-bold">USD</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = parseFloat(tempExpenseRate);
+                      if (!isNaN(val) && val >= 0 && onUpdateExpenseRate) {
+                        onUpdateExpenseRate(val, false);
+                        sound.playVictory();
+                        showToast(`✅ Saved Expense Rate: +$${val.toFixed(2)} USD! Always added to USD+.`);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-slate-950 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Save Rate
+                  </button>
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-sans">
+                    Always added to USD+
+                  </span>
+                  {onUpdateExpenseRate && parts.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = parseFloat(tempExpenseRate);
+                        if (!isNaN(val) && val >= 0) {
+                          onUpdateExpenseRate(val, true);
+                          sound.playVictory();
+                          showToast(`✅ Applied +$${val.toFixed(2)} expense to all ${parts.length} products!`);
+                        }
+                      }}
+                      className="text-[10px] text-cyan-300 hover:text-white underline font-semibold cursor-pointer"
+                    >
+                      Apply to All Products
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="p-3 bg-slate-900/90 rounded-xl border border-amber-500/40 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-amber-300 font-sans font-bold">
@@ -755,7 +893,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       }
                     }}
                     placeholder="7.23"
-                    className="w-24 bg-slate-950 border border-amber-500/60 focus:border-amber-400 rounded-lg px-2.5 py-1 text-sm font-mono font-bold text-amber-300 focus:outline-none"
+                    className="w-20 bg-slate-950 border border-amber-500/60 focus:border-amber-400 rounded-lg px-2 py-1 text-sm font-mono font-bold text-amber-300 focus:outline-none"
                   />
                   <span className="text-xs font-mono text-amber-400 font-bold">RMB</span>
                   <button
@@ -858,7 +996,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
             </div>
             <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
               <span className="text-[11px] font-sans text-slate-400 block">Guangzhou Yuan (¥)</span>
-              <span className="text-amber-300 font-bold text-sm sm:text-base">¥{formatNum(recentlyAddedPart.yuan ?? ((recentlyAddedPart.d / 3.67) * 7.23))}</span>
+              <span className="text-amber-300 font-bold text-sm sm:text-base">¥{formatNum(recentlyAddedPart.yuan ?? 0)}</span>
             </div>
             <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
               <span className="text-[11px] font-sans text-slate-400 block">USD+ Cost</span>
@@ -1134,29 +1272,28 @@ export const ProListView: React.FC<ProListViewProps> = ({
           </div>
 
           {/* Active Company Filter Banner if active */}
-          {companyFilter && companyFilter !== '__all__' && (
+          {activeCompanyFilter && activeCompanyFilter !== '__all__' && (
             <div className="bg-cyan-950/60 border border-cyan-500/50 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 shadow-lg animate-in fade-in">
               <div className="flex items-center gap-2.5">
                 <Building2 className="w-5 h-5 text-cyan-400" />
                 <span className="text-xs sm:text-sm text-slate-200">
-                  Showing spare parts sourced from: <strong className="text-cyan-300 font-bold">{companyFilter}</strong>
+                  Showing spare parts sourced from: <strong className="text-cyan-300 font-bold">{activeCompanyFilter}</strong>
                 </span>
                 <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-cyan-900/80 text-white font-bold">
                   {filteredParts.length} parts
                 </span>
               </div>
-              {onClearCompanyFilter && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playTick();
-                    onClearCompanyFilter();
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-                >
-                  Show All Companies
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTick();
+                  setInternalCompanyFilter('__all__');
+                  onClearCompanyFilter?.();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+              >
+                Show All Companies
+              </button>
             </div>
           )}
           
@@ -1242,8 +1379,8 @@ export const ProListView: React.FC<ProListViewProps> = ({
               </div>
             </div>
 
-            {/* Desktop Table - Order: Checkbox, #, Product Name, Category, Price D, Yuan ¥, USD+, Sales $, Actions */}
-            <div className="hidden md:block overflow-x-auto max-h-[750px] rounded-2xl border border-slate-700/80">
+            {/* Desktop Table - Order: Checkbox, #, ID / SKU, Product Name, Category, Price D, Yuan ¥, USD+, Sales $, Actions */}
+            <div className="hidden md:block overflow-x-auto max-h-[750px] rounded-2xl border border-slate-700/80 shadow-xl">
               <table className="w-full text-left border-collapse text-sm">
                 <thead className="sticky top-0 bg-[#070c18] text-slate-300 uppercase text-xs font-semibold tracking-wider z-10 border-b-2 border-slate-700">
                   <tr className="border-b border-slate-700/90">
@@ -1256,7 +1393,8 @@ export const ProListView: React.FC<ProListViewProps> = ({
                         className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-0 cursor-pointer"
                       />
                     </th>
-                    <th className="py-4 px-3 w-10 text-center text-slate-500 font-medium border-b border-slate-700">#</th>
+                    <th className="py-4 px-3 w-12 text-center text-slate-500 font-medium border-b border-slate-700">#</th>
+                    <th className="py-4 px-3.5 font-mono text-cyan-300 font-semibold border-b border-slate-700 whitespace-nowrap">ID / SKU</th>
                     <th className="py-4 px-5 font-semibold border-b border-slate-700">Product Name</th>
                     <th className="py-4 px-4 font-semibold border-b border-slate-700">Category (Brand _Part Type)</th>
                     <th className="py-4 px-5 text-right font-mono text-cyan-400 font-semibold border-b border-slate-700">Price D</th>
@@ -1269,7 +1407,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 <tbody className="divide-y divide-slate-700/80 bg-[#090e1a]/60 font-medium">
                   {filteredParts.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-16 text-center text-slate-400 font-normal text-base border-b border-slate-700/80">
+                      <td colSpan={10} className="py-16 text-center text-slate-400 font-normal text-base border-b border-slate-700/80">
                         No spare parts match your search query "{searchTerm}".
                       </td>
                     </tr>
@@ -1307,30 +1445,67 @@ export const ProListView: React.FC<ProListViewProps> = ({
                             <span className="text-slate-500">{idx + 1}</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-5 border-b border-slate-700/80">
-                          <span className={`font-semibold transition-colors text-base ${isRecentlyAdded ? 'text-emerald-200 group-hover:text-white' : 'text-white group-hover:text-cyan-300'}`}>
-                            {item.name}
+                        <td className="py-3.5 px-3.5 border-b border-slate-700/80" onClick={(e) => e.stopPropagation()}>
+                          <span 
+                            title={`Unique ID: ${item.id} (Prevents duplicate overwrite on Google Sheets)`}
+                            className="font-mono text-xs font-bold text-cyan-300 bg-cyan-950/90 hover:bg-cyan-900/90 border border-cyan-700/60 px-2 py-1 rounded tracking-wide inline-flex items-center gap-1 select-all transition-colors shadow-sm"
+                          >
+                            {item.id}
                           </span>
-                          {isRecentlyAdded && (
-                            <span className="ml-2 text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-lg border border-emerald-500/40 inline-flex items-center gap-1">
-                              <Sparkles className="w-2.5 h-2.5" /> JUST ADDED
+                        </td>
+                        <td className="py-3.5 px-5 border-b border-slate-700/80">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`font-semibold transition-colors text-base ${isRecentlyAdded ? 'text-emerald-200 group-hover:text-white' : 'text-white group-hover:text-cyan-300'}`}>
+                              {item.name}
                             </span>
-                          )}
-                          {item.isCustom && !isRecentlyAdded && (
-                            <span className="ml-2 text-[10px] font-semibold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-lg border border-indigo-500/30">
-                              CUSTOM
+                            {isRecentlyAdded && (
+                              <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-lg border border-emerald-500/40 inline-flex items-center gap-1">
+                                <Sparkles className="w-2.5 h-2.5" /> JUST ADDED
+                              </span>
+                            )}
+                            {item.isCustom && !isRecentlyAdded && (
+                              <span className="text-[10px] font-semibold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-lg border border-indigo-500/30">
+                                CUSTOM
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 inline-flex items-center gap-1">
+                              {item.shippingMethod === 'sea' ? '🚢 Sea' : '✈️ Air'}
                             </span>
-                          )}
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 inline-flex items-center gap-1">
+                              {item.origin === 'China' ? '🇨🇳 CHN' : '🇦🇪 DXB'}
+                            </span>
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 border-b border-slate-700/80">
                           <div className="flex flex-col gap-1 items-start">
                             <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs font-medium text-slate-300 whitespace-nowrap">
                               {item.cat}
                             </span>
-                            {item.companyName && (
-                              <span className="text-[10px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-md border border-purple-800/40 whitespace-nowrap">
+                            {item.companyName ? (
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSetCompanyFilter(item.companyName!);
+                                }}
+                                title="Click to filter catalog by this supplier"
+                                className="text-[10px] font-mono text-cyan-300 bg-cyan-950/70 hover:bg-cyan-900/80 px-2 py-0.5 rounded-md border border-cyan-800/50 whitespace-nowrap cursor-pointer transition-colors flex items-center gap-1"
+                              >
                                 🏢 {item.companyName}
                               </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenEdit(item);
+                                }}
+                                title="Click to assign supplier for this item"
+                                className="text-[9px] font-mono text-slate-400 hover:text-cyan-300 bg-slate-900 hover:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700/60 transition-colors cursor-pointer"
+                              >
+                                + Set Supplier
+                              </button>
                             )}
                           </div>
                         </td>
@@ -1338,7 +1513,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                           {formatNum(item.d)} D
                         </td>
                         <td className="py-3.5 px-5 text-right font-mono text-amber-300 font-bold text-base tabular-nums border-b border-slate-700/80">
-                          ¥{formatNum(item.yuan ?? ((item.d / 3.67) * 7.23))}
+                          ¥{formatNum(item.yuan !== undefined ? item.yuan : (item.isCustom ? 0 : ((item.d / 3.67) * currentYuanRate)))}
                         </td>
                         <td className="py-3.5 px-5 text-right font-mono text-emerald-400 font-bold text-base tabular-nums border-b border-slate-700/80">
                           ${formatNum(item.usd)}
@@ -1384,8 +1559,8 @@ export const ProListView: React.FC<ProListViewProps> = ({
               </table>
             </div>
 
-            {/* Mobile Cards View (Optimized for Small Screens) */}
-            <div className="md:hidden divide-y divide-slate-800/70 max-h-[750px] overflow-y-auto">
+            {/* Mobile Cards View (Optimized for Small Screens & Touch) */}
+            <div className="md:hidden divide-y divide-slate-800/70 max-h-[750px] overflow-y-auto rounded-2xl border border-slate-800 bg-[#070c18]/80">
               {filteredParts.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 font-normal">
                   No spare parts found matching "{searchTerm}".
@@ -1409,7 +1584,25 @@ export const ProListView: React.FC<ProListViewProps> = ({
                         : 'hover:bg-slate-850/60'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
+                    {/* Top Meta Bar: Index, Unique ID, Cargo Shipment, Origin */}
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/60">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-slate-500 font-mono text-[11px] font-medium">#{idx + 1}</span>
+                        <span className="font-mono font-bold text-cyan-300 bg-cyan-950/90 border border-cyan-700/60 px-2 py-0.5 rounded text-[11px] tracking-wide shadow-sm">
+                          {item.id}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                          {item.shippingMethod === 'sea' ? '🚢 Sea' : '✈️ Air'}
+                        </span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                          {item.origin === 'China' ? '🇨🇳 CHN' : '🇦🇪 DXB'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-2 mb-2.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-white text-base leading-tight">
                           {item.name}
@@ -1419,33 +1612,57 @@ export const ProListView: React.FC<ProListViewProps> = ({
                             <Sparkles className="w-2.5 h-2.5" /> JUST ADDED
                           </span>
                         )}
+                        {item.isCustom && !isRecentlyAdded && (
+                          <span className="text-[10px] font-semibold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-lg border border-indigo-500/30">
+                            CUSTOM
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[11px] font-medium text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 shrink-0">
                           {item.cat}
                         </span>
-                        {item.companyName && (
-                          <span className="text-[10px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/40 shrink-0">
+                        {item.companyName ? (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetCompanyFilter(item.companyName!);
+                            }}
+                            title="Click to filter catalog by this supplier"
+                            className="text-[10px] font-mono text-cyan-300 bg-cyan-950/70 hover:bg-cyan-900/80 px-2 py-0.5 rounded border border-cyan-800/50 shrink-0 cursor-pointer transition-colors flex items-center gap-1"
+                          >
                             🏢 {item.companyName}
                           </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEdit(item);
+                            }}
+                            title="Click to assign supplier for this item"
+                            className="text-[9px] font-mono text-slate-400 hover:text-cyan-300 bg-slate-900 hover:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700/60 transition-colors cursor-pointer"
+                          >
+                            + Set Supplier
+                          </button>
                         )}
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 font-mono text-xs mt-2 font-medium">
-                      <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 shadow-inner">
                         <span className="text-[10px] text-slate-400 font-sans font-normal block">Price D</span>
                         <span className="text-cyan-300 font-bold text-sm">{formatNum(item.d)} D</span>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 shadow-inner">
                         <span className="text-[10px] text-slate-400 font-sans font-normal block">Yuan ¥</span>
-                        <span className="text-amber-300 font-bold text-sm">¥{formatNum(item.yuan ?? ((item.d / 3.67) * 7.23))}</span>
+                        <span className="text-amber-300 font-bold text-sm">¥{formatNum(item.yuan !== undefined ? item.yuan : (item.isCustom ? 0 : ((item.d / 3.67) * currentYuanRate)))}</span>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 shadow-inner">
                         <span className="text-[10px] text-slate-400 font-sans font-normal block">USD+</span>
                         <span className="text-emerald-400 font-bold text-sm">${formatNum(item.usd)}</span>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 shadow-inner">
                         <span className="text-[10px] text-slate-400 font-sans font-normal block">Sales $</span>
                         <span className="text-violet-300 font-bold text-sm">${formatNum(item.salesPrice)}</span>
                       </div>
@@ -1485,15 +1702,15 @@ export const ProListView: React.FC<ProListViewProps> = ({
                           className="px-2.5 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/50 text-xs font-semibold text-rose-300 flex items-center gap-1 cursor-pointer"
                         >
                           <Trash2 className="w-3 h-3 text-rose-400" />
-                          <span>Delete</span>
+                          <span>Del</span>
                         </button>
                       </div>
                     </div>
                   </div>
-                );})
+                  );
+                })
               )}
             </div>
-
           </div>
         </div>
       )}
@@ -1503,7 +1720,13 @@ export const ProListView: React.FC<ProListViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#0b111e] border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
-              <h3 className="text-lg font-bold text-white">Add New Spare Part</h3>
+              <div>
+                <h3 className="text-lg font-bold text-white">Add New Spare Part</h3>
+                <p className="text-xs text-emerald-400 font-medium flex items-center gap-1 mt-0.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Auto-backs up to Google Sheet ("ALL PRODUCT") directly on save</span>
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
@@ -1528,12 +1751,52 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 />
               </div>
 
+              {/* Product ID / SKU Field with Auto-Generate Button */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Product ID / SKU</span>
+                    <span className="text-[10px] text-slate-400 font-normal lowercase">(Unique Key in Google Sheet)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      const finalCompany = newPartCompany === '__custom__' ? customCompanyInput : newPartCompany;
+                      const genId = generateSmartPartId(
+                        newPartName.trim() || 'PART',
+                        finalCompany,
+                        newPartShippingMethod,
+                        newPartOrigin,
+                        new Set(parts.map(p => p.id))
+                      );
+                      setNewPartId(genId);
+                    }}
+                    className="text-[11px] font-mono font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-800/80 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Sparkles className="w-3 h-3 text-cyan-400" />
+                    <span>Auto-Generate ID</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={newPartId}
+                  onChange={(e) => setNewPartId(e.target.value)}
+                  placeholder="e.g. 13PM-SEA-ROYAL-CHN-1 (Auto-generated if left blank)"
+                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-mono font-medium outline-none transition-colors"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  💡 Identifies identical items from different suppliers (e.g. Royal vs Dubai VX) or cargo (Sea vs Air).
+                </p>
+              </div>
+
               {/* Select Category & Select Company Name (Side by Side Grid - Exactly as requested in user screenshot) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Column 1: Select Category */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
-                    Select Category *
+                  <label className="block text-xs font-semibold text-cyan-300 uppercase mb-1 tracking-wider flex items-center justify-between">
+                    <span>Category (Brand _Part Type) *</span>
+                    <span className="text-[10px] text-emerald-400 font-mono font-medium">GOOGLE SHEET</span>
                   </label>
                   <select
                     value={newPartCat}
@@ -1571,7 +1834,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
                     onChange={(e) => setNewPartCompany(e.target.value)}
                     className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none transition-colors"
                   >
-                    <option value="">-- Select Company (Register Company) --</option>
+                    <option value="">
+                      {availableCompanies.length === 0 ? "-- No Companies Yet (Select Register below) --" : "-- Select Company (Register Company) --"}
+                    </option>
                     {availableCompanies.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
@@ -1593,6 +1858,105 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       </p>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Sourced Origin (Dubai / China) & Cargo Shipment (By Air / By Sea) */}
+              <div className="p-3.5 rounded-2xl bg-[#070c18] border border-cyan-500/40 space-y-2.5 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Shipping Method & Origin</span>
+                    <span className="text-[10px] text-slate-400 font-normal lowercase">(Air / Sea · Dubai / China)</span>
+                  </label>
+                  <span className="text-[10px] text-cyan-400 font-mono font-bold bg-cyan-950/80 px-2 py-0.5 rounded-full border border-cyan-800/60">
+                    VISIBLE IN QUIZ
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* By Air / By Sea Toggle */}
+                  <div>
+                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center gap-1">
+                      <span>Cargo / Shipping:</span>
+                      <span className="text-[10px] text-emerald-400 font-bold font-mono">
+                        {newPartShippingMethod === 'air' ? '✈️ BY AIR' : '🚢 BY SEA'}
+                      </span>
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setNewPartShippingMethod('air');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          newPartShippingMethod === 'air'
+                            ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 font-bold ring-2 ring-emerald-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <Plane className={`w-4 h-4 ${newPartShippingMethod === 'air' ? 'text-emerald-400' : 'text-slate-400'}`} />
+                        <span className="text-xs">✈️ By Air</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setNewPartShippingMethod('sea');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          newPartShippingMethod === 'sea'
+                            ? 'bg-blue-950/80 border-blue-500 text-blue-300 font-bold ring-2 ring-blue-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <Ship className={`w-4 h-4 ${newPartShippingMethod === 'sea' ? 'text-blue-400' : 'text-slate-400'}`} />
+                        <span className="text-xs">🚢 By Sea</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dubai / China Sourced Origin Toggle */}
+                  <div>
+                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center gap-1">
+                      <span>Sourced From (Origin):</span>
+                      <span className="text-[10px] text-cyan-400 font-bold font-mono">
+                        {newPartOrigin === 'Dubai' ? '🇦🇪 DUBAI' : '🇨🇳 CHINA'}
+                      </span>
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setNewPartOrigin('Dubai');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          newPartOrigin === 'Dubai'
+                            ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 font-bold ring-2 ring-cyan-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="text-xs font-semibold">🇦🇪 Dubai</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setNewPartOrigin('China');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          newPartOrigin === 'China'
+                            ? 'bg-amber-950/80 border-amber-500 text-amber-300 font-bold ring-2 ring-amber-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="text-xs font-semibold">🇨🇳 China</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1633,6 +1997,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 <div>
                   <label className="block text-xs font-semibold text-cyan-400 uppercase mb-1 flex items-center justify-between">
                     <span>Dirham Option (Price D)</span>
+                    <span className="text-[10px] text-cyan-300/80 font-normal lowercase tracking-normal">→ converts to USD</span>
                   </label>
                   <div className="relative flex items-center">
                     <input
@@ -1653,6 +2018,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 <div>
                   <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 flex items-center justify-between">
                     <span>Yuan Option (¥)</span>
+                    <span className="text-[10px] text-amber-300/80 font-normal lowercase tracking-normal">→ converts to USD</span>
                   </label>
                   <div className="relative flex items-center">
                     <input
@@ -1717,20 +2083,48 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 </div>
               </div>
 
-              {/* Expense Option (Optional) */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300">
-                <div>
-                  <span className="font-semibold text-slate-300 block">Optional Expense $ (Shipping / Customs):</span>
-                  <span className="text-[11px] text-slate-400 font-normal">Leave 0 for pure 1/3.67 exchange rate</span>
+              {/* Expense Option (Optional) - User Requirement 1: Rate save/edit and always added to USD+ */}
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-semibold text-slate-200 block">Optional Expense $ (Shipping / Customs):</span>
+                    <span className="text-[11px] text-slate-400 font-normal">
+                      Always added to USD+: USD+ = (D / 3.67) + Expense
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-slate-400 font-mono font-bold">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newPartExpense}
+                      onChange={(e) => handleExpenseChange(e.target.value)}
+                      placeholder={currentExpenseRate > 0 ? String(currentExpenseRate) : "0.0"}
+                      className="w-24 bg-[#070c18] border border-cyan-500/60 focus:border-cyan-400 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-mono font-bold text-right outline-none"
+                    />
+                  </div>
                 </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newPartExpense}
-                  onChange={(e) => handleExpenseChange(e.target.value)}
-                  placeholder="0.0"
-                  className="w-20 bg-[#070c18] border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-mono text-right outline-none"
-                />
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                  <span className="text-[11px] text-slate-400">
+                    Saved Default Rate: <span className="text-cyan-400 font-bold font-mono">+${currentExpenseRate.toFixed(2)} USD</span>
+                  </span>
+                  {onUpdateExpenseRate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = parseFloat(newPartExpense);
+                        const rateToSave = !isNaN(val) && val >= 0 ? val : 0;
+                        onUpdateExpenseRate(rateToSave, false);
+                        sound.playVictory();
+                        showToast(`Saved +$${rateToSave.toFixed(2)} as your default expense rate!`);
+                      }}
+                      className="text-[11px] text-cyan-300 hover:text-white font-semibold underline cursor-pointer"
+                    >
+                      Save as Default Rate
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Google Sheets Backup Status */}
@@ -1754,9 +2148,10 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-cyan-950/50 cursor-pointer transition-all"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-cyan-950/50 cursor-pointer transition-all flex items-center gap-1.5"
                 >
-                  Save & Add Product
+                  <CloudUpload className="w-4 h-4" />
+                  <span>Save & Auto-Backup to Sheet</span>
                 </button>
               </div>
             </form>
@@ -1802,10 +2197,47 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 />
               </div>
 
+              {/* Product ID / SKU Field */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Product ID / SKU</span>
+                    <span className="text-[10px] text-slate-400 font-normal lowercase">(Col A on Sheet)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      const finalCompany = editCompany === '__custom__' ? customEditCompany : editCompany;
+                      const genId = generateSmartPartId(
+                        editName.trim() || 'PART',
+                        finalCompany,
+                        editShippingMethod,
+                        editOrigin,
+                        new Set(parts.filter(p => p.id !== editingPart?.id).map(p => p.id))
+                      );
+                      setEditPartId(genId);
+                    }}
+                    className="text-[11px] font-mono font-bold text-amber-400 hover:text-amber-300 bg-amber-950/80 hover:bg-amber-900 border border-amber-800/80 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>Regenerate ID</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={editPartId}
+                  onChange={(e) => setEditPartId(e.target.value)}
+                  placeholder="Product ID"
+                  className="w-full bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-cyan-300 font-mono font-medium outline-none"
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
-                    Category *
+                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 tracking-wider flex items-center justify-between">
+                    <span>Category (Brand _Part Type) *</span>
+                    <span className="text-[10px] text-emerald-400 font-mono font-medium">GOOGLE SHEET</span>
                   </label>
                   <select
                     value={editCat}
@@ -1870,6 +2302,105 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       </p>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Sourced Origin (Dubai / China) & Cargo Shipment (By Air / By Sea) */}
+              <div className="p-3.5 rounded-2xl bg-[#070c18] border border-amber-500/40 space-y-2.5 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Shipping Method & Origin</span>
+                    <span className="text-[10px] text-slate-400 font-normal lowercase">(Air / Sea · Dubai / China)</span>
+                  </label>
+                  <span className="text-[10px] text-amber-400 font-mono font-bold bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-800/60">
+                    VISIBLE IN QUIZ
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* By Air / By Sea Toggle */}
+                  <div>
+                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center gap-1">
+                      <span>Cargo / Shipping:</span>
+                      <span className="text-[10px] text-emerald-400 font-bold font-mono">
+                        {editShippingMethod === 'air' ? '✈️ BY AIR' : '🚢 BY SEA'}
+                      </span>
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setEditShippingMethod('air');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          editShippingMethod === 'air'
+                            ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 font-bold ring-2 ring-emerald-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <Plane className={`w-4 h-4 ${editShippingMethod === 'air' ? 'text-emerald-400' : 'text-slate-400'}`} />
+                        <span className="text-xs">✈️ By Air</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setEditShippingMethod('sea');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          editShippingMethod === 'sea'
+                            ? 'bg-blue-950/80 border-blue-500 text-blue-300 font-bold ring-2 ring-blue-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <Ship className={`w-4 h-4 ${editShippingMethod === 'sea' ? 'text-blue-400' : 'text-slate-400'}`} />
+                        <span className="text-xs">🚢 By Sea</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dubai / China Sourced Origin Toggle */}
+                  <div>
+                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center gap-1">
+                      <span>Sourced From (Origin):</span>
+                      <span className="text-[10px] text-amber-400 font-bold font-mono">
+                        {editOrigin === 'Dubai' ? '🇦🇪 DUBAI' : '🇨🇳 CHINA'}
+                      </span>
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setEditOrigin('Dubai');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          editOrigin === 'Dubai'
+                            ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 font-bold ring-2 ring-cyan-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="text-xs font-semibold">🇦🇪 Dubai</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setEditOrigin('China');
+                        }}
+                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          editOrigin === 'China'
+                            ? 'bg-amber-950/80 border-amber-500 text-amber-300 font-bold ring-2 ring-amber-400/60 shadow-lg scale-[1.02]'
+                            : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="text-xs font-semibold">🇨🇳 China</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1995,19 +2526,47 @@ export const ProListView: React.FC<ProListViewProps> = ({
               </div>
 
               {/* Expense Option */}
-              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between">
-                <div>
-                  <span className="font-semibold text-slate-300 block">Optional Expense $ (Shipping / Customs):</span>
-                  <span className="text-[11px] text-slate-400 font-normal">Leave 0 for pure 1/3.67 exchange rate</span>
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-semibold text-slate-200 block">Optional Expense $ (Shipping / Customs):</span>
+                    <span className="text-[11px] text-slate-400 font-normal">
+                      Always added to USD+: USD+ = (D / 3.67) + Expense
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-slate-400 font-mono font-bold">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editExpense}
+                      onChange={(e) => handleEditExpenseChange(e.target.value)}
+                      placeholder="0.0"
+                      className="w-24 bg-[#070c18] border border-cyan-500/60 focus:border-cyan-400 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-mono font-bold text-right outline-none"
+                    />
+                  </div>
                 </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={editExpense}
-                  onChange={(e) => handleEditExpenseChange(e.target.value)}
-                  placeholder="0.0"
-                  className="w-20 bg-[#070c18] border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-mono text-right outline-none"
-                />
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                  <span className="text-[11px] text-slate-400">
+                    Saved Default Rate: <span className="text-cyan-400 font-bold font-mono">+${currentExpenseRate.toFixed(2)} USD</span>
+                  </span>
+                  {onUpdateExpenseRate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = parseFloat(editExpense);
+                        const rateToSave = !isNaN(val) && val >= 0 ? val : 0;
+                        onUpdateExpenseRate(rateToSave, false);
+                        sound.playVictory();
+                        showToast(`Saved +$${rateToSave.toFixed(2)} as your default expense rate!`);
+                      }}
+                      className="text-[11px] text-cyan-300 hover:text-white font-semibold underline cursor-pointer"
+                    >
+                      Save as Default Rate
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Google Sheet Direct Sync Indicator */}
@@ -2081,8 +2640,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
-                  Select Destination Category
+                <label className="block text-xs font-semibold text-indigo-300 uppercase mb-1 tracking-wider flex items-center justify-between">
+                  <span>Destination Category (Brand _Part Type) *</span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-medium">GOOGLE SHEET</span>
                 </label>
                 <select
                   value={targetMoveCat}

@@ -12,6 +12,8 @@ export interface SparePartItem {
   changeType?: 'New Product' | 'Price Decrease' | 'Price Increase';
   oldPriceD?: number;
   companyName?: string;
+  shippingMethod?: 'air' | 'sea' | string;
+  origin?: 'Dubai' | 'China' | string;
   quantity?: number;
   purchaseDate?: string;
   brand?: string;
@@ -85,6 +87,71 @@ export function calculatePricing(dirhamPrice: number, customExpense: number = 0,
   const salesPrice = costUsd; // Direct origin price $, no 1.3 multiplier
   const salesPriceD = Number((salesPrice * 3.67).toFixed(1));
   return { costUsd, yuan, salesPrice, salesPriceD, expense };
+}
+
+/**
+ * Smart Part ID / SKU Generator
+ * Distinguishes identical products that differ by supplier, cargo method, or country of origin:
+ * e.g.
+ * - LCD 13 PRO MAX + By Sea + Royal Company + Dubai -> "13PM-SEA-ROYAL-DXB"
+ * - LCD 13 PRO MAX + By Air + Royal Company + Dubai -> "13PM-AIR-ROYAL-DXB"
+ * - LCD 13 PRO MAX + By Sea + Dubai VX + Dubai      -> "13PM-SEA-DXBVX-DXB"
+ * - LCD 13 PRO MAX + By Air + Dubai VX + China      -> "13PM-AIR-DXBVX-CHN"
+ */
+export function generateSmartPartId(
+  name: string,
+  companyName?: string,
+  shippingMethod?: 'air' | 'sea' | string,
+  origin?: 'Dubai' | 'China' | string,
+  existingIds?: string[] | Set<string>
+): string {
+  const hasId = (id: string) => {
+    if (!existingIds) return false;
+    if (existingIds instanceof Set) return existingIds.has(id);
+    return existingIds.includes(id);
+  };
+
+  const rawName = (name || 'PART').toUpperCase().trim();
+  let clean = rawName
+    .replace(/^LCD\s+/i, '')
+    .replace(/^BATTERY\s+/i, 'BAT-')
+    .replace(/^FLEX\s+CHARGER\s+/i, 'FLX-')
+    .replace(/\bIPHONE\s+/i, '')
+    .replace(/\bSAMSUNG\s+/i, 'SAM-')
+    .replace(/\bPRO\s+MAX\b/g, 'PM')
+    .replace(/\bPRO\b/g, 'P')
+    .replace(/\s+/g, '')
+    .replace(/[^A-Z0-9-]/g, '')
+    .substring(0, 10);
+
+  if (!clean) clean = 'PART';
+
+  const cargoTag = (shippingMethod || '').toLowerCase().includes('sea') ? 'SEA' : 'AIR';
+
+  let compTag = '';
+  if (companyName && companyName.trim()) {
+    const cClean = companyName
+      .trim()
+      .toUpperCase()
+      .replace(/\bCOMPANY\b/g, '')
+      .replace(/\s+/g, '')
+      .replace(/[^A-Z0-9]/g, '')
+      .substring(0, 6);
+    if (cClean) compTag = `-${cClean}`;
+  }
+
+  const originTag = (origin || '').toLowerCase().includes('china') ? 'CHN' : 'DXB';
+
+  let candidate = `${clean}-${cargoTag}${compTag}-${originTag}`;
+  if (hasId(candidate)) {
+    let suffix = 2;
+    while (hasId(`${candidate}-${suffix}`)) {
+      suffix++;
+    }
+    candidate = `${candidate}-${suffix}`;
+  }
+
+  return candidate;
 }
 
 export const INITIAL_DATA: Record<string, [string, number, number][]> = {
@@ -714,81 +781,81 @@ export const INITIAL_COMPAT: CompatItem[] = [
 ];
 
 export const INITIAL_CHANGES: ChangeItem[] = [
-  { cat: "iPhone LCD", name: "LCD IPHONE DD X17 PRO", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung LCD", name: "LCD SAM A17 Orginal  4G", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung LCD", name: "LCD SAM A16 Orginal WF  4G", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung LCD", name: "LCD SAM A17 Orginal  5G", type: "new", oldD: null, oldUsd: null },
-  { cat: "Infinix / Tecno LCD", name: "LCD TECNO KL7 , hote 50 pro", type: "new", oldD: null, oldUsd: null },
-  { cat: "Infinix / Tecno LCD", name: "LCD TECNO Km7 , hote 40 pro pluse", type: "new", oldD: null, oldUsd: null },
-  { cat: "Infinix / Tecno LCD", name: "LCD TECNO KL6 / x6882", type: "new", oldD: null, oldUsd: null },
-  { cat: "Infinix / Tecno LCD", name: "LCD INFINIX X6720 , Smart 9", type: "new", oldD: null, oldUsd: null },
-  { cat: "Motorola LCD", name: "LCD MOTOROLA G06", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung LCD (ORG)", name: "LCD SAM J4 +", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung LCD (ORG)", name: "LCD SAM A207", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Cable", name: "CABLE SAM A15", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Cable", name: "CABLE SAM A53", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Cable", name: "CABLE SAM A52", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Switches", name: "SWICH SMART 8", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Switches", name: "SWICH SMART 9", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Switches", name: "SWICH SMART 7", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A57", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A37", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A56", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A55", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM  A10", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM M32 4G", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A24", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM A22 5G", type: "new", oldD: null, oldUsd: null },
-  { cat: "Samsung Fingerprint Sensors", name: "FINGER  SAM A12", type: "chg", oldD: 0.3, oldUsd: 0.3 },
-  { cat: "Samsung Flex Charger", name: "FLEX CHARGER SAM  A12", type: "chg", oldD: 0.6, oldUsd: 0.6 },
-  { cat: "Samsung Cable", name: "CABLE SAM A16", type: "chg", oldD: 0.5, oldUsd: 0.7 },
-  { cat: "Samsung Cable", name: "CABLE SAM A51", type: "chg", oldD: 0.5, oldUsd: 0.7 },
-  { cat: "Charging Pins (Mini)", name: "TECNO T302", type: "chg", oldD: 0.78, oldUsd: 0.85 },
-  { cat: "Vivo / ZTE / Realme LCD", name: "LCD REALME9 PRO , 1+", type: "chg", oldD: 46280.2, oldUsd: 21.0 },
-  { cat: "Motorola LCD", name: "LCD MOTOROLA G8 power", type: "chg", oldD: 18.6, oldUsd: 5.92 },
-  { cat: "Infinix / Tecno LCD", name: "LCD TECNO KL6", type: "chg", oldD: 20.3, oldUsd: 6.38 },
-  { cat: "Samsung LCD (ORG)", name: "LCD SAM A145", type: "chg", oldD: 20.0, oldUsd: 5.55 },
-  { cat: "Samsung LCD", name: "LCD SAM A17 INCEL WF", type: "chg", oldD: 23.5, oldUsd: 6.6 },
-  { cat: "iPhone LCD", name: "LCD IPHONE GX X14 PRO", type: "chg", oldD: 102.0, oldUsd: 28.6 },
-  { cat: "Samsung LCD", name: "LCD SAM A165 / A16 4G wf", type: "chg", oldD: 22.5, oldUsd: 6.3 },
-  { cat: "Samsung LCD", name: "LCD SAM A515F / A51", type: "chg", oldD: 22.5, oldUsd: 6.3 },
-  { cat: "Samsung LCD", name: "LCD SAM A70 / A705F", type: "chg", oldD: 22.5, oldUsd: 6.7 },
-  { cat: "Huawei LCD", name: "LCD HUAWIE P30 Lite", type: "chg", oldD: 15.5, oldUsd: 4.9 },
-  { cat: "Infinix / Tecno LCD", name: "LCD TECNO ki7", type: "chg", oldD: 18.8, oldUsd: 5.32 },
-  { cat: "Samsung LCD", name: "LCD SAM A155f/ A15 4G/5G wf", type: "chg", oldD: 22.0, oldUsd: 6.2 },
-  { cat: "Samsung LCD", name: "LCD SAM A325F / A32 4G", type: "chg", oldD: 22.0, oldUsd: 6.2 },
-  { cat: "Samsung LCD", name: "LCD SAM M16 4G INCEL wf caa", type: "chg", oldD: 23.5, oldUsd: 7.1 },
-  { cat: "iPhone LCD", name: "LCD IPHONE X8 +", type: "chg", oldD: 17.0, oldUsd: 4.8 },
-  { cat: "Motorola LCD", name: "LCD MOTOROLA G24", type: "chg", oldD: 17.3, oldUsd: 5.39 },
-  { cat: "Samsung LCD", name: "LCD SAM A155 INCEL WF BRAND", type: "chg", oldD: 38.0, oldUsd: 11.0 },
-  { cat: "Samsung LCD", name: "LCD SAM A24 INCEL WF BRAND", type: "chg", oldD: 38.0, oldUsd: 11.0 },
-  { cat: "Samsung LCD", name: "LCD SAM M30 / M30S", type: "chg", oldD: 19.0, oldUsd: 5.4 },
-  { cat: "Samsung LCD", name: "LCD SAM A345 INCEL WF BRAND", type: "chg", oldD: 42.0, oldUsd: 12.0 },
-  { cat: "Samsung LCD", name: "LCD SAM A30 / A305F", type: "chg", oldD: 21.0, oldUsd: 5.9 },
-  { cat: "Honor LCD", name: "LCD HONOR X7", type: "chg", oldD: 16.9, oldUsd: 5.21 },
-  { cat: "iPhone LCD", name: "LCD IPHONE DD X14 PRO MaX", type: "chg", oldD: 119.0, oldUsd: 33.1 },
-  { cat: "iPhone LCD", name: "LCD IPHONE DD X15 PRO MaX", type: "chg", oldD: 119.0, oldUsd: 33.0 },
-  { cat: "Redmi LCD", name: "LCD Redmi 15c Two cable", type: "chg", oldD: 18.5, oldUsd: 5.74 },
-  { cat: "Samsung LCD (ORG)", name: "LCD SAM A12", type: "chg", oldD: 19.5, oldUsd: 5.41 },
-  { cat: "iPhone LCD", name: "LCD IPHONE ZY X12 PRO MAX", type: "chg", oldD: 33.0, oldUsd: 9.2 },
-  { cat: "Redmi LCD", name: "LCD Redmi 10c", type: "chg", oldD: 16.3, oldUsd: 5.29 },
-  { cat: "Infinix / Tecno LCD", name: "LCD INFINIX X6525 , Smart 8 , bg6", type: "chg", oldD: 17.0, oldUsd: 4.83 },
-  { cat: "iPhone LCD", name: "LCD IPHONE ZY X14 PRO MAX", type: "chg", oldD: 43.5, oldUsd: 12.1 },
-  { cat: "Motorola LCD", name: "LCD MOTOROLA G30", type: "chg", oldD: 17.6, oldUsd: 5.65 },
-  { cat: "Redmi LCD", name: "LCD Redmi NOTE 12", type: "chg", oldD: 19.0, oldUsd: 5.83 },
-  { cat: "iPhone LCD", name: "LCD IPHONE DD X13 PRO MAX", type: "chg", oldD: 114.0, oldUsd: 31.7 },
-  { cat: "iPhone LCD", name: "LCD IPHONE GX X12 PRO / X12", type: "chg", oldD: 76.0, oldUsd: 21.3 },
-  { cat: "iPhone LCD", name: "LCD IPHONE GX X11 PRO MAX", type: "chg", oldD: 81.0, oldUsd: 22.8 },
-  { cat: "iPhone LCD", name: "LCD IPHONE GX X13 PRO MAX", type: "chg", oldD: 103.0, oldUsd: 28.7 },
-  { cat: "iPhone LCD", name: "LCD IPHONE GX X14", type: "chg", oldD: 92.0, oldUsd: 25.7 },
-  { cat: "iPhone LCD", name: "LCD IPHONE JH X14 PRO MAX", type: "chg", oldD: 65.5, oldUsd: 18.4 },
-  { cat: "iPhone LCD", name: "LCD IPHONE ZY X14 pluse", type: "chg", oldD: 38.0, oldUsd: 11.0 },
-  { cat: "Samsung LCD", name: "LCD SAM M22 5F", type: "chg", oldD: 22.5, oldUsd: 6.8 },
-  { cat: "Redmi LCD", name: "LCD Redmi Note 10 4g", type: "chg", oldD: 16.9, oldUsd: 5.45 },
-  { cat: "Infinix / Tecno LCD", name: "LCD TECNO KM4 , hot 60i", type: "chg", oldD: 18.2, oldUsd: 5.57 },
-  { cat: "Oppo LCD", name: "LCD Oppo A16 2020", type: "chg", oldD: 15.8, oldUsd: 5.16 },
-  { cat: "Oppo LCD", name: "LCD oppo F15", type: "chg", oldD: 17.0, oldUsd: 5.23 },
-  { cat: "Vivo / ZTE / Realme LCD", name: "LCD REALMEC65", type: "chg", oldD: 16.9, oldUsd: 5.45 }
+  { cat: "IPhone / LCD", name: "LCD IPHONE DD X17 PRO", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A17 Orginal  4G", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A16 Orginal WF  4G", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A17 Orginal  5G", type: "new", oldD: null, oldUsd: null },
+  { cat: "TECNO /  LCD", name: "LCD TECNO KL7 , hote 50 pro", type: "new", oldD: null, oldUsd: null },
+  { cat: "TECNO /  LCD", name: "LCD TECNO Km7 , hote 40 pro pluse", type: "new", oldD: null, oldUsd: null },
+  { cat: "TECNO /  LCD", name: "LCD TECNO KL6 / x6882", type: "new", oldD: null, oldUsd: null },
+  { cat: "INFINIX /  LCD", name: "LCD INFINIX X6720 , Smart 9", type: "new", oldD: null, oldUsd: null },
+  { cat: "MOTOROLA / LCD", name: "LCD MOTOROLA G06", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM J4 +", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A207", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CABLE", name: "CABLE SAM A15", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CABLE", name: "CABLE SAM A53", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CABLE", name: "CABLE SAM A52", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / SWICH", name: "SWICH SMART 8", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / SWICH", name: "SWICH SMART 9", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / SWICH", name: "SWICH SMART 7", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM A57", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM A37", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM A56", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM A55", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM  A10", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM M32 4G", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM A24", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM A22 5G", type: "new", oldD: null, oldUsd: null },
+  { cat: "SAMSUNG / FINGER", name: "FINGER  SAM A12", type: "chg", oldD: 0.3, oldUsd: 0.3 },
+  { cat: "SAMSUNG / FLEX CHARGER", name: "FLEX CHARGER SAM  A12", type: "chg", oldD: 0.6, oldUsd: 0.6 },
+  { cat: "SAMSUNG / FLEX CABLE", name: "CABLE SAM A16", type: "chg", oldD: 0.5, oldUsd: 0.7 },
+  { cat: "SAMSUNG / FLEX CABLE", name: "CABLE SAM A51", type: "chg", oldD: 0.5, oldUsd: 0.7 },
+  { cat: "MINI / LCD", name: "TECNO T302", type: "chg", oldD: 0.78, oldUsd: 0.85 },
+  { cat: "REALME / LCD", name: "LCD REALME9 PRO , 1+", type: "chg", oldD: 46280.2, oldUsd: 21.0 },
+  { cat: "MOTOROLA / LCD", name: "LCD MOTOROLA G8 power", type: "chg", oldD: 18.6, oldUsd: 5.92 },
+  { cat: "TECNO /  LCD", name: "LCD TECNO KL6", type: "chg", oldD: 20.3, oldUsd: 6.38 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A145", type: "chg", oldD: 20.0, oldUsd: 5.55 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A17 INCEL WF", type: "chg", oldD: 23.5, oldUsd: 6.6 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE GX X14 PRO", type: "chg", oldD: 102.0, oldUsd: 28.6 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A165 / A16 4G wf", type: "chg", oldD: 22.5, oldUsd: 6.3 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A515F / A51", type: "chg", oldD: 22.5, oldUsd: 6.3 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A70 / A705F", type: "chg", oldD: 22.5, oldUsd: 6.7 },
+  { cat: "HUAWIE / LCD", name: "LCD HUAWIE P30 Lite", type: "chg", oldD: 15.5, oldUsd: 4.9 },
+  { cat: "TECNO /  LCD", name: "LCD TECNO ki7", type: "chg", oldD: 18.8, oldUsd: 5.32 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A155f/ A15 4G/5G wf", type: "chg", oldD: 22.0, oldUsd: 6.2 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A325F / A32 4G", type: "chg", oldD: 22.0, oldUsd: 6.2 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM M16 4G INCEL wf caa", type: "chg", oldD: 23.5, oldUsd: 7.1 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE X8 +", type: "chg", oldD: 17.0, oldUsd: 4.8 },
+  { cat: "MOTOROLA / LCD", name: "LCD MOTOROLA G24", type: "chg", oldD: 17.3, oldUsd: 5.39 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A155 INCEL WF BRAND", type: "chg", oldD: 38.0, oldUsd: 11.0 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A24 INCEL WF BRAND", type: "chg", oldD: 38.0, oldUsd: 11.0 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM M30 / M30S", type: "chg", oldD: 19.0, oldUsd: 5.4 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A345 INCEL WF BRAND", type: "chg", oldD: 42.0, oldUsd: 12.0 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A30 / A305F", type: "chg", oldD: 21.0, oldUsd: 5.9 },
+  { cat: "HONOR / LCD", name: "LCD HONOR X7", type: "chg", oldD: 16.9, oldUsd: 5.21 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE DD X14 PRO MaX", type: "chg", oldD: 119.0, oldUsd: 33.1 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE DD X15 PRO MaX", type: "chg", oldD: 119.0, oldUsd: 33.0 },
+  { cat: "REDMI / LCD", name: "LCD Redmi 15c Two cable", type: "chg", oldD: 18.5, oldUsd: 5.74 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM A12", type: "chg", oldD: 19.5, oldUsd: 5.41 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE ZY X12 PRO MAX", type: "chg", oldD: 33.0, oldUsd: 9.2 },
+  { cat: "REDMI / LCD", name: "LCD Redmi 10c", type: "chg", oldD: 16.3, oldUsd: 5.29 },
+  { cat: "INFINIX /  LCD", name: "LCD INFINIX X6525 , Smart 8 , bg6", type: "chg", oldD: 17.0, oldUsd: 4.83 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE ZY X14 PRO MAX", type: "chg", oldD: 43.5, oldUsd: 12.1 },
+  { cat: "MOTOROLA / LCD", name: "LCD MOTOROLA G30", type: "chg", oldD: 17.6, oldUsd: 5.65 },
+  { cat: "REDMI / LCD", name: "LCD Redmi NOTE 12", type: "chg", oldD: 19.0, oldUsd: 5.83 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE DD X13 PRO MAX", type: "chg", oldD: 114.0, oldUsd: 31.7 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE GX X12 PRO / X12", type: "chg", oldD: 76.0, oldUsd: 21.3 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE GX X11 PRO MAX", type: "chg", oldD: 81.0, oldUsd: 22.8 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE GX X13 PRO MAX", type: "chg", oldD: 103.0, oldUsd: 28.7 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE GX X14", type: "chg", oldD: 92.0, oldUsd: 25.7 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE JH X14 PRO MAX", type: "chg", oldD: 65.5, oldUsd: 18.4 },
+  { cat: "IPhone / LCD", name: "LCD IPHONE ZY X14 pluse", type: "chg", oldD: 38.0, oldUsd: 11.0 },
+  { cat: "SAMSUNG / LCD", name: "LCD SAM M22 5F", type: "chg", oldD: 22.5, oldUsd: 6.8 },
+  { cat: "REDMI / LCD", name: "LCD Redmi Note 10 4g", type: "chg", oldD: 16.9, oldUsd: 5.45 },
+  { cat: "TECNO /  LCD", name: "LCD TECNO KM4 , hot 60i", type: "chg", oldD: 18.2, oldUsd: 5.57 },
+  { cat: "OPPO / LCD", name: "LCD Oppo A16 2020", type: "chg", oldD: 15.8, oldUsd: 5.16 },
+  { cat: "OPPO / LCD", name: "LCD oppo F15", type: "chg", oldD: 17.0, oldUsd: 5.23 },
+  { cat: "REALME / LCD", name: "LCD REALMEC65", type: "chg", oldD: 16.9, oldUsd: 5.45 }
 ];
 
 export const INITIAL_COMPARE_ITEMS: CompareItem[] = [
@@ -873,27 +940,109 @@ export function getAllFlattenedParts(dataset: Record<string, [string, number, nu
   return result;
 }
 
+export const AUTHENTIC_GOOGLE_SHEET_CATEGORIES: string[] = [
+  "SAMSUNG / LCD",
+  "IPhone / LCD",
+  "REDMI / LCD",
+  "MOTOROLA / LCD",
+  "OPPO / LCD",
+  "REALME / LCD",
+  "TECNO /  LCD",
+  "INFINIX /  LCD",
+  "ITEL /  LCD",
+  "HONOR / LCD",
+  "HUAWIE / LCD",
+  "VIVO / LCD",
+  "ZTE / LCD",
+  "MINI / LCD",
+  "IPhone / BATTERY",
+  "SAMSUNG / BATTERY",
+  "REDMI / BATTERY",
+  "INFINIX / BATTERY",
+  "INFINIX/ BATTERY",
+  "HUAWIE/ BATTERY",
+  "SAMSUNG / FLEX CHARGER",
+  "FLEX CHARGER / INFINIX",
+  "FLEX CHARGER REDMI",
+  "IPHONE / BACK GLASS",
+  "IPHONE / FLASH",
+  "IPHONE / SPEAKER",
+  "IPHONE / SENSOR",
+  "SAMSUNG / BIRTAA",
+  "SAMSUNG / COVER",
+  "SAMSUNG / FINGER",
+  "SAMSUNG / FLEX CABLE",
+  "SAMSUNG / SIM TRY",
+  "SAMSUNG / SWICH",
+  "INFINIX /  SWICH",
+  "SAMSUNG / USB",
+  "SAMSUNG / VOLUME",
+  "TOOL",
+  "HUFAR"
+];
+
 export const PART_CATEGORY_GROUPS: Record<string, { label: string; iconKey: string }> = {
-  "iPhone LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Samsung LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Samsung LCD (ORG)": { label: "LCD Screen (ORG)", iconKey: "screen" },
-  "Redmi LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Huawei LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Honor LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Infinix / Tecno LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Motorola LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Oppo LCD": { label: "LCD Screen", iconKey: "screen" },
-  "Vivo / ZTE / Realme LCD": { label: "LCD Screen", iconKey: "screen" },
-  "iPhone Battery": { label: "Battery", iconKey: "battery" },
-  "Redmi Battery": { label: "Battery", iconKey: "battery" },
-  "Samsung Battery": { label: "Battery", iconKey: "battery" },
-  "iPhone Backglass": { label: "Back Glass", iconKey: "glass" },
-  "Samsung Covers": { label: "Cover / Housing", iconKey: "glass" },
-  "iPhone Flex Charger": { label: "Flex Charger Port", iconKey: "port" },
-  "Samsung Flex Charger": { label: "Flex Charger Port", iconKey: "port" },
-  "iPhone Sensor / Speaker": { label: "Sensor & Earpiece Speaker", iconKey: "speaker" },
-  "Samsung SIM Tray": { label: "SIM Tray", iconKey: "port" },
-  "Samsung Cable": { label: "Flex Interconnect Cable", iconKey: "port" },
+  // 38 Authentic Google Sheet Categories (Column "Category (Brand _Part Type)")
+  "SAMSUNG / LCD": { label: "Samsung LCD Screen", iconKey: "screen" },
+  "IPhone / LCD": { label: "iPhone LCD Screen", iconKey: "screen" },
+  "REDMI / LCD": { label: "Redmi LCD Screen", iconKey: "screen" },
+  "MOTOROLA / LCD": { label: "Motorola LCD Screen", iconKey: "screen" },
+  "OPPO / LCD": { label: "Oppo LCD Screen", iconKey: "screen" },
+  "REALME / LCD": { label: "Realme LCD Screen", iconKey: "screen" },
+  "TECNO /  LCD": { label: "Tecno LCD Screen", iconKey: "screen" },
+  "INFINIX /  LCD": { label: "Infinix LCD Screen", iconKey: "screen" },
+  "ITEL /  LCD": { label: "Itel LCD Screen", iconKey: "screen" },
+  "HONOR / LCD": { label: "Honor LCD Screen", iconKey: "screen" },
+  "HUAWIE / LCD": { label: "Huawei LCD Screen", iconKey: "screen" },
+  "VIVO / LCD": { label: "Vivo LCD Screen", iconKey: "screen" },
+  "ZTE / LCD": { label: "ZTE LCD Screen", iconKey: "screen" },
+  "MINI / LCD": { label: "Mini LCD Screen", iconKey: "screen" },
+  "IPhone / BATTERY": { label: "iPhone Battery", iconKey: "battery" },
+  "SAMSUNG / BATTERY": { label: "Samsung Battery", iconKey: "battery" },
+  "REDMI / BATTERY": { label: "Redmi Battery", iconKey: "battery" },
+  "INFINIX / BATTERY": { label: "Infinix Battery", iconKey: "battery" },
+  "INFINIX/ BATTERY": { label: "Infinix Battery", iconKey: "battery" },
+  "HUAWIE/ BATTERY": { label: "Huawei Battery", iconKey: "battery" },
+  "SAMSUNG / FLEX CHARGER": { label: "Samsung Flex Charger Port", iconKey: "port" },
+  "FLEX CHARGER / INFINIX": { label: "Infinix Flex Charger Port", iconKey: "port" },
+  "FLEX CHARGER REDMI": { label: "Redmi Flex Charger Port", iconKey: "port" },
+  "IPHONE / BACK GLASS": { label: "iPhone Back Glass", iconKey: "glass" },
+  "IPHONE / FLASH": { label: "iPhone Flash Light", iconKey: "port" },
+  "IPHONE / SPEAKER": { label: "iPhone Earpiece / Loudspeaker", iconKey: "speaker" },
+  "IPHONE / SENSOR": { label: "iPhone Proximity Sensor", iconKey: "speaker" },
+  "SAMSUNG / BIRTAA": { label: "Samsung Metal Bracket (Birtaa)", iconKey: "tool" },
+  "SAMSUNG / COVER": { label: "Samsung Back Cover / Housing", iconKey: "glass" },
+  "SAMSUNG / FINGER": { label: "Samsung Fingerprint Sensor", iconKey: "port" },
+  "SAMSUNG / FLEX CABLE": { label: "Samsung Flex Cable", iconKey: "port" },
+  "SAMSUNG / SIM TRY": { label: "Samsung SIM Tray", iconKey: "port" },
+  "SAMSUNG / SWICH": { label: "Samsung Power / Vol Switch", iconKey: "port" },
+  "INFINIX /  SWICH": { label: "Infinix Power / Vol Switch", iconKey: "port" },
+  "SAMSUNG / USB": { label: "Samsung USB Port", iconKey: "port" },
+  "SAMSUNG / VOLUME": { label: "Samsung Volume Button", iconKey: "port" },
+  "TOOL": { label: "Repair Tool / Equipment", iconKey: "tool" },
+  "HUFAR": { label: "Hufar / Protective Film", iconKey: "glass" },
+
+  // Backwards compatibility aliases
+  "iPhone LCD": { label: "iPhone LCD Screen", iconKey: "screen" },
+  "Samsung LCD": { label: "Samsung LCD Screen", iconKey: "screen" },
+  "Samsung LCD (ORG)": { label: "Samsung LCD (ORG)", iconKey: "screen" },
+  "Redmi LCD": { label: "Redmi LCD Screen", iconKey: "screen" },
+  "Huawei LCD": { label: "Huawei LCD Screen", iconKey: "screen" },
+  "Honor LCD": { label: "Honor LCD Screen", iconKey: "screen" },
+  "Infinix / Tecno LCD": { label: "Infinix / Tecno LCD Screen", iconKey: "screen" },
+  "Motorola LCD": { label: "Motorola LCD Screen", iconKey: "screen" },
+  "Oppo LCD": { label: "Oppo LCD Screen", iconKey: "screen" },
+  "Vivo / ZTE / Realme LCD": { label: "Vivo / ZTE / Realme LCD Screen", iconKey: "screen" },
+  "iPhone Battery": { label: "iPhone Battery", iconKey: "battery" },
+  "Redmi Battery": { label: "Redmi Battery", iconKey: "battery" },
+  "Samsung Battery": { label: "Samsung Battery", iconKey: "battery" },
+  "iPhone Backglass": { label: "iPhone Back Glass", iconKey: "glass" },
+  "Samsung Covers": { label: "Samsung Cover / Housing", iconKey: "glass" },
+  "iPhone Flex Charger": { label: "iPhone Flex Charger Port", iconKey: "port" },
+  "Samsung Flex Charger": { label: "Samsung Flex Charger Port", iconKey: "port" },
+  "iPhone Sensor / Speaker": { label: "iPhone Sensor & Speaker", iconKey: "speaker" },
+  "Samsung SIM Tray": { label: "Samsung SIM Tray", iconKey: "port" },
+  "Samsung Cable": { label: "Samsung Flex Cable", iconKey: "port" },
   "USB (Samsung & Others)": { label: "USB Charging Port", iconKey: "port" },
   "Charging Pins (Mini)": { label: "Micro / Mini Charging Pin", iconKey: "port" },
   "Samsung Fingerprint Sensors": { label: "Fingerprint Sensor", iconKey: "port" },
@@ -915,7 +1064,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-1",
     name: "LCD REALME9 PRO , 1+",
-    cat: "Vivo / ZTE / Realme LCD",
+    cat: "REALME / LCD",
     oldD: 24.5,
     newD: 21.0,
     oldUsd: 7.68,
@@ -929,7 +1078,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-2",
     name: "LCD SAM A165 / A16 4G wf",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 22.5,
     newD: 21.5,
     oldUsd: 6.3,
@@ -943,7 +1092,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-3",
     name: "LCD SAM A17 INCEL WF",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 23.5,
     newD: 22.0,
     oldUsd: 6.6,
@@ -957,7 +1106,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-4",
     name: "LCD IPHONE GX X14 PRO",
-    cat: "iPhone LCD",
+    cat: "IPhone / LCD",
     oldD: 102.0,
     newD: 97.0,
     oldUsd: 28.6,
@@ -971,7 +1120,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-5",
     name: "LCD IPHONE DD X14 PRO MaX",
-    cat: "iPhone LCD",
+    cat: "IPhone / LCD",
     oldD: 119.0,
     newD: 121.0,
     oldUsd: 33.1,
@@ -985,7 +1134,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-6",
     name: "LCD IPHONE DD X15 PRO MaX",
-    cat: "iPhone LCD",
+    cat: "IPhone / LCD",
     oldD: 119.0,
     newD: 121.0,
     oldUsd: 33.0,
@@ -999,7 +1148,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-7",
     name: "LCD SAM A30 / A305F",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 21.0,
     newD: 21.5,
     oldUsd: 5.9,
@@ -1013,7 +1162,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-8",
     name: "LCD SAM A155 INCEL WF BRAND",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 38.0,
     newD: 37.0,
     oldUsd: 11.0,
@@ -1027,7 +1176,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-9",
     name: "LCD SAM A345 INCEL WF BRAND",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 42.0,
     newD: 41.0,
     oldUsd: 12.0,
@@ -1041,7 +1190,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-10",
     name: "LCD SAM A70 / A705F",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 22.5,
     newD: 21.7,
     oldUsd: 6.7,
@@ -1055,7 +1204,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-11",
     name: "LCD IPHONE X8 +",
-    cat: "iPhone LCD",
+    cat: "IPhone / LCD",
     oldD: 17.0,
     newD: 17.5,
     oldUsd: 4.8,
@@ -1069,7 +1218,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-12",
     name: "LCD MOTOROLA G24",
-    cat: "Motorola LCD",
+    cat: "MOTOROLA / LCD",
     oldD: 17.3,
     newD: 17.0,
     oldUsd: 5.39,
@@ -1083,7 +1232,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-13",
     name: "FINGER  SAM A12",
-    cat: "Samsung Fingerprint Sensors",
+    cat: "SAMSUNG / FINGER",
     oldD: 0.3,
     newD: 1.15,
     oldUsd: 0.3,
@@ -1097,7 +1246,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-14",
     name: "TECNO T302",
-    cat: "Charging Pins (Mini)",
+    cat: "MINI / LCD",
     oldD: 0.78,
     newD: 2.25,
     oldUsd: 0.85,
@@ -1111,7 +1260,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-15",
     name: "LCD SAM M16 4G INCEL wf caa",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 23.5,
     newD: 22.8,
     oldUsd: 7.1,
@@ -1125,7 +1274,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-16",
     name: "LCD Redmi 10c",
-    cat: "Redmi LCD",
+    cat: "REDMI / LCD",
     oldD: 16.3,
     newD: 16.0,
     oldUsd: 5.29,
@@ -1139,7 +1288,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-17",
     name: "LCD IPHONE DD X13 PRO MAX",
-    cat: "iPhone LCD",
+    cat: "IPhone / LCD",
     oldD: 114.0,
     newD: 115.0,
     oldUsd: 31.7,
@@ -1153,7 +1302,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-18",
     name: "LCD SAM A145",
-    cat: "Samsung LCD (ORG)",
+    cat: "SAMSUNG / LCD",
     oldD: 20.0,
     newD: 19.5,
     oldUsd: 5.55,
@@ -1167,7 +1316,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-19",
     name: "LCD IPHONE DD X17 PRO",
-    cat: "iPhone LCD",
+    cat: "IPhone / LCD",
     oldD: 0,
     newD: 154.0,
     oldUsd: 0,
@@ -1181,7 +1330,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-20",
     name: "LCD SAM A17 Orginal  4G",
-    cat: "Samsung LCD",
+    cat: "SAMSUNG / LCD",
     oldD: 0,
     newD: 127.0,
     oldUsd: 0,
@@ -1195,7 +1344,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
   {
     id: "pc-21",
     name: "SWICH SMART 9",
-    cat: "Samsung Switches",
+    cat: "SAMSUNG / SWICH",
     oldD: 0,
     newD: 0.3,
     oldUsd: 0,
@@ -1228,65 +1377,60 @@ export type RejectedCompany = RegisteredCompany;
 export const INITIAL_REGISTERED_COMPANIES: RegisteredCompany[] = [
   {
     id: "comp-1",
-    name: "Naji Hassan Supplies",
-    contactPerson: "Naji Hassan",
-    phoneNo: "+971 50 882 1934",
-    whatsappNo: "+971 50 882 1934",
-    location: "Deira, Sabkha Road, Dubai, UAE",
-    note: "Primary supplier for authentic LCDs, OLEDs, and original smartphone spare parts. High reliability & fast dispatch.",
-    createdAt: "2026-10-15",
-    status: "preferred",
-    category: "LCD Screens & OLEDs"
+    name: "Royal Company",
+    phoneNo: "+971 50 123 4567",
+    whatsappNo: "+971 50 123 4567",
+    location: "Deira, Dubai, UAE",
+    category: "iPhone & Samsung Screens",
+    contactPerson: "Ali Royal",
+    status: "active",
+    note: "Preferred supplier for GX & OLED displays",
+    createdAt: "2026-11-08"
   },
   {
     id: "comp-2",
-    name: "Shenzhen TopDisplay Tech",
-    contactPerson: "David Lin",
-    phoneNo: "+86 139 7788 1234",
-    whatsappNo: "+86 139 7788 1234",
-    location: "Huaqiangbei Electronics Market, Shenzhen, China",
-    note: "Direct factory wholesale for iPhone, Samsung & Redmi screens, high refresh rate panels, and OCA glass.",
-    createdAt: "2026-10-20",
+    name: "Dubai VX",
+    phoneNo: "+971 55 987 6543",
+    whatsappNo: "+971 55 987 6543",
+    location: "Naif, Dubai, UAE",
+    category: "Flex Chargers & Batteries",
+    contactPerson: "Hassan VX",
     status: "active",
-    category: "Wholesale Displays & Glass"
+    note: "Fast delivery by air cargo",
+    createdAt: "2026-11-08"
   },
   {
     id: "comp-3",
-    name: "Al-Madina Parts Co.",
-    contactPerson: "Ahmed Al-Madina",
-    phoneNo: "+971 55 342 9876",
-    whatsappNo: "+971 55 342 9876",
-    location: "Naif Market, Deira, Dubai",
-    note: "Batteries, charging flex cables, camera glass, and speaker components. Consistent warranty support.",
-    createdAt: "2026-10-28",
+    name: "Al-Baraka Telecom",
+    phoneNo: "+971 52 444 8899",
+    whatsappNo: "+971 52 444 8899",
+    location: "Sabkha, Dubai, UAE",
+    category: "Original Disassembled Parts",
+    contactPerson: "Tariq",
     status: "active",
-    category: "Batteries & Flex Cables"
+    note: "High quality original service packs",
+    createdAt: "2026-11-08"
   },
   {
     id: "comp-4",
-    name: "RL Rework Dubai",
-    contactPerson: "Rashid Khan",
-    phoneNo: "+971 52 456 7890",
-    whatsappNo: "+971 52 456 7890",
-    location: "Baniyas Square, Deira, Dubai",
-    note: "Specialized in micro-soldering IC chips, back glass housings, and precision repair tools.",
-    createdAt: "2026-11-02",
-    status: "preferred",
-    category: "Tools & IC Chips"
+    name: "King Phone Guangzhou",
+    phoneNo: "+86 138 0000 1111",
+    whatsappNo: "+86 138 0000 1111",
+    location: "Guangzhou, China",
+    category: "Incell & OLED Direct Factory",
+    contactPerson: "Mr. Chen",
+    status: "active",
+    note: "By sea bulk shipments & factory pricing",
+    createdAt: "2026-11-08"
   }
 ];
 
 export const INITIAL_REJECTED_COMPANIES = INITIAL_REGISTERED_COMPANIES;
 
 export const PRESET_COMPANY_NAMES: string[] = [
-  "Naji Hassan Supplies",
-  "Shenzhen TopDisplay Tech",
-  "Al-Madina Parts Co.",
-  "RL Rework Dubai",
-  "Mechanic Tools & Parts",
-  "Sunshine Mobile Wholesale",
-  "JCID Official",
-  "Guangzhou Huaxin Electronics",
-  "Best Choice Spare Parts",
-  "OLED Master Tech"
+  "Royal Company",
+  "Dubai VX",
+  "Al-Baraka Telecom",
+  "King Phone Guangzhou"
 ];
+

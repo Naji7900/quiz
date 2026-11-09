@@ -2,7 +2,7 @@
  * Naji Hassan Catalog - 584 items across 38 category pages
  * Extracted from attached master sheet: NAJI_HASSAN__cffd7227
  */
-import { SparePartItem } from './initialData';
+import { SparePartItem, generateSmartPartId } from './initialData';
 
 export interface RawCatalogItem {
   name: string;
@@ -4691,8 +4691,11 @@ export const NAJI_HASSAN_DATA: RawCatalogItem[] = [
 export function getNajiHassanCatalog(): SparePartItem[] {
   return NAJI_HASSAN_DATA.map((item, idx) => {
     const salesPrice = item.salesPrice > 0 ? item.salesPrice : item.usd;
+    const isLcd = item.cat && item.cat.includes('LCD');
+    const defaultOrigin: 'Dubai' | 'China' = isLcd ? 'China' : 'Dubai';
+    const smartId = generateSmartPartId(item.name, undefined, 'air', defaultOrigin);
     return {
-      id: `naji-${idx + 1}-${encodeURIComponent(item.name.slice(0, 30))}`,
+      id: `${smartId}-${idx + 1}`,
       cat: item.cat,
       name: item.name,
       d: item.d,
@@ -4700,7 +4703,9 @@ export function getNajiHassanCatalog(): SparePartItem[] {
       yuan: item.yuan,
       salesPrice,
       salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
-      expense: 0
+      expense: 0,
+      shippingMethod: 'air' as const,
+      origin: defaultOrigin
     };
   });
 }

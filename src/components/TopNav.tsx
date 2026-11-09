@@ -63,7 +63,6 @@ export const TopNav: React.FC<TopNavProps> = ({
             { id: 'photos', label: 'Photos' },
             { id: 'compat', label: 'Compatible LCDs' },
             { id: 'pricetracker', label: 'Price Tracker' },
-            { id: 'sheetdb', label: 'Google Sheets DB' },
             { id: 'register_company', label: 'Register Company' }
           ].map(tab => {
             const isActive = activeTab === tab.id;
@@ -130,7 +129,6 @@ export const TopNav: React.FC<TopNavProps> = ({
             { id: 'photos', label: 'Photos' },
             { id: 'compat', label: 'Compatible LCDs' },
             { id: 'pricetracker', label: 'Price Tracker' },
-            { id: 'sheetdb', label: 'Google Sheets DB' },
             { id: 'register_company', label: 'Register Company' }
           ].map(tab => {
             const isActive = activeTab === tab.id;

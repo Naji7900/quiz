@@ -27,9 +27,13 @@ import {
   Calendar,
   Percent,
   BarChart3,
-  History
+  History,
+  Building2,
+  Plane,
+  Ship
 } from 'lucide-react';
 import { SparePartItem, CompatItem, ChangeItem, PriceChangeRecord } from '../data/initialData';
+import { extractPhoneModel } from '../utils/productUtils';
 import { sound } from '../services/soundService';
 
 export interface QuizViewProps {
@@ -50,13 +54,14 @@ export type CompatSubMode = 'mcq' | 'match' | 'truefalse' | 'type';
 export type SelMode = 'random' | 'range' | 'custom';
 export type FlowMode = 'quiz' | 'learn';
 export type PricePracticeTarget = 'all' | 'dirham' | 'costUsd' | 'salesPrice' | 'allThree' | 'series';
+export type CurrencyChoice = 'all_one_by_one' | 'dirham' | 'costUsd' | 'salesPrice' | 'yuan' | 'mixed';
 
 export interface QuestionItem {
   id: string;
   title: string;
   subtitle?: string;
   correctVal: string;
-  priceKind: 'D' | 'costUsd' | 'salesPrice' | 'allThree';
+  priceKind: 'D' | 'costUsd' | 'salesPrice' | 'yuan' | 'allThree';
   rawItem: SparePartItem | CompatItem | ChangeItem | PriceChangeRecord;
   breakdownStr: string;
   assignedMode?: 'mcq' | 'type' | 'truefalse';
@@ -69,6 +74,8 @@ export interface QuestionItem {
   seriesPartName?: string;
   seriesPartIndex?: number;
   seriesTotalParts?: number;
+  priceTargetLabel?: string;
+  priceStep?: string;
   priceTrackerType?: 'new' | 'increase' | 'decrease';
   oldD?: number;
   newD?: number;
@@ -77,31 +84,12 @@ export interface QuestionItem {
   deltaD?: number;
   percentage?: number;
   date?: string;
+  companyName?: string;
+  shippingMethod?: 'air' | 'sea' | string;
+  origin?: 'Dubai' | 'China' | string;
 }
 
-export function extractPhoneModel(partName: string): string {
-  const clean = partName.trim();
-  const iphoneMatch = clean.match(/IPHONE\s+([0-9]{1,2}(?:\s*(?:PRO\s*MAX|PRO|PLUS|MINI))?|[XSRM]+(?:\s*(?:MAX|PRO))?)/i);
-  if (iphoneMatch) return `iPhone ${iphoneMatch[1].toUpperCase().replace(/\s+/g, ' ')}`;
-
-  const samsungMatch = clean.match(/SAMSUNG\s+(?:GALAXY\s+)?([A-Z][0-9]{1,3}[A-Z]?(?:\s*(?:ULTRA|PLUS|FE|5G))?|NOTE\s*[0-9]{1,2})/i);
-  if (samsungMatch) return `Samsung ${samsungMatch[1].toUpperCase()}`;
-
-  const redmiMatch = clean.match(/(?:REDMI|XIAOMI|POCO)\s+(NOTE\s*[0-9]{1,2}[A-Z]?|[0-9]{1,2}[A-Z]?|[A-Z][0-9]+)/i);
-  if (redmiMatch) return `Redmi ${redmiMatch[1].toUpperCase()}`;
-
-  const tecnoMatch = clean.match(/TECNO\s+([A-Z0-9]+(?:\s*[0-9]+[A-Z]?)?)/i);
-  if (tecnoMatch) return `Tecno ${tecnoMatch[1].toUpperCase()}`;
-
-  const infinixMatch = clean.match(/INFINIX\s+([A-Z0-9]+(?:\s*[0-9]+[A-Z]?)?)/i);
-  if (infinixMatch) return `Infinix ${infinixMatch[1].toUpperCase()}`;
-
-  const honorMatch = clean.match(/HONOR\s+([A-Z0-9]+)/i);
-  if (honorMatch) return `Honor ${honorMatch[1].toUpperCase()}`;
-
-  const words = clean.replace(/^(LCD|BATTERY|TOUCH|GLASS|BACK GLASS|FLEX|SPEAKER|HOUSING)\s+/i, '').split(' ');
-  return words.slice(0, 3).join(' ') || clean;
-}
+export { extractPhoneModel } from '../utils/productUtils';
 
 // True Fisher-Yates array shuffle for non-deterministic randomization across entire catalog
 export function shuffleArray<T>(items: T[]): T[] {
@@ -141,7 +129,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [timerDuration, setTimerDuration] = useState<number>(0);
 
   // Category green box preview state
-  const [previewCategory, setPreviewCategory] = useState<string>('Honor LCD');
+  const [previewCategory, setPreviewCategory] = useState<string>('SAMSUNG / LCD');
   const [previewSearch, setPreviewSearch] = useState<string>('');
 
   // Custom model picker state
@@ -156,7 +144,15 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
   const [lives, setLives] = useState(3);
-  const [wrongAnswers, setWrongAnswers] = useState<{ title: string; correct: string; breakdown: string; userAns?: string }[]>([]);
+  const [wrongAnswers, setWrongAnswers] = useState<{ 
+    title: string; 
+    correct: string; 
+    breakdown: string; 
+    userAns?: string;
+    companyName?: string;
+    shippingMethod?: string;
+    origin?: string;
+  }[]>([]);
 
   // Current Question Interactive State
   const [isAnswered, setIsAnswered] = useState(false);
@@ -178,6 +174,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [allThreeSales, setAllThreeSales] = useState('');
   const [allThreeResult, setAllThreeResult] = useState<{ dOk: boolean; usdOk: boolean; salesOk: boolean } | null>(null);
 
+  // Choice of Currency Type for Price D / USD + / Sale & Series Products (User Requirement 2)
+  const [currencyChoice, setCurrencyChoice] = useState<CurrencyChoice>('all_one_by_one');
+
   // Series Products Configuration State (Feature 2B)
   const [selectedSeriesModel, setSelectedSeriesModel] = useState<string>('__all__');
   const [seriesSearchTerm, setSeriesSearchTerm] = useState('');
@@ -190,16 +189,33 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const phoneModelsMap = useMemo(() => {
     const map: Record<string, SparePartItem[]> = {};
     parts.forEach(p => {
-      const model = extractPhoneModel(p.name);
+      const model = extractPhoneModel(p.name, p.cat);
       if (!map[model]) map[model] = [];
       map[model].push(p);
     });
+
+    // Sort parts logically within each series: LCDs (JH, ZY, GX...) first, Batteries, Flex, Glass, Speaker, Sensor...
+    Object.keys(map).forEach(m => {
+      map[m].sort((a, b) => {
+        const getRank = (item: SparePartItem) => {
+          const u = `${item.name} ${item.cat}`.toUpperCase();
+          if (u.includes('LCD') || u.includes('OLED') || /\b(JH|ZY|GX|DD|WF)\b/.test(u)) return 1;
+          if (u.includes('BATTERY')) return 2;
+          if (u.includes('FLEX') || u.includes('CHARGER') || u.includes('USB')) return 3;
+          if (u.includes('BACKGLASS') || u.includes('GLASS') || u.includes('COVER')) return 4;
+          if (u.includes('SPEAKER') || u.includes('SENSOR') || u.includes('CAMERA') || u.includes('FLASH')) return 5;
+          return 6;
+        };
+        return getRank(a) - getRank(b);
+      });
+    });
+
     return map;
   }, [parts]);
 
   const availablePhoneModels = useMemo(() => {
     return Object.keys(phoneModelsMap)
-      .filter(m => phoneModelsMap[m].length > 0)
+      .filter(m => phoneModelsMap[m].length > 0 && m !== 'Other')
       .sort((a, b) => phoneModelsMap[b].length - phoneModelsMap[a].length);
   }, [phoneModelsMap]);
 
@@ -278,7 +294,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
       correctVal: getTargetPrice(part, targetKind),
       priceKind: targetKind,
       rawItem: part,
-      breakdownStr: getBreakdown(part)
+      breakdownStr: getBreakdown(part),
+      companyName: part.companyName,
+      shippingMethod: part.shippingMethod || 'air',
+      origin: part.origin || (part.cat && part.cat.includes('LCD') ? 'China' : 'Dubai')
     };
     setCurrentQuestions([q]);
     setCurrentIndex(0);
@@ -296,15 +315,19 @@ export const QuizView: React.FC<QuizViewProps> = ({
     return r === 0 && num !== 0 ? num.toFixed(2) : r.toFixed(1);
   };
 
-  const getTargetPrice = (item: SparePartItem, target: 'D' | 'costUsd' | 'salesPrice' | 'allThree'): string => {
+  const getTargetPrice = (item: SparePartItem, target: 'D' | 'costUsd' | 'salesPrice' | 'yuan' | 'allThree'): string => {
     if (target === 'D') return `${fmt(item.d)} D`;
     if (target === 'costUsd') return `$${fmt(item.usd)}`;
+    if (target === 'yuan') {
+      const yuanVal = typeof item.yuan === 'number' && !isNaN(item.yuan) ? item.yuan : Number(((item.d / 3.67) * 7.23).toFixed(1));
+      return `¥${fmt(yuanVal)}`;
+    }
     if (target === 'allThree') return `${fmt(item.d)} D · $${fmt(item.usd)} · $${fmt(item.salesPrice)}`;
     return `$${fmt(item.salesPrice)}`;
   };
 
   const getBreakdown = (item: SparePartItem): string => {
-    const yuanVal = item.yuan ?? Number(((item.d / 3.67) * 7.23).toFixed(1));
+    const yuanVal = typeof item.yuan === 'number' && !isNaN(item.yuan) ? item.yuan : (item.isCustom ? 0 : Number(((item.d / 3.67) * 7.23).toFixed(1)));
     return `Price D: ${fmt(item.d)} D · USD+: $${fmt(item.usd)} · Yuan: ¥${fmt(yuanVal)} · Sales $: $${fmt(item.salesPrice)}`;
   };
 
@@ -322,11 +345,20 @@ export const QuizView: React.FC<QuizViewProps> = ({
     }
   };
 
-  const handleMistake = (title: string, correct: string, breakdown: string, userAns?: string) => {
+  const handleMistake = (title: string, correct: string, breakdown: string, userAns?: string, specificQ?: QuestionItem) => {
     setStreak(0);
     onStreakUpdate(0);
     sound.playWrong();
-    setWrongAnswers(prev => [...prev, { title, correct, breakdown, userAns }]);
+    const activeQ = specificQ || currentQuestions[currentIndex];
+    setWrongAnswers(prev => [...prev, { 
+      title, 
+      correct, 
+      breakdown, 
+      userAns,
+      companyName: activeQ?.companyName,
+      shippingMethod: activeQ?.shippingMethod,
+      origin: activeQ?.origin
+    }]);
 
     if (mode === 'survival') {
       setLives(l => {
@@ -514,6 +546,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
           ? `Category: ${item.cat} · Newly Added` 
           : `Old Price was: ${fmt(item.oldD)} D ($${fmt(item.oldUsd)})`;
 
+        const matchedPart = parts.find(p => p.name.toLowerCase() === item.name.toLowerCase());
+
         return {
           id: `pt-${item.id}`,
           title: item.name,
@@ -531,7 +565,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
           newUsd: item.newUsd,
           deltaD: item.deltaD,
           percentage: item.percentage,
-          date: item.date
+          date: item.date,
+          companyName: matchedPart?.companyName || (item as any).companyName,
+          shippingMethod: matchedPart?.shippingMethod || (item as any).shippingMethod || 'air',
+          origin: matchedPart?.origin || (item as any).origin || (item.cat && item.cat.includes('LCD') ? 'China' : 'Dubai')
         };
       });
     }
@@ -547,24 +584,48 @@ export const QuizView: React.FC<QuizViewProps> = ({
       modelsToPractice.forEach(model => {
         const modelParts = phoneModelsMap[model] || [];
         modelParts.forEach((part, idx) => {
-          seriesPool.push({
-            id: `series-${model}-${part.id}`,
+          const makeSeriesQ = (
+            targetKind: 'D' | 'costUsd' | 'salesPrice' | 'yuan',
+            label: string,
+            stepText?: string
+          ): QuestionItem => ({
+            id: `series-${model}-${part.id}-${targetKind}`,
             title: part.name,
-            subtitle: `📱 Series Model: ${model} (Part ${idx + 1} of ${modelParts.length}) · Category: ${part.cat}`,
-            correctVal: `${fmt(part.d)} D / $${fmt(part.usd)} / $${fmt(part.salesPrice)}`,
-            priceKind: 'allThree',
+            subtitle: `📱 Series: ${model} · Part ${idx + 1} of ${modelParts.length} (${part.cat})`,
+            priceTargetLabel: label,
+            priceStep: stepText || `Part ${idx + 1} of ${modelParts.length}`,
+            correctVal: getTargetPrice(part, targetKind),
+            priceKind: targetKind,
             rawItem: part,
-            breakdownStr: `Model: ${model} · ${part.cat} ➔ Price D: ${fmt(part.d)} D · USD+: $${fmt(part.usd)} · Sales $: $${fmt(part.salesPrice)}`,
+            breakdownStr: `Model: ${model} · Part: ${part.name} (${part.cat}) ➔ Price D: ${fmt(part.d)} D · USD+: $${fmt(part.usd)} · Sales $: $${fmt(part.salesPrice)}`,
             seriesModel: model,
             seriesPartName: part.name,
             seriesPartIndex: idx + 1,
             seriesTotalParts: modelParts.length,
-            allThreeAnswers: {
-              d: part.d,
-              usd: part.usd,
-              salesPrice: part.salesPrice
-            }
+            assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)],
+            companyName: part.companyName,
+            shippingMethod: part.shippingMethod || 'air',
+            origin: part.origin || (part.cat && part.cat.includes('LCD') ? 'China' : 'Dubai')
           });
+
+          if (currencyChoice === 'all_one_by_one') {
+            seriesPool.push(makeSeriesQ('D', 'Price D (Dirham AED)', `Part ${idx + 1}/${modelParts.length} · Step 1/3 (Price D)`));
+            seriesPool.push(makeSeriesQ('costUsd', 'USD+ (Cost = D/3.67)', `Part ${idx + 1}/${modelParts.length} · Step 2/3 (USD+)`));
+            seriesPool.push(makeSeriesQ('salesPrice', 'Sale Price ($)', `Part ${idx + 1}/${modelParts.length} · Step 3/3 (Sale $)`));
+          } else if (currencyChoice === 'dirham') {
+            seriesPool.push(makeSeriesQ('D', 'Price D (Dirham AED)'));
+          } else if (currencyChoice === 'costUsd') {
+            seriesPool.push(makeSeriesQ('costUsd', 'USD+ (Cost in USD)'));
+          } else if (currencyChoice === 'salesPrice') {
+            seriesPool.push(makeSeriesQ('salesPrice', 'Sale Price ($)'));
+          } else if (currencyChoice === 'yuan') {
+            seriesPool.push(makeSeriesQ('yuan', 'Yuan ¥ (China RMB)'));
+          } else if (currencyChoice === 'mixed') {
+            const kinds: ('D' | 'costUsd' | 'salesPrice' | 'yuan')[] = ['D', 'costUsd', 'salesPrice', 'yuan'];
+            const chosen = kinds[Math.floor(Math.random() * kinds.length)];
+            const label = chosen === 'D' ? 'Price D (AED)' : chosen === 'costUsd' ? 'USD+ (Cost)' : chosen === 'yuan' ? 'Yuan ¥ (RMB)' : 'Sale Price ($)';
+            seriesPool.push(makeSeriesQ(chosen, label));
+          }
         });
       });
       return seriesPool;
@@ -590,7 +651,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
             correctVal: getTargetPrice(actual, target),
             priceKind: target,
             rawItem: actual,
-            breakdownStr: getBreakdown(actual)
+            breakdownStr: getBreakdown(actual),
+            companyName: actual.companyName,
+            shippingMethod: actual.shippingMethod || 'air',
+            origin: actual.origin || (actual.cat && actual.cat.includes('LCD') ? 'China' : 'Dubai')
           };
         })
         .filter(Boolean) as QuestionItem[];
@@ -617,23 +681,54 @@ export const QuizView: React.FC<QuizViewProps> = ({
       pool = shuffleArray(pool);
     }
 
-    // Feature 2A: Price D / USD + / Sale Option
+    // Feature 2A: Price D / USD + / Sale Option - Supports Choice of Currency (User Requirement 2)
     if (pricePracticeTarget === 'allThree') {
-      return pool.map(p => ({
-        id: `allthree-${p.id}`,
-        title: p.name,
-        subtitle: `Category: ${p.cat} · Practice Price D, USD+, & Sales $`,
-        correctVal: `${fmt(p.d)} D · $${fmt(p.usd)} · $${fmt(p.salesPrice)}`,
-        priceKind: 'allThree',
-        rawItem: p,
-        breakdownStr: `Price D: ${fmt(p.d)} D · USD+: $${fmt(p.usd)} · Sales $: $${fmt(p.salesPrice)}`,
-        assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)],
-        allThreeAnswers: {
-          d: p.d,
-          usd: p.usd,
-          salesPrice: p.salesPrice
+      const allThreePool: QuestionItem[] = [];
+      for (const p of pool) {
+        const makeAllThreeQ = (
+          targetKind: 'D' | 'costUsd' | 'salesPrice' | 'yuan',
+          label: string,
+          stepText?: string
+        ): QuestionItem => ({
+          id: `allthree-${p.id}-${targetKind}`,
+          title: p.name,
+          subtitle: `Category: ${p.cat}${stepText ? ` · ${stepText}` : ''}`,
+          priceTargetLabel: label,
+          priceStep: stepText,
+          correctVal: getTargetPrice(p, targetKind),
+          priceKind: targetKind,
+          rawItem: p,
+          breakdownStr: `Product: ${p.name} (${p.cat}) ➔ Price D: ${fmt(p.d)} D · USD+: $${fmt(p.usd)} · Sales $: $${fmt(p.salesPrice)}`,
+          assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)],
+          companyName: p.companyName,
+          shippingMethod: p.shippingMethod || 'air',
+          origin: p.origin || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai')
+        });
+
+        if (currencyChoice === 'all_one_by_one') {
+          allThreePool.push(makeAllThreeQ('D', 'Price D (Dirham AED)', 'Step 1/3 (Price D)'));
+          allThreePool.push(makeAllThreeQ('costUsd', 'USD+ (Cost = D/3.67)', 'Step 2/3 (USD+)'));
+          allThreePool.push(makeAllThreeQ('salesPrice', 'Sale Price ($)', 'Step 3/3 (Sale $)'));
+        } else if (currencyChoice === 'dirham') {
+          allThreePool.push(makeAllThreeQ('D', 'Price D (Dirham AED)'));
+        } else if (currencyChoice === 'costUsd') {
+          allThreePool.push(makeAllThreeQ('costUsd', 'USD+ (Cost in USD)'));
+        } else if (currencyChoice === 'salesPrice') {
+          allThreePool.push(makeAllThreeQ('salesPrice', 'Sale Price ($)'));
+        } else if (currencyChoice === 'yuan') {
+          allThreePool.push(makeAllThreeQ('yuan', 'Yuan ¥ (China RMB)'));
+        } else if (currencyChoice === 'mixed') {
+          const kinds: ('D' | 'costUsd' | 'salesPrice' | 'yuan')[] = ['D', 'costUsd', 'salesPrice', 'yuan'];
+          const chosen = kinds[Math.floor(Math.random() * kinds.length)];
+          const label = chosen === 'D' ? 'Price D (AED)' : chosen === 'costUsd' ? 'USD+ (Cost)' : chosen === 'yuan' ? 'Yuan ¥ (RMB)' : 'Sale Price ($)';
+          allThreePool.push(makeAllThreeQ(chosen, label));
         }
-      }));
+      }
+
+      if (questionCount > 0 && selMode !== 'range') {
+        return allThreePool.slice(0, questionCount);
+      }
+      return allThreePool;
     }
 
     return pool.map(p => {
@@ -657,7 +752,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
         priceKind: targetKind,
         rawItem: p,
         breakdownStr: getBreakdown(p),
-        assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)]
+        assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)],
+        companyName: p.companyName,
+        shippingMethod: p.shippingMethod || 'air',
+        origin: p.origin || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai')
       };
     });
   };
@@ -714,7 +812,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
         correctVal: w.correct,
         priceKind: 'D',
         rawItem: found || parts[0],
-        breakdownStr: w.breakdown
+        breakdownStr: w.breakdown,
+        companyName: w.companyName || found?.companyName,
+        shippingMethod: w.shippingMethod || found?.shippingMethod || 'air',
+        origin: w.origin || found?.origin || (found?.cat && found.cat.includes('LCD') ? 'China' : 'Dubai')
       };
     });
 
@@ -764,7 +865,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
         options.add(`${fmt(d * 1.5)} D · $${fmt(usd * 1.5)} · $${fmt(salesPrice * 1.5)}`);
       }
     } else {
-      const targetKind = currentQ.priceKind as ('D' | 'costUsd' | 'salesPrice');
+      const targetKind = currentQ.priceKind as ('D' | 'costUsd' | 'salesPrice' | 'yuan');
       const shuffledParts = shuffleArray(parts);
       for (const p of shuffledParts) {
         if (options.size >= 4) break;
@@ -925,10 +1026,12 @@ export const QuizView: React.FC<QuizViewProps> = ({
       if (q.priceTrackerType === 'increase') return "PRICE INCREASE (Price Up) · What is the New Price D?";
       return "PRICE DECREASE (Price Down) · What is the New Price D?";
     }
+    if (q.priceTargetLabel) return `${q.priceTargetLabel}`;
     if (q.priceKind === 'allThree') return "Price D / USD + / Sale · Enter All 3 Prices";
-    if (q.priceKind === 'D') return "What is the Price D (Dirham)?";
-    if (q.priceKind === 'costUsd') return "What is the USD+ (Cost = D/3.67+Exp)?";
-    return "What is the Sales $ (Retail Price)?";
+    if (q.priceKind === 'D') return "What is the Price D (Dirham AED)?";
+    if (q.priceKind === 'costUsd') return "What is the USD+ (Cost = D/3.67)?";
+    if (q.priceKind === 'yuan') return "What is the Yuan ¥ (China RMB)?";
+    return "What is the Sale Price ($)?";
   };
 
   return (
@@ -967,8 +1070,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 { id: 'dirham', title: 'Price D (Dirham)', desc: 'Supplier AED price (e.g. 115 D)', color: 'text-cyan-400' },
                 { id: 'costUsd', title: 'USD+ (Cost in USD)', desc: 'Formula: Price D / 3.67 + Expense', color: 'text-emerald-400' },
                 { id: 'salesPrice', title: 'Sales $ (Retail)', desc: 'Customer price = USD+ * 1.30', color: 'text-violet-400' },
-                { id: 'allThree', title: 'Price D / USD + / Sale', desc: 'Answer all 3 prices (D, USD+, Sales $) for random product', color: 'text-emerald-300 font-bold' },
-                { id: 'series', title: 'Series Products', desc: 'Test all spare parts (LCD, Battery, Flex, etc.) for one phone model', color: 'text-amber-300 font-bold' },
+                { id: 'allThree', title: 'Price D / USD + / Sale', desc: 'Ask Price D, USD+, and Sale Price one by one for each product', color: 'text-emerald-300 font-bold' },
+                { id: 'series', title: 'Series Products', desc: 'Test all spare parts (LCD, Battery, Flex, Speaker, etc.) for each phone model series one by one', color: 'text-amber-300 font-bold' },
                 { id: 'all', title: 'All 3 (Mixed)', desc: 'Rotate between Price D, USD+, and Sales $', color: 'text-slate-300' }
               ].map(pt => (
                 <button
@@ -986,6 +1089,77 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Currency Choice Selector for Price D / USD + / Sale (Button 4) & Series Products (Button 5) - User Requirement 2 */}
+            {(pricePracticeTarget === 'allThree' || pricePracticeTarget === 'series') && (
+              <div className="bg-[#070c18] border border-cyan-500/40 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xl animate-in slide-in-from-top-2 duration-150">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Select Currency / Price Field to Practice</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold uppercase border border-cyan-500/40">
+                          {pricePracticeTarget === 'series' ? 'Series Products' : 'Price D / USD+ / Sale'}
+                        </span>
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Choose which currency you want to be quizzed on (or test all prices one by one):
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-[11px] font-mono text-cyan-300 bg-cyan-950/40 px-2.5 py-1 rounded-lg border border-cyan-500/30">
+                    Active: <span className="font-bold text-white">{
+                      currencyChoice === 'all_one_by_one' ? 'All Prices (1 by 1)' :
+                      currencyChoice === 'dirham' ? 'Price D (AED)' :
+                      currencyChoice === 'costUsd' ? 'USD+ (Cost)' :
+                      currencyChoice === 'salesPrice' ? 'Sales $ (Retail)' :
+                      currencyChoice === 'yuan' ? 'Yuan ¥ (RMB)' : 'Mixed Currency'
+                    }</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1">
+                  {[
+                    { id: 'all_one_by_one', title: 'All (1 by 1)', desc: 'D ➔ USD+ ➔ Sale $', badge: 'Step by Step', color: 'border-cyan-500/60 text-cyan-300' },
+                    { id: 'dirham', title: 'Price D (AED)', desc: 'Supplier AED price', badge: 'AED', color: 'border-cyan-500/60 text-cyan-300' },
+                    { id: 'costUsd', title: 'USD+ (Cost)', desc: 'Price D / 3.67 + Exp', badge: 'USD', color: 'border-emerald-500/60 text-emerald-300' },
+                    { id: 'salesPrice', title: 'Sales $', desc: 'Customer Retail $', badge: 'Sale $', color: 'border-violet-500/60 text-violet-300' },
+                    { id: 'yuan', title: 'Yuan ¥', desc: 'Guangzhou RMB', badge: 'RMB', color: 'border-amber-500/60 text-amber-300' },
+                    { id: 'mixed', title: 'Mixed', desc: 'Random Currency', badge: 'Mix', color: 'border-indigo-500/60 text-indigo-300' },
+                  ].map(cOpt => {
+                    const isSelected = currencyChoice === cOpt.id;
+                    return (
+                      <button
+                        key={cOpt.id}
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setCurrencyChoice(cOpt.id as CurrencyChoice);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-cyan-500/20 border-cyan-400 shadow-lg ring-2 ring-cyan-500/40'
+                            : 'bg-slate-900/90 border-slate-800 hover:border-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className={`text-xs font-bold ${isSelected ? 'text-white' : cOpt.color.split(' ')[1]}`}>
+                            {cOpt.title}
+                          </span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-bold">
+                            {cOpt.badge}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-normal line-clamp-1">
+                          {cOpt.desc}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Series Phone Model Selector (Feature 2B) */}
             {pricePracticeTarget === 'series' && (
@@ -1910,6 +2084,54 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 {currentQuestions[currentIndex].subtitle}
               </span>
             )}
+
+            {/* User Requirements: Product ID / SKU, Supplier Company Name, Shipment (Air / Sea), Origin (Dubai / China) */}
+            {(() => {
+              const currentQ = currentQuestions[currentIndex];
+              const partId = (currentQ.rawItem as any)?.id || currentQ.id;
+              const company = currentQ.companyName || (currentQ.rawItem as any)?.companyName || 'Registered Supplier';
+              const isSea = (currentQ.shippingMethod || (currentQ.rawItem as any)?.shippingMethod) === 'sea';
+              const isChina = (currentQ.origin || (currentQ.rawItem as any)?.origin) === 'China' || (currentQ.subtitle && currentQ.subtitle.includes('LCD'));
+
+              return (
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-2.5">
+                  {/* Product ID Badge */}
+                  {partId && (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-950/90 border border-cyan-600/70 text-cyan-200 text-xs sm:text-sm font-medium shadow-md">
+                      <span className="text-cyan-400/80 text-[11px] uppercase tracking-wider font-mono">ID / SKU:</span>
+                      <span className="font-mono font-bold text-cyan-300 tracking-wider">{partId}</span>
+                    </div>
+                  )}
+
+                  {/* Supplier Company Badge */}
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-950/80 border border-indigo-700/60 text-indigo-200 text-xs sm:text-sm font-medium shadow-md">
+                    <Building2 className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <span className="text-indigo-400/80 text-[11px] uppercase tracking-wider font-mono">Company:</span>
+                    <span className="font-bold text-white tracking-wide">{company}</span>
+                  </div>
+
+                  {/* Cargo / Shipment Method Badge */}
+                  <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-semibold shadow-md ${
+                    isSea
+                      ? 'bg-cyan-950/80 border-cyan-600/60 text-cyan-200'
+                      : 'bg-sky-950/80 border-sky-600/60 text-sky-200'
+                  }`}>
+                    {isSea ? <Ship className="w-4 h-4 text-cyan-400 shrink-0" /> : <Plane className="w-4 h-4 text-sky-400 shrink-0" />}
+                    <span>{isSea ? '🚢 Cargo: By Sea (Markab)' : '✈️ Cargo: By Air (Diyaarad)'}</span>
+                  </div>
+
+                  {/* Origin Badge */}
+                  <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-semibold shadow-md ${
+                    isChina 
+                      ? 'bg-rose-950/80 border-rose-600/60 text-rose-200' 
+                      : 'bg-amber-950/80 border-amber-600/60 text-amber-200'
+                  }`}>
+                    <span>{isChina ? '🇨🇳' : '🇦🇪'}</span>
+                    <span>{isChina ? 'Sourced: China' : 'Sourced: Dubai'}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* 1. Type Price Mode for Price D / USD + / Sale (3 inputs) */}
@@ -2236,9 +2458,31 @@ export const QuizView: React.FC<QuizViewProps> = ({
               <div className="divide-y divide-slate-800/60 max-h-60 overflow-y-auto pr-2">
                 {wrongAnswers.map((w, i) => (
                   <div key={i} className="py-2.5 flex items-start justify-between gap-3 text-xs sm:text-sm">
-                    <div>
-                      <span className="font-semibold text-white block">{w.title}</span>
-                      <span className="text-slate-400 text-xs font-mono font-normal">{w.breakdown}</span>
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-semibold text-white block">{w.title}</span>
+                        {w.companyName && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-950/80 border border-indigo-700/60 text-[10px] text-indigo-300 font-mono">
+                            <Building2 className="w-2.5 h-2.5" />
+                            {w.companyName}
+                          </span>
+                        )}
+                        {w.shippingMethod === 'sea' ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-700/60 text-[10px] text-cyan-300 font-mono">
+                            <Ship className="w-2.5 h-2.5" /> By Sea
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-950/80 border border-sky-700/60 text-[10px] text-sky-300 font-mono">
+                            <Plane className="w-2.5 h-2.5" /> By Air
+                          </span>
+                        )}
+                        {w.origin && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-[10px] text-slate-300 font-mono">
+                            {w.origin === 'China' ? '🇨🇳 China' : '🇦🇪 Dubai'}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-slate-400 text-xs font-mono font-normal block">{w.breakdown}</span>
                     </div>
                     <span className="font-mono text-emerald-400 font-bold shrink-0">
                       Correct: {w.correct}

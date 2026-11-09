@@ -18,10 +18,18 @@ import {
   Lock,
   Unlock,
   ShieldAlert,
-  Code2
+  Code2,
+  BookOpen,
+  Building2,
+  Plane,
+  Ship,
+  TrendingUp,
+  TrendingDown,
+  Layers,
+  ArrowRight
 } from 'lucide-react';
-import { GoogleSheetsService } from '../services/googleSheetsService';
-import { SparePartItem, CompatItem, CompareItem } from '../data/initialData';
+import { GoogleSheetsService, CompleteSuiteRestoreResult, DEFAULT_WEB_APP_URL } from '../services/googleSheetsService';
+import { SparePartItem, CompatItem, CompareItem, RegisteredCompany, PriceChangeRecord } from '../data/initialData';
 import { getNajiHassanCatalog } from '../data/najiHassanCatalog';
 import { sound } from '../services/soundService';
 
@@ -32,12 +40,15 @@ interface GoogleSheetModalProps {
   compatList: CompatItem[];
   compareList: CompareItem[];
   photosList?: any[];
+  companies?: RegisteredCompany[];
+  priceChanges?: PriceChangeRecord[];
   onDataSynced: (
     newParts: SparePartItem[], 
     newCompare?: CompareItem[],
     newPhotos?: any[],
     newCompat?: any[]
   ) => void;
+  onRestoreCompleteSuite?: (data: CompleteSuiteRestoreResult) => void;
   onResetToDefault: () => void;
   onFormatDatabase: () => void;
   lastSyncedAt: string | null;
@@ -45,47 +56,47 @@ interface GoogleSheetModalProps {
 
 // 5 rows per category for the official All-In-One Google Sheet template (0 expenses)
 const ALL_IN_ONE_TEMPLATE_ROWS = [
-  // iPhone LCD (5 rows)
-  { name: 'LCD IPHONE X8 +', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'iPhone LCD', exp: 0 },
-  { name: 'LCD IPHONE X7 +', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'iPhone LCD', exp: 0 },
-  { name: 'LCD IPHONE DD X13 PRO', priceD: 117.0, usdPlus: 31.88, yuan: 230.5, sales: 31.88, cat: 'iPhone LCD', exp: 0 },
-  { name: 'LCD IPHONE DD X14 PRO MAX', priceD: 121.0, usdPlus: 32.97, yuan: 238.4, sales: 32.97, cat: 'iPhone LCD', exp: 0 },
-  { name: 'LCD IPHONE DD X15 PRO MAX', priceD: 121.0, usdPlus: 32.97, yuan: 238.4, sales: 32.97, cat: 'iPhone LCD', exp: 0 },
+  // IPhone / LCD (5 rows)
+  { name: 'LCD IPHONE X8 +', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'IPhone / LCD', exp: 0 },
+  { name: 'LCD IPHONE X7 +', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'IPhone / LCD', exp: 0 },
+  { name: 'LCD IPHONE DD X13 PRO', priceD: 117.0, usdPlus: 31.88, yuan: 230.5, sales: 31.88, cat: 'IPhone / LCD', exp: 0 },
+  { name: 'LCD IPHONE DD X14 PRO MAX', priceD: 121.0, usdPlus: 32.97, yuan: 238.4, sales: 32.97, cat: 'IPhone / LCD', exp: 0 },
+  { name: 'LCD IPHONE DD X15 PRO MAX', priceD: 121.0, usdPlus: 32.97, yuan: 238.4, sales: 32.97, cat: 'IPhone / LCD', exp: 0 },
 
-  // Samsung LCD (5 rows)
-  { name: 'LCD SAM A12 (INCELL)', priceD: 19.8, usdPlus: 5.4, yuan: 39.0, sales: 5.4, cat: 'Samsung LCD', exp: 0 },
-  { name: 'LCD SAM A15 (INCELL)', priceD: 24.5, usdPlus: 6.68, yuan: 48.3, sales: 6.68, cat: 'Samsung LCD', exp: 0 },
-  { name: 'LCD SAM A54 (OLED)', priceD: 68.0, usdPlus: 18.53, yuan: 134.0, sales: 18.53, cat: 'Samsung LCD', exp: 0 },
-  { name: 'LCD SAM A10 (ORIGINAL)', priceD: 22.0, usdPlus: 5.99, yuan: 43.3, sales: 5.99, cat: 'Samsung LCD', exp: 0 },
-  { name: 'LCD SAM A24 (INCELL)', priceD: 28.5, usdPlus: 7.77, yuan: 56.1, sales: 7.77, cat: 'Samsung LCD', exp: 0 },
+  // SAMSUNG / LCD (5 rows)
+  { name: 'LCD SAM A12 (INCELL)', priceD: 19.8, usdPlus: 5.4, yuan: 39.0, sales: 5.4, cat: 'SAMSUNG / LCD', exp: 0 },
+  { name: 'LCD SAM A15 (INCELL)', priceD: 24.5, usdPlus: 6.68, yuan: 48.3, sales: 6.68, cat: 'SAMSUNG / LCD', exp: 0 },
+  { name: 'LCD SAM A54 (OLED)', priceD: 68.0, usdPlus: 18.53, yuan: 134.0, sales: 18.53, cat: 'SAMSUNG / LCD', exp: 0 },
+  { name: 'LCD SAM A10 (ORIGINAL)', priceD: 22.0, usdPlus: 5.99, yuan: 43.3, sales: 5.99, cat: 'SAMSUNG / LCD', exp: 0 },
+  { name: 'LCD SAM A24 (INCELL)', priceD: 28.5, usdPlus: 7.77, yuan: 56.1, sales: 7.77, cat: 'SAMSUNG / LCD', exp: 0 },
 
-  // Redmi LCD (5 rows)
-  { name: 'LCD Redmi Note 13 4G', priceD: 19.4, usdPlus: 5.29, yuan: 38.2, sales: 5.29, cat: 'Redmi LCD', exp: 0 },
-  { name: 'LCD Redmi Note 12 4G', priceD: 18.5, usdPlus: 5.04, yuan: 36.4, sales: 5.04, cat: 'Redmi LCD', exp: 0 },
-  { name: 'LCD Redmi Note 11', priceD: 21.0, usdPlus: 5.72, yuan: 41.4, sales: 5.72, cat: 'Redmi LCD', exp: 0 },
-  { name: 'LCD Redmi Note 10', priceD: 19.0, usdPlus: 5.18, yuan: 37.4, sales: 5.18, cat: 'Redmi LCD', exp: 0 },
-  { name: 'LCD Redmi Note 9 Pro', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'Redmi LCD', exp: 0 },
+  // REDMI / LCD (5 rows)
+  { name: 'LCD Redmi Note 13 4G', priceD: 19.4, usdPlus: 5.29, yuan: 38.2, sales: 5.29, cat: 'REDMI / LCD', exp: 0 },
+  { name: 'LCD Redmi Note 12 4G', priceD: 18.5, usdPlus: 5.04, yuan: 36.4, sales: 5.04, cat: 'REDMI / LCD', exp: 0 },
+  { name: 'LCD Redmi Note 11', priceD: 21.0, usdPlus: 5.72, yuan: 41.4, sales: 5.72, cat: 'REDMI / LCD', exp: 0 },
+  { name: 'LCD Redmi Note 10', priceD: 19.0, usdPlus: 5.18, yuan: 37.4, sales: 5.18, cat: 'REDMI / LCD', exp: 0 },
+  { name: 'LCD Redmi Note 9 Pro', priceD: 17.5, usdPlus: 4.77, yuan: 34.5, sales: 4.77, cat: 'REDMI / LCD', exp: 0 },
 
-  // Infinix / Tecno LCD (5 rows)
-  { name: 'LCD Infinix Hot 12i', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 4.5, cat: 'Infinix / Tecno LCD', exp: 0 },
-  { name: 'LCD Tecno Spark 20', priceD: 18.0, usdPlus: 4.9, yuan: 35.5, sales: 4.9, cat: 'Infinix / Tecno LCD', exp: 0 },
-  { name: 'LCD Infinix Hot 30', priceD: 19.0, usdPlus: 5.18, yuan: 37.4, sales: 5.18, cat: 'Infinix / Tecno LCD', exp: 0 },
-  { name: 'LCD Tecno Spark 10', priceD: 17.0, usdPlus: 4.63, yuan: 33.5, sales: 4.63, cat: 'Infinix / Tecno LCD', exp: 0 },
-  { name: 'LCD Tecno Camon 20', priceD: 23.5, usdPlus: 6.4, yuan: 46.3, sales: 6.4, cat: 'Infinix / Tecno LCD', exp: 0 },
+  // INFINIX /  LCD (5 rows)
+  { name: 'LCD Infinix Hot 12i', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 4.5, cat: 'INFINIX /  LCD', exp: 0 },
+  { name: 'LCD Tecno Spark 20', priceD: 18.0, usdPlus: 4.9, yuan: 35.5, sales: 4.9, cat: 'TECNO /  LCD', exp: 0 },
+  { name: 'LCD Infinix Hot 30', priceD: 19.0, usdPlus: 5.18, yuan: 37.4, sales: 5.18, cat: 'INFINIX /  LCD', exp: 0 },
+  { name: 'LCD Tecno Spark 10', priceD: 17.0, usdPlus: 4.63, yuan: 33.5, sales: 4.63, cat: 'TECNO /  LCD', exp: 0 },
+  { name: 'LCD Tecno Camon 20', priceD: 23.5, usdPlus: 6.4, yuan: 46.3, sales: 6.4, cat: 'TECNO /  LCD', exp: 0 },
 
-  // iPhone Battery (5 rows)
-  { name: 'BATTERY IPHONE X14 PRO MAX', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 4.5, cat: 'iPhone Battery', exp: 0 },
-  { name: 'BATTERY IPHONE X13 PRO MAX', priceD: 14.8, usdPlus: 4.03, yuan: 29.2, sales: 4.03, cat: 'iPhone Battery', exp: 0 },
-  { name: 'BATTERY IPHONE X12 PRO', priceD: 12.5, usdPlus: 3.41, yuan: 24.6, sales: 3.41, cat: 'iPhone Battery', exp: 0 },
-  { name: 'BATTERY IPHONE X11 PRO', priceD: 11.0, usdPlus: 3.0, yuan: 21.7, sales: 3.0, cat: 'iPhone Battery', exp: 0 },
-  { name: 'BATTERY IPHONE X8 PLUS', priceD: 8.5, usdPlus: 2.32, yuan: 16.7, sales: 2.32, cat: 'iPhone Battery', exp: 0 },
+  // IPhone / BATTERY (5 rows)
+  { name: 'BATTERY IPHONE X14 PRO MAX', priceD: 16.5, usdPlus: 4.5, yuan: 32.5, sales: 4.5, cat: 'IPhone / BATTERY', exp: 0 },
+  { name: 'BATTERY IPHONE X13 PRO MAX', priceD: 14.8, usdPlus: 4.03, yuan: 29.2, sales: 4.03, cat: 'IPhone / BATTERY', exp: 0 },
+  { name: 'BATTERY IPHONE X12 PRO', priceD: 12.5, usdPlus: 3.41, yuan: 24.6, sales: 3.41, cat: 'IPhone / BATTERY', exp: 0 },
+  { name: 'BATTERY IPHONE X11 PRO', priceD: 11.0, usdPlus: 3.0, yuan: 21.7, sales: 3.0, cat: 'IPhone / BATTERY', exp: 0 },
+  { name: 'BATTERY IPHONE X8 PLUS', priceD: 8.5, usdPlus: 2.32, yuan: 16.7, sales: 2.32, cat: 'IPhone / BATTERY', exp: 0 },
 
-  // Samsung Flex Charger (5 rows)
-  { name: 'FLEX CHARGER SAM A15', priceD: 0.6, usdPlus: 0.16, yuan: 1.18, sales: 0.16, cat: 'Samsung Flex Charger', exp: 0 },
-  { name: 'FLEX CHARGER SAM A12', priceD: 0.5, usdPlus: 0.14, yuan: 0.98, sales: 0.14, cat: 'Samsung Flex Charger', exp: 0 },
-  { name: 'FLEX CHARGER SAM A54', priceD: 0.8, usdPlus: 0.22, yuan: 1.58, sales: 0.22, cat: 'Samsung Flex Charger', exp: 0 },
-  { name: 'FLEX CHARGER SAM A24', priceD: 0.6, usdPlus: 0.16, yuan: 1.18, sales: 0.16, cat: 'Samsung Flex Charger', exp: 0 },
-  { name: 'FLEX CHARGER SAM A32', priceD: 0.55, usdPlus: 0.15, yuan: 1.08, sales: 0.15, cat: 'Samsung Flex Charger', exp: 0 }
+  // SAMSUNG / FLEX CHARGER (5 rows)
+  { name: 'FLEX CHARGER SAM A15', priceD: 0.6, usdPlus: 0.16, yuan: 1.18, sales: 0.16, cat: 'SAMSUNG / FLEX CHARGER', exp: 0 },
+  { name: 'FLEX CHARGER SAM A12', priceD: 0.5, usdPlus: 0.14, yuan: 0.98, sales: 0.14, cat: 'SAMSUNG / FLEX CHARGER', exp: 0 },
+  { name: 'FLEX CHARGER SAM A54', priceD: 0.8, usdPlus: 0.22, yuan: 1.58, sales: 0.22, cat: 'SAMSUNG / FLEX CHARGER', exp: 0 },
+  { name: 'FLEX CHARGER SAM A24', priceD: 0.6, usdPlus: 0.16, yuan: 1.18, sales: 0.16, cat: 'SAMSUNG / FLEX CHARGER', exp: 0 },
+  { name: 'FLEX CHARGER SAM A32', priceD: 0.55, usdPlus: 0.15, yuan: 1.08, sales: 0.15, cat: 'SAMSUNG / FLEX CHARGER', exp: 0 }
 ];
 
 export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
@@ -95,20 +106,28 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
   compatList,
   compareList,
   photosList = [],
+  companies = [],
+  priceChanges = [],
   onDataSynced,
+  onRestoreCompleteSuite,
   onResetToDefault,
   onFormatDatabase,
   lastSyncedAt
 }) => {
   const [sheetUrl, setSheetUrl] = useState(() => {
-    return GoogleSheetsService.getSavedConfig().sheetUrl || '';
+    return GoogleSheetsService.getSavedConfig().sheetUrl || DEFAULT_WEB_APP_URL;
   });
   const [webAppUrl, setWebAppUrl] = useState(() => {
-    return (GoogleSheetsService.getSavedConfig() as any).webAppUrl || '';
+    return (GoogleSheetsService.getSavedConfig() as any).webAppUrl || DEFAULT_WEB_APP_URL;
   });
-  const [activeTab, setActiveTab] = useState<'template' | 'sync' | 'manage'>('template');
+  const [activeTab, setActiveTab] = useState<'readme' | 'template' | 'sync' | 'manage'>('readme');
   const [isLoading, setIsLoading] = useState(false);
+  const [isRestoringSuite, setIsRestoringSuite] = useState(false);
+  const [isBackingUpSuite, setIsBackingUpSuite] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<CompleteSuiteRestoreResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionResult, setConnectionResult] = useState<{ verified: boolean; sheetName?: string; error?: string } | null>(null);
   const [copiedTemplate, setCopiedTemplate] = useState(false);
   const [templateFilter, setTemplateFilter] = useState('__all__');
   const [pasteText, setPasteText] = useState('');
@@ -135,6 +154,128 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       type: 'success',
       text: `Guul! Dhammaan 584 alaabood iyo ${catCount} category pages (SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, iwm.) ee NAJI HASSAN si buuxda ayaa loo soo roray!`
     });
+  };
+
+  const handleBackupCompleteSuite = async () => {
+    const currentUrl = (sheetUrl || webAppUrl).trim();
+    if (!currentUrl) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Fadlan marka hore geli Google Apps Script Web App URL-kaaga (link-ga ku dhamaanaya /exec).'
+      });
+      return;
+    }
+
+    let targetEndpoint = '';
+    if (GoogleSheetsService.isWebAppUrl(currentUrl)) {
+      targetEndpoint = currentUrl;
+    } else {
+      sound.playWrong();
+      setShowAppsScript(true);
+      setStatusMessage({
+        type: 'error',
+        text: 'Kaydinta tooska ah waxay u baahan tahay Google Apps Script Web App URL (oo ku dhamaanaya /exec). Eeg tab-ka hoose ee Script-ka.'
+      });
+      return;
+    }
+
+    setIsBackingUpSuite(true);
+    setStatusMessage({
+      type: 'success',
+      text: `Waxaa Google Sheet-ka lagu kaydinayaa Complete Suite: ${parts.length} Spare Parts, ${companies.length} Companies, ${priceChanges.length} Price Movements, ${photosList.length} Photos, ${compatList.length} LCD Sets...`
+    });
+
+    try {
+      const res = await GoogleSheetsService.backupCompleteSuite(targetEndpoint, {
+        parts,
+        companies,
+        priceChanges,
+        photos: photosList,
+        compat: compatList
+      });
+
+      if (res.success) {
+        sound.playVictory();
+        setStatusMessage({
+          type: 'success',
+          text: `Guul! Dhammaan Complete Suite (585+ Parts, Shirkadaha, Price Tracker, Sawirrada, & LCD-yada) si buuxda ayaa loogu kaydiyay Google Sheet-kaaga!`
+        });
+      } else {
+        throw new Error(res.message);
+      }
+    } catch (err) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Khalad ayaa dhacay xilligii kaydinta Complete Suite: ' + (err as Error).message
+      });
+    } finally {
+      setIsBackingUpSuite(false);
+    }
+  };
+
+  const handleFetchRestorePreview = async () => {
+    const currentUrl = (sheetUrl || webAppUrl).trim();
+    if (!currentUrl) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Fadlan marka hore geli Google Apps Script Web App URL-kaaga (link-ga ku dhamaanaya /exec).'
+      });
+      return;
+    }
+
+    let targetEndpoint = '';
+    if (GoogleSheetsService.isWebAppUrl(currentUrl)) {
+      targetEndpoint = currentUrl;
+    } else {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Soo celinta tooska ah waxay u baahan tahay Google Apps Script Web App URL (oo ku dhamaanaya /exec).'
+      });
+      return;
+    }
+
+    setIsRestoringSuite(true);
+    setStatusMessage({
+      type: 'success',
+      text: 'Waxaa Google Sheet-kaaga laga soo aqrinayaa dhammaan 5-ta tab...'
+    });
+
+    try {
+      const result = await GoogleSheetsService.restoreCompleteSuite(targetEndpoint);
+      sound.playVictory();
+      setRestorePreview(result);
+      setStatusMessage({
+        type: 'success',
+        text: `Waxaa Google Sheet-ka laga helay: ${result.partsCount} Spare Parts, ${result.companiesCount} Shirkadood, ${result.priceChangesCount} Price Tracker records, ${result.photosCount} Sawirro, iyo ${result.compatCount} Compatible LCD sets. Guji "Confirm Restore" si aad app-ka ugu shubto!`
+      });
+    } catch (err) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Khalad ayaa dhacay xilligii xogta laga soo aqrinayay Google Sheet: ' + (err as Error).message
+      });
+    } finally {
+      setIsRestoringSuite(false);
+    }
+  };
+
+  const handleConfirmRestoreSuite = () => {
+    if (!restorePreview) return;
+    sound.playVictory();
+    if (onRestoreCompleteSuite) {
+      onRestoreCompleteSuite(restorePreview);
+    } else {
+      onDataSynced(restorePreview.parts, undefined, restorePreview.photos, restorePreview.compat);
+    }
+    setStatusMessage({
+      type: 'success',
+      text: `Guul! Dhammaan xogtii Complete Suite ee Google Sheet-ka si guul leh ayaa loogu soo celiyay app-kaaga!`
+    });
+    setRestorePreview(null);
   };
 
   const handleBackupToSheet = async (mode: 'all_in_one' | 'multi_tab' = 'all_in_one') => {
@@ -176,7 +317,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       });
 
       try {
-        await GoogleSheetsService.backupAllToGoogleSheet(targetEndpoint, parts, photosList, compatList, mode);
+        await GoogleSheetsService.backupAllToGoogleSheet(targetEndpoint, parts, photosList, compatList, mode, companies);
         sound.playVictory();
         const modeDesc = mode === 'multi_tab' 
           ? `Dhammaan ${parts.length} alaabood waxaa si toos ah loogu dhex sameeyay ${categories.length} category spreadsheet tabs (pages) ee Google Sheet-kaaga NAJI HASSAN!` 
@@ -250,6 +391,48 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    const target = (webAppUrl || sheetUrl).trim();
+    if (!target) {
+      sound.playWrong();
+      setStatusMessage({
+        type: 'error',
+        text: 'Fadlan marka hore gali Google Apps Script Web App URL (/exec) si aad u tijaabiso xiriirka!'
+      });
+      return;
+    }
+    setIsTestingConnection(true);
+    setConnectionResult(null);
+    sound.playTick();
+    try {
+      const res = await GoogleSheetsService.testConnection(target);
+      if (res.success) {
+        sound.playVictory();
+        setConnectionResult({ verified: true, sheetName: res.sheetName });
+        setStatusMessage({
+          type: 'success',
+          text: `🟢 Xiriirka wuu guuleystay! Connected to Google Sheet "${res.sheetName || 'NAJI HASSAN'}" (Spreadsheet is active & responding)!`
+        });
+      } else {
+        sound.playWrong();
+        setConnectionResult({ verified: false, error: res.message });
+        setStatusMessage({
+          type: 'error',
+          text: `❌ Xiriirka Google Sheet wuu fashilmay: ${res.message || 'Deployment error'}. Hubi in Apps Script deployment-kaagu yahay "Execute as: Me" iyo "Who has access: Anyone".`
+        });
+      }
+    } catch (err: any) {
+      sound.playWrong();
+      setConnectionResult({ verified: false, error: err?.message || 'Connection failed' });
+      setStatusMessage({
+        type: 'error',
+        text: `❌ Xiriirka Google Sheet wuu fashilmay: ${err?.message || 'Connection error'}`
+      });
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -443,6 +626,19 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
         <div className="px-5 sm:px-6 pt-4 border-b border-slate-800 bg-[#0d1527] flex items-center gap-2 overflow-x-auto shrink-0">
           <button
             type="button"
+            onClick={() => setActiveTab('readme')}
+            className={`px-4 sm:px-5 py-2.5 rounded-t-xl text-xs sm:text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
+              activeTab === 'readme'
+                ? 'border-cyan-400 text-cyan-300 bg-slate-900/80'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 text-cyan-400" />
+            <span>Data Dictionary & Restore README</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('template')}
             className={`px-4 sm:px-5 py-2.5 rounded-t-xl text-xs sm:text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'template'
@@ -500,6 +696,570 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
             </div>
           )}
 
+          {/* TAB 0: DATA DICTIONARY & RESTORE README */}
+          {activeTab === 'readme' && (
+            <div className="space-y-6">
+
+              {/* 1. Quick Webhook Action Hub */}
+              <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-[#0c1527] to-[#080d19] border border-cyan-500/30 shadow-xl space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <Database className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h4 className="text-base font-bold text-white">Complete Suite 2-Way Synchronization Hub</h4>
+                      <p className="text-xs text-slate-400">Back up or restore all 5 sheets (Spare Parts, Companies, Price Tracker, Photos, LCDs) with 1 click.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-mono">
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 font-semibold">
+                      {parts.length} Parts Loaded
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-indigo-950/60 text-indigo-300 border border-indigo-800/60 font-semibold">
+                      {companies.length} Companies
+                    </span>
+                  </div>
+                </div>
+
+                {/* Web App URL input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 uppercase tracking-wide flex items-center justify-between">
+                    <span>Google Apps Script Web App URL (/exec) *</span>
+                    {webAppUrl || sheetUrl ? (
+                      <span className="text-emerald-400 text-[11px] font-mono flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Configured
+                      </span>
+                    ) : (
+                      <span className="text-amber-400 text-[11px] font-mono">Needs Web App URL</span>
+                    )}
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={webAppUrl || sheetUrl}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setWebAppUrl(val);
+                        setSheetUrl(val);
+                        GoogleSheetsService.saveConfig({ sheetUrl: val });
+                      }}
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      className="flex-1 bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs font-mono text-white outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={isTestingConnection}
+                      onClick={handleTestConnection}
+                      title="Test connection to your Google Spreadsheet"
+                      className="px-4 py-2.5 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/70 text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0 transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      {isTestingConnection ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      )}
+                      <span>{isTestingConnection ? 'Testing...' : '⚡ Test Connection'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAppsScript(!showAppsScript)}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+                    >
+                      <Code2 className="w-4 h-4 text-cyan-400" />
+                      <span>{showAppsScript ? 'Hide Script' : 'Get Apps Script'}</span>
+                    </button>
+                  </div>
+
+                  {connectionResult && (
+                    <div className={`mt-2.5 p-3 rounded-xl border text-xs flex items-center gap-2.5 shadow-md animate-in fade-in ${
+                      connectionResult.verified 
+                        ? 'bg-emerald-950/80 border-emerald-500/70 text-emerald-300' 
+                        : 'bg-rose-950/80 border-rose-500/70 text-rose-300'
+                    }`}>
+                      {connectionResult.verified ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      )}
+                      <div className="flex-1 leading-normal">
+                        {connectionResult.verified ? (
+                          <span>
+                            <strong>🟢 Xiriirka wuu toosan yahay:</strong> Connected to spreadsheet <span className="underline font-bold text-white">"{connectionResult.sheetName || 'NAJI HASSAN'}"</span>. Backup and Restore are completely ready to use!
+                          </span>
+                        ) : (
+                          <span>
+                            <strong>❌ Connection Error:</strong> {connectionResult.error || 'Could not connect'}. Ensure Apps Script deployment is set to <span className="underline font-bold">"Execute as: Me"</span> and <span className="underline font-bold">"Who has access: Anyone"</span>.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2 Big Action Buttons */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                  {/* Backup Button */}
+                  <button
+                    type="button"
+                    disabled={isBackingUpSuite}
+                    onClick={handleBackupCompleteSuite}
+                    className="p-4 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-cyan-950/40 disabled:opacity-60 cursor-pointer"
+                  >
+                    {isBackingUpSuite ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <Upload className="w-4 h-4 text-cyan-200" />
+                    )}
+                    <span>🚀 Backup Complete Suite to Google Sheet</span>
+                  </button>
+
+                  {/* Restore Button */}
+                  <button
+                    type="button"
+                    disabled={isRestoringSuite}
+                    onClick={handleFetchRestorePreview}
+                    className="p-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-emerald-500/50 text-emerald-300 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all shadow-md disabled:opacity-60 cursor-pointer"
+                  >
+                    {isRestoringSuite ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                    ) : (
+                      <Download className="w-4 h-4 text-emerald-400" />
+                    )}
+                    <span>🔄 Restore Complete Suite from Google Sheet</span>
+                  </button>
+                </div>
+
+                {/* Restore Preview Confirmation Card */}
+                {restorePreview && (
+                  <div className="p-4 sm:p-5 rounded-xl bg-emerald-950/30 border-2 border-emerald-500/60 space-y-3 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Google Sheet Data Found & Ready to Restore:</span>
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {new Date(restorePreview.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-mono text-center">
+                      <div className="p-2.5 bg-slate-900/90 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">Spare Parts</span>
+                        <span className="text-base font-bold text-cyan-400">{restorePreview.partsCount}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-900/90 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">Companies</span>
+                        <span className="text-base font-bold text-indigo-400">{restorePreview.companiesCount}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-900/90 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">Price Changes</span>
+                        <span className="text-base font-bold text-amber-400">{restorePreview.priceChangesCount}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-900/90 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">Photos</span>
+                        <span className="text-base font-bold text-emerald-400">{restorePreview.photosCount}</span>
+                      </div>
+                      <div className="p-2.5 bg-slate-900/90 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">LCD Models</span>
+                        <span className="text-base font-bold text-rose-400">{restorePreview.compatCount}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setRestorePreview(null)}
+                        className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmRestoreSuite}
+                        className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-md shadow-emerald-950/50 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Confirm & Apply Restore to App</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Apps Script Box if opened */}
+              {showAppsScript && (
+                <div className="p-5 rounded-2xl bg-[#070c18] border border-cyan-500/40 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Code2 className="w-5 h-5 text-cyan-400" />
+                      <span className="font-bold text-white text-sm">Google Apps Script (Code.gs) for All 5 Tabs</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code = GoogleSheetsService.getAppsScriptCode(GoogleSheetsService.extractSpreadsheetId(sheetUrl || webAppUrl) || undefined);
+                        if (navigator.clipboard) {
+                          navigator.clipboard.writeText(code);
+                          setCopiedScript(true);
+                          setTimeout(() => setCopiedScript(false), 2500);
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedScript ? 'Copied Code!' : 'Copy Script Code'}</span>
+                    </button>
+                  </div>
+                  <ol className="text-xs text-slate-300 space-y-1 list-decimal list-inside bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+                    <li>Open your Google Sheet and click <strong>Extensions &gt; Apps Script</strong>.</li>
+                    <li>Delete any existing code and paste this script.</li>
+                    <li>Click <strong>Deploy &gt; New deployment</strong>, select type <strong>Web app</strong>.</li>
+                    <li>Set <em>Execute as:</em> <strong>Me</strong> and <em>Who has access:</em> <strong>Anyone</strong>.</li>
+                    <li>Copy the Web App URL and paste it into the Web App URL input above!</li>
+                  </ol>
+                </div>
+              )}
+
+              {/* 3. Comprehensive Data Dictionary (README for All 5 Sheets) */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-800">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-cyan-400" />
+                    <span>Complete Data Dictionary & Google Sheets Schema</span>
+                  </h4>
+                  <span className="text-xs text-slate-400 font-mono">5 Dedicated Sheets</span>
+                </div>
+
+                {/* Sheet 1: ALL PRODUCT */}
+                <div className="bg-[#070c18] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-lg bg-cyan-950 text-cyan-300 border border-cyan-800 text-xs font-mono font-bold">
+                        Sheet 1
+                      </span>
+                      <span className="font-bold text-white text-sm sm:text-base">ALL PRODUCT (Master Spare Parts Catalog)</span>
+                    </div>
+                    <span className="text-xs text-cyan-400 font-mono font-bold">11 Columns (with ID)</span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Contains all 585+ spare parts across 38 category lines. Products with the same name from different companies (e.g. Royal vs Dubai VX) or different cargo methods (Sea vs Air) have unique IDs in Column A and are strictly preserved and never overwritten.
+                  </p>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2 px-2.5 font-bold">Col</th>
+                          <th className="py-2 px-2.5 font-bold">Header Name</th>
+                          <th className="py-2 px-2.5 font-bold">Type</th>
+                          <th className="py-2 px-2.5 font-bold">Example Value</th>
+                          <th className="py-2 px-2.5 font-bold">Description / Formula</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                        <tr className="bg-cyan-950/20">
+                          <td className="py-2 px-2.5 text-cyan-300 font-bold">A</td>
+                          <td className="py-2 px-2.5 font-bold text-cyan-200">ID</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-cyan-300 font-bold">13PM-SEA-ROYAL-CHN-1</td>
+                          <td className="py-2 px-2.5 text-cyan-300 font-semibold">Unique Part ID (Prevents duplicate overwrite)</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">B</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Product Name</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-emerald-400">LCD IPHONE 11 PRO MAX</td>
+                          <td className="py-2 px-2.5 text-slate-400">Full model and spare part name</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">C</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Category (Brand _Part Type)</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-emerald-400">iPhone / LCD</td>
+                          <td className="py-2 px-2.5 text-slate-400">Brand and component grouping</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">D</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Price D</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-amber-400">117.0</td>
+                          <td className="py-2 px-2.5 text-slate-400">AED Dirham base supplier price</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">E</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Yuan ¥</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-amber-400">230.5</td>
+                          <td className="py-2 px-2.5 text-slate-400">China RMB (uses manual exchange rate)</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">F</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">USD+</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-emerald-400">31.88</td>
+                          <td className="py-2 px-2.5 text-slate-400">Cost in USD = (Price D / 3.67) + Expense Rate</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">G</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Sales $</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-emerald-400">34.00</td>
+                          <td className="py-2 px-2.5 text-slate-400">Manual or target sales price in USD</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">H</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Company / Supplier</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-indigo-300">Al-Baraka Dubai</td>
+                          <td className="py-2 px-2.5 text-slate-400">Linked registered supplier/company</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">I</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Shipment</td>
+                          <td className="py-2 px-2.5 text-slate-400">Enum</td>
+                          <td className="py-2 px-2.5 text-sky-300">By Air / By Sea</td>
+                          <td className="py-2 px-2.5 text-slate-400">Cargo method (Diyaarad / Markab)</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">J</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Origin</td>
+                          <td className="py-2 px-2.5 text-slate-400">Enum</td>
+                          <td className="py-2 px-2.5 text-rose-300">Dubai / China</td>
+                          <td className="py-2 px-2.5 text-slate-400">Sourced country (🇦🇪 Dubai / 🇨🇳 China)</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-cyan-400">K</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Date Added</td>
+                          <td className="py-2 px-2.5 text-slate-400">Date</td>
+                          <td className="py-2 px-2.5 text-slate-400">2026-11-06</td>
+                          <td className="py-2 px-2.5 text-slate-400">Timestamp of registration</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Sheet 2: REGISTERED COMPANIES */}
+                <div className="bg-[#070c18] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-lg bg-indigo-950 text-indigo-300 border border-indigo-800 text-xs font-mono font-bold">
+                        Sheet 2
+                      </span>
+                      <span className="font-bold text-white text-sm sm:text-base">REGISTERED COMPANIES (Suppliers Directory)</span>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono">9 Columns</span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Registry of all suppliers, phone numbers, WhatsApp, locations, and notes. Linked directly to products in the catalog and quiz.
+                  </p>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2 px-2.5 font-bold">Col</th>
+                          <th className="py-2 px-2.5 font-bold">Header Name</th>
+                          <th className="py-2 px-2.5 font-bold">Type</th>
+                          <th className="py-2 px-2.5 font-bold">Example Value</th>
+                          <th className="py-2 px-2.5 font-bold">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">A</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Company Name</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-emerald-400">Al-Baraka Electronics</td>
+                          <td className="py-2 px-2.5 text-slate-400">Supplier business name</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">B</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Phone No</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-amber-400">+971 50 123 4567</td>
+                          <td className="py-2 px-2.5 text-slate-400">Primary phone for orders</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">C</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">WhatsApp</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-emerald-400">+971 50 123 4567</td>
+                          <td className="py-2 px-2.5 text-slate-400">Direct WhatsApp order chat</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">D</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Location</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-slate-200">Deira, Dubai</td>
+                          <td className="py-2 px-2.5 text-slate-400">Physical market/store address</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">E</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Category / Specialty</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-slate-200">All LCD Screens</td>
+                          <td className="py-2 px-2.5 text-slate-400">Core specialty parts provided</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">F</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Contact Person</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-slate-200">Manager Hassan</td>
+                          <td className="py-2 px-2.5 text-slate-400">Agent or representative name</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">G</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Status</td>
+                          <td className="py-2 px-2.5 text-slate-400">Enum</td>
+                          <td className="py-2 px-2.5 text-emerald-400">active / blocked</td>
+                          <td className="py-2 px-2.5 text-slate-400">Supplier partnership status</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">H</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Notes</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-slate-400">High quality screens, 30 days warranty</td>
+                          <td className="py-2 px-2.5 text-slate-400">Payment terms, warranties, delivery terms</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-indigo-400">I</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Date Registered</td>
+                          <td className="py-2 px-2.5 text-slate-400">Date</td>
+                          <td className="py-2 px-2.5 text-slate-400">2026-11-06</td>
+                          <td className="py-2 px-2.5 text-slate-400">Date supplier was registered</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Sheet 3: Price Tracker */}
+                <div className="bg-[#070c18] border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-lg bg-amber-950 text-amber-300 border border-amber-800 text-xs font-mono font-bold">
+                        Sheet 3
+                      </span>
+                      <span className="font-bold text-white text-sm sm:text-base">Price Tracker (Audit Trail & Price Movements)</span>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono">9 Columns</span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Tracks newly added items, price increases (Price Up / Kor u kacay), and price drops (Price Down / Hoos u dhacay) with delta calculations.
+                  </p>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2 px-2.5 font-bold">Col</th>
+                          <th className="py-2 px-2.5 font-bold">Header Name</th>
+                          <th className="py-2 px-2.5 font-bold">Type</th>
+                          <th className="py-2 px-2.5 font-bold">Example Value</th>
+                          <th className="py-2 px-2.5 font-bold">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">A</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Date</td>
+                          <td className="py-2 px-2.5 text-slate-400">Date</td>
+                          <td className="py-2 px-2.5 text-slate-200">2026-11-06</td>
+                          <td className="py-2 px-2.5 text-slate-400">Date of recorded price change</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">B</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Product Name</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-emerald-400">LCD SAM A12 (INCELL)</td>
+                          <td className="py-2 px-2.5 text-slate-400">Target product changed</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">C</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Category</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-slate-200">Samsung LCD</td>
+                          <td className="py-2 px-2.5 text-slate-400">Part category line</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">D</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Movement Type</td>
+                          <td className="py-2 px-2.5 text-slate-400">Enum</td>
+                          <td className="py-2 px-2.5 text-cyan-300">New Product / Price Increase / Price Decrease</td>
+                          <td className="py-2 px-2.5 text-slate-400">Change classification</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">E</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Old Price D</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-slate-400">18.5</td>
+                          <td className="py-2 px-2.5 text-slate-400">Previous Dirham price (0 if new)</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">F</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">New Price D</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-amber-300">19.8</td>
+                          <td className="py-2 px-2.5 text-slate-400">Current Dirham price</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">G</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Price Delta (D)</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-rose-400">+1.3</td>
+                          <td className="py-2 px-2.5 text-slate-400">Difference in Dirhams (+ / -)</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">H</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Change %</td>
+                          <td className="py-2 px-2.5 text-slate-400">Number</td>
+                          <td className="py-2 px-2.5 text-rose-400">+7.0%</td>
+                          <td className="py-2 px-2.5 text-slate-400">Percentage shift</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 px-2.5 text-amber-400">I</td>
+                          <td className="py-2 px-2.5 font-semibold text-white">Notes / Supplier</td>
+                          <td className="py-2 px-2.5 text-slate-400">String</td>
+                          <td className="py-2 px-2.5 text-slate-400">Price increase recorded</td>
+                          <td className="py-2 px-2.5 text-slate-400">Movement rationale and context</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Sheets 4 & 5: Photos & Compatible LCDs */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Sheet 4: Photos */}
+                  <div className="bg-[#070c18] border border-slate-800 rounded-2xl p-4 space-y-2.5">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+                      <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-xs font-mono font-bold">
+                        Sheet 4
+                      </span>
+                      <span className="font-bold text-white text-sm">Photos (Image Hub)</span>
+                    </div>
+                    <p className="text-xs text-slate-400">5 Columns: <code>Photo Name</code>, <code>Image URL / Link</code>, <code>Description</code>, <code>Brand / Category</code>, <code>Date Added</code>.</p>
+                  </div>
+
+                  {/* Sheet 5: Compatible LCDs */}
+                  <div className="bg-[#070c18] border border-slate-800 rounded-2xl p-4 space-y-2.5">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+                      <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 text-xs font-mono font-bold">
+                        Sheet 5
+                      </span>
+                      <span className="font-bold text-white text-sm">Compatible LCDs (Fits)</span>
+                    </div>
+                    <p className="text-xs text-slate-400">3 Columns: <code>Main Model (LCD)</code>, <code>Compatible Models (Fits)</code>, <code>Notes</code>.</p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+
           {/* TAB 1: ALL-IN-ONE SHEET TEMPLATE */}
           {activeTab === 'template' && (
             <div className="space-y-5">
@@ -551,7 +1311,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                   Filter Category Preview (5 Rows Each):
                 </span>
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {['__all__', 'iPhone LCD', 'Samsung LCD', 'Redmi LCD', 'Infinix / Tecno LCD', 'iPhone Battery', 'Samsung Flex Charger'].map(cat => (
+                  {['__all__', 'IPhone / LCD', 'SAMSUNG / LCD', 'REDMI / LCD', 'INFINIX /  LCD', 'TECNO /  LCD', 'IPhone / BATTERY', 'SAMSUNG / FLEX CHARGER'].map(cat => (
                     <button
                       key={cat}
                       type="button"
