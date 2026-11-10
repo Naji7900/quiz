@@ -45,7 +45,8 @@ import {
   PRESET_COMPANY_NAMES,
   RegisteredCompany,
   generateSmartPartId,
-  AUTHENTIC_GOOGLE_SHEET_CATEGORIES
+  AUTHENTIC_GOOGLE_SHEET_CATEGORIES,
+  getNextSequentialDxId
 } from '../data/initialData';
 import { sound } from '../services/soundService';
 
@@ -59,7 +60,7 @@ interface ProListViewProps {
   onClearCompanyFilter?: () => void;
   onSetCompanyFilter?: (company: string) => void;
   onRegisterNewCompany?: (companyName: string) => void;
-  onAddPart: (part: Omit<SparePartItem, 'id'>) => void;
+  onAddPart: (part: SparePartItem | (Omit<SparePartItem, 'id'> & { id?: string })) => void;
   onUpdatePart?: (id: string, updatedFields: Partial<SparePartItem>) => void;
   onDeletePart?: (id: string) => void;
   onMovePartCategory?: (id: string, newCategory: string) => void;
@@ -72,6 +73,10 @@ interface ProListViewProps {
   onUpdateYuanRate?: (rate: number) => void;
   expenseRate?: number;
   onUpdateExpenseRate?: (rate: number, applyToAll?: boolean) => void;
+  onOpenUpload11Modal?: () => void;
+  onOpenFormatAllModal?: () => void;
+  onBackupCompleteSuite?: () => void;
+  isBackingUpSuite?: boolean;
 }
 
 export const ProListView: React.FC<ProListViewProps> = ({
@@ -93,6 +98,10 @@ export const ProListView: React.FC<ProListViewProps> = ({
   onOpenDbModal,
   onRestoreDefault,
   onNavigateToPriceTracker,
+  onOpenUpload11Modal,
+  onOpenFormatAllModal,
+  onBackupCompleteSuite,
+  isBackingUpSuite = false,
   yuanRate = 7.23,
   onUpdateYuanRate,
   expenseRate = 0,
@@ -305,12 +314,17 @@ export const ProListView: React.FC<ProListViewProps> = ({
     if (!isNaN(d) && d >= 0) {
       const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : currentExpenseRate;
       const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+      const calcYuan = Number(((d / 3.67) * currentYuanRate).toFixed(2));
       setNewPartUsd(String(costUsd));
       setNewPartSalesPrice(String(costUsd));
-      // Do NOT touch newPartYuan - keep Dirham and Yuan completely independent!
+      // Auto-fill Yuan if not manually typed yet
+      if (!newPartYuan || newPartYuan === '0') {
+        setNewPartYuan(String(calcYuan));
+      }
     } else if (!val && !newPartYuan) {
       setNewPartUsd('');
       setNewPartSalesPrice('');
+      setNewPartYuan('');
     }
   };
 
@@ -395,13 +409,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       onRegisterNewCompany?.(finalCompany);
     }
 
-    const partId = newPartId.trim() || generateSmartPartId(
-      newPartName.trim(),
-      finalCompany,
-      newPartShippingMethod,
-      newPartOrigin,
-      new Set(parts.map(p => p.id))
-    );
+    const partId = newPartId.trim() || getNextSequentialDxId(parts, 'DX-000001');
 
     const createdPart: SparePartItem = {
       id: partId,
@@ -417,7 +425,8 @@ export const ProListView: React.FC<ProListViewProps> = ({
       changeType: newPartChangeType,
       companyName: finalCompany,
       shippingMethod: newPartShippingMethod,
-      origin: newPartOrigin
+      origin: newPartOrigin,
+      purchaseDate: new Date().toISOString().split('T')[0]
     };
 
     onAddPart(createdPart);
@@ -1762,32 +1771,90 @@ export const ProListView: React.FC<ProListViewProps> = ({
                     type="button"
                     onClick={() => {
                       sound.playTick();
-                      const finalCompany = newPartCompany === '__custom__' ? customCompanyInput : newPartCompany;
-                      const genId = generateSmartPartId(
-                        newPartName.trim() || 'PART',
-                        finalCompany,
-                        newPartShippingMethod,
-                        newPartOrigin,
-                        new Set(parts.map(p => p.id))
-                      );
-                      setNewPartId(genId);
+                      setNewPartId(getNextSequentialDxId(parts, 'DX-000001'));
                     }}
-                    className="text-[11px] font-mono font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-800/80 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                    className="text-[11px] font-mono font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-800/80 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-colors shadow-sm"
                   >
-                    <Sparkles className="w-3 h-3 text-cyan-400" />
-                    <span>Auto-Generate ID</span>
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Auto-Generate ID (DX-000001)</span>
                   </button>
                 </div>
                 <input
                   type="text"
                   value={newPartId}
                   onChange={(e) => setNewPartId(e.target.value)}
-                  placeholder="e.g. 13PM-SEA-ROYAL-CHN-1 (Auto-generated if left blank)"
-                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-mono font-medium outline-none transition-colors"
+                  placeholder={`e.g. ${getNextSequentialDxId(parts, 'DX-000001')} (Row 3 format)`}
+                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-mono font-bold outline-none transition-colors"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  💡 Identifies identical items from different suppliers (e.g. Royal vs Dubai VX) or cargo (Sea vs Air).
-                </p>
+                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                  <span className="text-[10px] text-slate-400 font-medium">Quick ID Format:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setNewPartId(getNextSequentialDxId(parts, 'DX-000001'));
+                    }}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-cyan-950/90 hover:bg-cyan-900 text-cyan-300 border border-cyan-700 font-bold cursor-pointer transition-colors"
+                  >
+                    ⭐ {getNextSequentialDxId(parts, 'DX-000001')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setNewPartId(getNextSequentialDxId(parts, 'DX0001'));
+                    }}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 cursor-pointer transition-colors"
+                  >
+                    {getNextSequentialDxId(parts, 'DX0001')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      const slug = newPartName ? newPartName.replace(/\s+/g, '-').toUpperCase() : 'ITEM';
+                      setNewPartId(`DX-AIR-${slug}`);
+                      setNewPartShippingMethod('air');
+                    }}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/80 cursor-pointer transition-colors"
+                  >
+                    ✈️ DX-AIR-
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      const slug = newPartName ? newPartName.replace(/\s+/g, '-').toUpperCase() : 'ITEM';
+                      setNewPartId(`DX-SEA-${slug}`);
+                      setNewPartShippingMethod('sea');
+                    }}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-800/80 cursor-pointer transition-colors"
+                  >
+                    🚢 DX-SEA-
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      const slug = newPartName ? newPartName.replace(/\s+/g, '-').toUpperCase() : 'ITEM';
+                      setNewPartId(`ROYAL-${slug}`);
+                    }}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/80 cursor-pointer transition-colors"
+                  >
+                    👑 ROYAL-
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      const slug = newPartName ? newPartName.replace(/\s+/g, '-').toUpperCase() : 'ITEM';
+                      setNewPartId(`DUBAI-VX-${slug}`);
+                    }}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800/80 cursor-pointer transition-colors"
+                  >
+                    🇦🇪 DUBAI-VX-
+                  </button>
+                </div>
               </div>
 
               {/* Select Category & Select Company Name (Side by Side Grid - Exactly as requested in user screenshot) */}

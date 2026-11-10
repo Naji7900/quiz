@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { WifiOff, Download, Database, BookOpen, Layers, RefreshCw, ExternalLink, CheckCircle2, CloudUpload, Check } from 'lucide-react';
+import { WifiOff, Download, Database, BookOpen, Layers, RefreshCw, ExternalLink, CheckCircle2, CloudUpload, Check, Upload, Trash2, Code2 } from 'lucide-react';
 import { TopNav, AppTab } from './components/TopNav';
 import { ProListView } from './components/ProListView';
 import { QuizView } from './components/QuizView';
@@ -15,6 +15,9 @@ import { SheetsDatabaseView } from './components/SheetsDatabaseView';
 import { RegisterCompanyView } from './components/RegisterCompanyView';
 import { GoogleSheetModal } from './components/GoogleSheetModal';
 import { InstallModal } from './components/InstallModal';
+import { Upload11ColumnsModal } from './components/Upload11ColumnsModal';
+import { FormatAllModal } from './components/FormatAllModal';
+import { AppsScriptCodeModal } from './components/AppsScriptCodeModal';
 import { 
   INITIAL_DATA, 
   INITIAL_COMPAT, 
@@ -30,7 +33,8 @@ import {
   CompareItem, 
   ChangeItem,
   RegisteredCompany,
-  INITIAL_REGISTERED_COMPANIES
+  INITIAL_REGISTERED_COMPANIES,
+  getNextSequentialDxId
 } from './data/initialData';
 import { getNajiHassanCatalog } from './data/najiHassanCatalog';
 import { GoogleSheetsService, CompleteSuiteRestoreResult, DEFAULT_WEB_APP_URL } from './services/googleSheetsService';
@@ -49,6 +53,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('prolist');
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isFormatModalOpen, setIsFormatModalOpen] = useState(false);
+  const [isAppsScriptModalOpen, setIsAppsScriptModalOpen] = useState(false);
   const [soundMuted, setSoundMuted] = useState(() => sound.getMuted());
   const [currentStreak, setCurrentStreak] = useState(0);
 
@@ -205,12 +212,6 @@ export default function App() {
       } catch {}
       return next;
     });
-
-    // Auto-sync to Google Sheet tab "REGISTERED COMPANIES"
-    const config = GoogleSheetsService.getSavedConfig();
-    if (config.sheetUrl) {
-      GoogleSheetsService.syncCompanyToGoogleSheet(config.sheetUrl, newComp, 'add');
-    }
   };
 
   // Automatic company registration when a new company is entered in Add Part or catalog
@@ -237,12 +238,6 @@ export default function App() {
       } catch {}
       return next;
     });
-
-    // Auto-sync to Google Sheet tab "REGISTERED COMPANIES"
-    const config = GoogleSheetsService.getSavedConfig();
-    if (config.sheetUrl) {
-      GoogleSheetsService.syncCompanyToGoogleSheet(config.sheetUrl, newComp, 'add');
-    }
   };
 
   const handleUpdateRegisteredCompany = (id: string, updated: Partial<RegisteredCompany>) => {
@@ -426,6 +421,32 @@ export default function App() {
     }
   };
 
+  // Safe Format All Products with typed confirmation safeguard
+  const handleFormatAllConfirm = () => {
+    sound.playTick();
+    setParts([]);
+    GoogleSheetsService.formatAllData();
+    setBackupSuccessToast('🗑️ All products have been formatted and cleared from the catalog!');
+    setTimeout(() => setBackupSuccessToast(null), 5000);
+
+    // Optional background sync format to Google Sheet if connected
+    const config = GoogleSheetsService.getSavedConfig();
+    const endpoint = config.webAppUrl || DEFAULT_WEB_APP_URL;
+    if (endpoint) {
+      fetch(`${endpoint}?action=format_all`, { method: 'GET', mode: 'no-cors' }).catch(() => {});
+    }
+  };
+
+  // Handle Upload 11 Columns Completion
+  const handleUploadComplete = (updatedParts: SparePartItem[], message: string) => {
+    setParts(updatedParts);
+    sound.playVictory();
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setLastSyncedAt(timeStr);
+    setBackupSuccessToast(`📥 ${message}`);
+    setTimeout(() => setBackupSuccessToast(null), 5000);
+  };
+
   // Quick 1-click sync from Google Sheet "ALL PRODUCT" & "REGISTERED COMPANIES"
   const handleQuickSync = async () => {
     const config = GoogleSheetsService.getSavedConfig();
@@ -469,10 +490,16 @@ export default function App() {
   };
 
   // Add new catalog part & auto-send to Google Sheets if connected
-  const handleAddPart = (newPartData: Omit<SparePartItem, 'id'>) => {
+  const handleAddPart = (newPartData: Omit<SparePartItem, 'id'> & { id?: string }) => {
+    const nextDx = getNextSequentialDxId(parts, 'DX-000001');
+    const resolvedId = (newPartData as any).id && String((newPartData as any).id).trim()
+      ? String((newPartData as any).id).trim()
+      : nextDx;
+
     const newPart: SparePartItem = {
       ...newPartData,
-      id: `custom-${Date.now()}`
+      id: resolvedId,
+      purchaseDate: (newPartData as any).purchaseDate || new Date().toISOString().split('T')[0]
     };
     const updated = [newPart, ...parts];
     setParts(updated);
@@ -961,37 +988,44 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          {/* Easy 1-Click Backup Complete Suite */}
+          {/* Button 1: Backup to Google Sheet */}
           <button
             type="button"
             onClick={handleBackupCompleteSuiteNow}
             disabled={isBackingUpSuite}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50"
-            title="Backup all 584+ products, registered companies, and price tracker to Google Sheet in 1 click"
+            title="1. Backup all 11 columns of your catalog to Google Sheet 'ALL PRODUCT'"
           >
             <CloudUpload className={`w-3.5 h-3.5 ${isBackingUpSuite ? 'animate-bounce' : ''}`} />
             <span>{isBackingUpSuite ? 'Backing up Suite...' : '🚀 Backup to Google Sheet'}</span>
           </button>
 
+          {/* Button 2: Upload 11 Columns */}
           <button
             type="button"
-            onClick={handleQuickSync}
-            disabled={isSyncingFromSheet}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600/90 hover:bg-cyan-500 active:scale-95 text-white font-bold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
-            title="Pull latest live product prices from Google Sheet 'ALL PRODUCT'"
+            onClick={() => {
+              sound.playTick();
+              setIsUploadModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 active:scale-95 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+            title="2. Upload / Import 11 columns via live Google Sheet sync or CSV file"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingFromSheet ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">{isSyncingFromSheet ? 'Syncing...' : 'Sync from Sheet'}</span>
+            <Upload className="w-3.5 h-3.5" />
+            <span>📥 Upload 11 Columns</span>
           </button>
 
+          {/* Button 3: Format All */}
           <button
             type="button"
-            onClick={() => setIsDbModalOpen(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700/80 transition-colors cursor-pointer"
-            title="Configure Google Sheet connection & view Apps Script"
+            onClick={() => {
+              sound.playTick();
+              setIsFormatModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-950/70 hover:bg-red-900/80 border border-red-700/60 hover:border-red-500 text-red-300 hover:text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+            title="3. Format all products from app (Requires typing FORMAT to confirm)"
           >
-            <ExternalLink className="w-3 h-3 text-cyan-400" />
-            <span>Sheet Hub</span>
+            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+            <span>⚠️ Format All</span>
           </button>
         </div>
       </div>
@@ -1145,6 +1179,28 @@ export default function App() {
       <InstallModal
         isOpen={isInstallModalOpen}
         onClose={() => setIsInstallModalOpen(false)}
+      />
+
+      {/* Button 2: Upload 11 Columns Modal */}
+      <Upload11ColumnsModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        currentParts={parts}
+        onImportComplete={handleUploadComplete}
+      />
+
+      {/* Button 3: Format All Modal (Requires typing FORMAT) */}
+      <FormatAllModal
+        isOpen={isFormatModalOpen}
+        onClose={() => setIsFormatModalOpen(false)}
+        productCount={parts.length}
+        onConfirmFormat={handleFormatAllConfirm}
+      />
+
+      {/* Helper: Google Apps Script Code Modal */}
+      <AppsScriptCodeModal
+        isOpen={isAppsScriptModalOpen}
+        onClose={() => setIsAppsScriptModalOpen(false)}
       />
 
       {/* Clean, quiet full-width footer */}

@@ -154,6 +154,32 @@ export function generateSmartPartId(
   return candidate;
 }
 
+/**
+ * Sequential DX ID Generator (matches Google Sheet Col A "ID"):
+ * e.g. "DX-000001" or "DX0001", scanning all existing catalog IDs to find max number + 1
+ */
+export function getNextSequentialDxId(
+  existingParts: { id?: string }[] = [],
+  preferredFormat: 'DX-000001' | 'DX0001' = 'DX-000001'
+): string {
+  let maxNum = 0;
+  for (const p of existingParts) {
+    if (!p.id) continue;
+    const m = p.id.match(/^DX-?(\d+)/i);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!isNaN(n) && n > maxNum) {
+        maxNum = n;
+      }
+    }
+  }
+  const nextNum = maxNum + 1;
+  if (preferredFormat === 'DX-000001' || maxNum >= 10000) {
+    return `DX-${String(nextNum).padStart(6, '0')}`;
+  }
+  return `DX${String(nextNum).padStart(4, '0')}`;
+}
+
 export const INITIAL_DATA: Record<string, [string, number, number][]> = {
   "iPhone LCD": [
     ["LCD IPHONE X8 +", 17.5, 4.97],

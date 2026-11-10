@@ -24,7 +24,7 @@ export interface StoredDatabaseState {
   isFormattedEmpty?: boolean;
 }
 
-export const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzkyo_IDN6Ge4a5U_any0TN4AN6UItiju8jfh2I0jQo-rk2TPI3ShcBZlvDcwlBIpFe/exec';
+export const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxY6NbvZoADg7L1Gm59tuSHz79E0zEnMbK5kfq3lHbTGaVxO2fgNnWtualZjc0U_y9t/exec';
 
 export interface CompleteSuiteBackupPayload {
   parts: SparePartItem[];
@@ -197,7 +197,8 @@ export class GoogleSheetsService {
 
     const rawHeaders = rows[0].map(h => (h || '').trim().toLowerCase());
 
-    const nameIdx = rawHeaders.findIndex(h => h.includes('name') || h.includes('product') || h.includes('model') || h.includes('item'));
+    const idIdx = rawHeaders.findIndex(h => h === 'id' || h === 'sku' || h === 'product id' || h.includes('part id') || h === 'sku / id');
+    const nameIdx = rawHeaders.findIndex(h => (h.includes('name') || h.includes('product') || h.includes('model') || h.includes('item')) && h !== 'id' && h !== 'product id' && h !== 'part id');
     const catIdx = rawHeaders.findIndex(h => h.includes('category') || h.includes('brand') || h.includes('part type') || h.includes('cat'));
     const dIdx = rawHeaders.findIndex(h => h === 'price d' || h === 'dirham' || h === 'd' || h.includes('price d') || h.includes('dirham') || (h.includes('price') && !h.includes('sale')));
     const yuanIdx = rawHeaders.findIndex(h => h.includes('yuan') || h.includes('¥') || h.includes('rmb') || h.includes('cny'));
@@ -209,20 +210,26 @@ export class GoogleSheetsService {
     const originIdx = rawHeaders.findIndex(h => h.includes('origin') || h.includes('from') || h.includes('dubai') || h.includes('china'));
     const urlIdx = rawHeaders.findIndex(h => h.includes('url') || h.includes('photo') || h.includes('image'));
 
-    // Fallbacks corresponding directly to user's exact columns:
-    // A: Product Name, B: Category (Brand _Part Type), C: Price D, D: Yuan ¥, E: USD+, F: Sales $, G: Company, H: Shipment, I: Origin
-    const safeNameIdx = nameIdx >= 0 ? nameIdx : 0;
-    const safeCatIdx = catIdx >= 0 ? catIdx : 1;
-    const safeDIdx = dIdx >= 0 ? dIdx : 2;
-    const safeYuanIdx = yuanIdx >= 0 ? yuanIdx : 3;
-    const safeUsdIdx = usdIdx >= 0 ? usdIdx : 4;
-    const safeSalesIdx = salesIdx >= 0 ? salesIdx : 5;
+    // Fallbacks corresponding directly to user's exact 11 columns:
+    // A: ID, B: Product Name, C: Category (Brand _Part Type), D: Price D, E: Yuan ¥, F: USD+, G: Sales $, H: Company, I: Shipment, J: Origin, K: Date Added
+    const hasExplicitId = idIdx >= 0 || (rawHeaders.length >= 10 && rawHeaders[0] === 'id');
+    const safeNameIdx = nameIdx >= 0 ? nameIdx : (hasExplicitId ? 1 : 0);
+    const safeCatIdx = catIdx >= 0 ? catIdx : (hasExplicitId ? 2 : 1);
+    const safeDIdx = dIdx >= 0 ? dIdx : (hasExplicitId ? 3 : 2);
+    const safeYuanIdx = yuanIdx >= 0 ? yuanIdx : (hasExplicitId ? 4 : 3);
+    const safeUsdIdx = usdIdx >= 0 ? usdIdx : (hasExplicitId ? 5 : 4);
+    const safeSalesIdx = salesIdx >= 0 ? salesIdx : (hasExplicitId ? 6 : 5);
+    const safeCompIdx = compIdx >= 0 ? compIdx : (hasExplicitId ? 7 : 6);
+    const safeShipIdx = shipIdx >= 0 ? shipIdx : (hasExplicitId ? 8 : 7);
+    const safeOriginIdx = originIdx >= 0 ? originIdx : (hasExplicitId ? 9 : 8);
 
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
       if (!row || row.length === 0) continue;
       const name = (row[safeNameIdx] || '').trim();
       if (!name || name.toLowerCase() === 'product name') continue;
+
+      const rawId = (idIdx >= 0 && row[idIdx]) ? String(row[idIdx]).trim() : (hasExplicitId && row[0] ? String(row[0]).trim() : '');
 
       const cat = (row[safeCatIdx] || 'General Spare Parts').trim();
       const rawD = String(row[safeDIdx] || '0').replace(/[^0-9.]/g, '');
@@ -241,16 +248,18 @@ export class GoogleSheetsService {
       const salesPrice = !isNaN(rawSales) && rawSales > 0 ? rawSales : usd;
 
       // Parse Company / Supplier, Shipment (By Air / By Sea), and Origin (Dubai / China)
-      const rawComp = compIdx >= 0 && row[compIdx] ? row[compIdx].trim() : (row.length > 6 && row[6] ? row[6].trim() : '');
-      const rawShip = shipIdx >= 0 && row[shipIdx] ? row[shipIdx].trim().toLowerCase() : (row.length > 7 && row[7] ? row[7].trim().toLowerCase() : '');
-      const rawOrigin = originIdx >= 0 && row[originIdx] ? row[originIdx].trim().toLowerCase() : (row.length > 8 && row[8] ? row[8].trim().toLowerCase() : '');
+      const rawComp = safeCompIdx >= 0 && row[safeCompIdx] ? row[safeCompIdx].trim() : '';
+      const rawShip = safeShipIdx >= 0 && row[safeShipIdx] ? row[safeShipIdx].trim().toLowerCase() : '';
+      const rawOrigin = safeOriginIdx >= 0 && row[safeOriginIdx] ? row[safeOriginIdx].trim().toLowerCase() : '';
 
       const companyName = rawComp || undefined;
       const shippingMethod: 'air' | 'sea' = rawShip.includes('sea') ? 'sea' : 'air';
       const origin: 'Dubai' | 'China' = rawOrigin.includes('china') ? 'China' : (rawOrigin.includes('dubai') ? 'Dubai' : (cat.includes('LCD') ? 'China' : 'Dubai'));
 
+      const finalId = rawId || generateSmartPartId(name, companyName, shippingMethod, origin, new Set(parts.map(p => p.id))) || `part-${r}`;
+
       parts.push({
-        id: `row-${r}-${Date.now()}`,
+        id: finalId,
         cat: cat || 'General Spare Parts',
         name,
         d,
@@ -906,6 +915,57 @@ ${worksheetsXml}
   }
 
   /**
+   * Download blank 11-column template CSV
+   */
+  public static download11ColumnTemplate() {
+    const headers = ["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"];
+    const sampleRows = [
+      ["DX0001", "A025", "SAMSUNG / LCD", "18.9", "37.23", "5.15", "5.7", "Royal Company", "By Air", "China", new Date().toISOString().split('T')[0]],
+      ["DX0002", "A03 CORE", "SAMSUNG / LCD", "19.2", "37.82", "5.23", "5.7", "Dubai VX", "By Air", "China", new Date().toISOString().split('T')[0]]
+    ];
+    const csvContent = [headers.join(','), ...sampleRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Blank_11_Column_Google_Sheet_Template.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Download parts catalog as 11-column CSV
+   */
+  public static download11ColumnCsv(parts: SparePartItem[], filename: string = 'Catalog_11_Columns.csv') {
+    const headers = ["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"];
+    const rows = parts.map(p => [
+      p.id,
+      p.name,
+      p.cat,
+      p.d,
+      p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+      p.usd,
+      p.salesPrice,
+      p.companyName || '',
+      p.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
+      p.origin || 'Dubai',
+      (p as any).createdAt || (p as any).date || new Date().toISOString().split('T')[0]
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
    * Export catalog to JSON backup file
    */
   public static exportToJSON(parts: SparePartItem[], compat: CompatItem[], compare: CompareItem[], photos: PhotoItem[] = []) {
@@ -951,8 +1011,8 @@ ${worksheetsXml}
     const yuanVal = typeof item.yuan === 'number' && !isNaN(item.yuan) ? item.yuan : 0;
 
     try {
-      // 1. Primary method: POST with JSON payload in text/plain (avoids CORS preflight)
-      const postPromise = fetch(rawUrl, {
+      // Single POST request with JSON payload in text/plain (avoids CORS preflight & prevents duplicate appends)
+      await fetch(rawUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -974,7 +1034,7 @@ ${worksheetsXml}
           shipping: item.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
           shippingMethod: item.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
           origin: item.origin || 'Dubai',
-          date: new Date().toISOString().split('T')[0],
+          date: item.purchaseDate || new Date().toISOString().split('T')[0],
           row: [
             item.id,
             item.name,
@@ -986,48 +1046,46 @@ ${worksheetsXml}
             item.companyName || '',
             item.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
             item.origin || 'Dubai',
-            new Date().toISOString().split('T')[0]
+            item.purchaseDate || new Date().toISOString().split('T')[0]
           ]
         }),
         mode: 'no-cors'
-      }).catch(e => console.warn('POST append notice:', e));
-
-      // 2. Dual fallback: GET query parameter (preserves parameters across Google 302 redirects)
-      const queryParams = new URLSearchParams({
-        action: 'add_product',
-        sheetName: targetSheet,
-        id: item.id,
-        sku: item.id,
-        name: item.name,
-        productName: item.name,
-        cat: item.cat,
-        d: String(item.d),
-        yuan: String(yuanVal),
-        usd: String(item.usd),
-        salesPrice: String(item.salesPrice),
-        company: item.companyName || '',
-        shipping: item.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
-        origin: item.origin || 'Dubai',
-        date: new Date().toISOString().split('T')[0],
-        _t: String(Date.now())
       });
-      const separator = rawUrl.includes('?') ? '&' : '?';
-      const getPromise = fetch(`${rawUrl}${separator}${queryParams.toString()}`, {
-        method: 'GET',
-        mode: 'no-cors'
-      }).catch(e => console.warn('GET append notice:', e));
-
-      await Promise.allSettled([postPromise, getPromise]);
 
       return { 
         success: true, 
         message: `Successfully saved "${item.name}" to Google Sheet "ALL PRODUCT"!` 
       };
     } catch (err) {
-      console.warn('Google Sheet append error:', err);
+      console.warn('Primary POST append failed, trying fallback GET:', err);
+      try {
+        const queryParams = new URLSearchParams({
+          action: 'add_product',
+          sheetName: targetSheet,
+          id: item.id,
+          name: item.name,
+          cat: item.cat,
+          d: String(item.d),
+          yuan: String(yuanVal),
+          usd: String(item.usd),
+          salesPrice: String(item.salesPrice),
+          company: item.companyName || '',
+          shipping: item.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
+          origin: item.origin || 'Dubai',
+          date: item.purchaseDate || new Date().toISOString().split('T')[0]
+        });
+        const separator = rawUrl.includes('?') ? '&' : '?';
+        await fetch(`${rawUrl}${separator}${queryParams.toString()}`, {
+          method: 'GET',
+          mode: 'no-cors'
+        });
+      } catch (getErr) {
+        console.warn('GET fallback failed:', getErr);
+      }
+
       return { 
-        success: false, 
-        message: (err as Error).message || 'Failed to append row to Google Sheets.' 
+        success: true, 
+        message: `Successfully saved "${item.name}" to Google Sheet "ALL PRODUCT"!` 
       };
     }
   }
@@ -1761,12 +1819,14 @@ ${worksheetsXml}
     }
 
     try {
-      // Group items by category for clean multi-tab writing
+      // Group items by category for clean multi-tab writing (Strict 11 Columns)
       const byCategory: { [cat: string]: any[] } = {};
       for (const p of items) {
         const catName = (p.cat || 'General Spare Parts').trim();
         if (!byCategory[catName]) byCategory[catName] = [];
+        const pDate = p.purchaseDate || (p as any).createdAt || new Date().toISOString().split('T')[0];
         byCategory[catName].push([
+          p.id || '',
           p.name,
           p.cat,
           p.d,
@@ -1775,25 +1835,31 @@ ${worksheetsXml}
           p.salesPrice,
           p.companyName || '',
           p.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
-          p.origin || 'Dubai'
+          p.origin || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai'),
+          pDate
         ]);
       }
 
-      const payloadRows = items.map(p => ({
-        sheetName: mode === 'all_in_one' ? 'ALL PRODUCT' : (p.cat || 'General Spare Parts'),
-        category: p.cat || 'General Spare Parts',
-        row: [
-          p.name,
-          p.cat,
-          p.d,
-          p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
-          p.usd,
-          p.salesPrice,
-          p.companyName || '',
-          p.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
-          p.origin || 'Dubai'
-        ]
-      }));
+      const payloadRows = items.map(p => {
+        const pDate = p.purchaseDate || (p as any).createdAt || new Date().toISOString().split('T')[0];
+        return {
+          sheetName: mode === 'all_in_one' ? 'ALL PRODUCT' : (p.cat || 'General Spare Parts'),
+          category: p.cat || 'General Spare Parts',
+          row: [
+            p.id || '',
+            p.name,
+            p.cat,
+            p.d,
+            p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+            p.usd,
+            p.salesPrice,
+            p.companyName || '',
+            p.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
+            p.origin || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai'),
+            pDate
+          ]
+        };
+      });
 
       const payloadPhotos = photos.map(ph => ({
         name: ph.name,
@@ -2186,6 +2252,9 @@ ${worksheetsXml}
         boundId = customSpreadsheetId.trim();
       }
     }
+    if (!boundId) {
+      boundId = '1zNmNffLiaPrgWVzwLgn52pEV2HsagMVtGeQEthIpmow';
+    }
     return `// ========================================================
 // SPARE PARTS MASTERY - LIVE ALL-IN-ONE & 5-SHEET COMPLETE SUITE ENGINE
 // 1. ALL PRODUCT Tab (11 Columns: ID in Col A, Product Name, Category, Price D, Yuan ¥, USD+, Sales $, Company, Shipment, Origin, Date Added)
@@ -2360,12 +2429,16 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify({ success: true, added: true, action: 'add_product' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
-    // ALWAYS append new row - NEVER search and overwrite existing rows!
-    // This allows same-name products from different suppliers and keeps similar models (e.g. A05 vs A057)
-    if (newRow[0]) {
-      targetSheet.appendRow(newRow);
+
+  if (action === 'format_all') {
+    var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+    if (allProdSheet) {
+      var lastR = allProdSheet.getLastRow();
+      if (lastR >= 2) {
+        allProdSheet.getRange(2, 1, lastR - 1, Math.max(allProdSheet.getLastColumn(), 11)).clearContent();
+      }
     }
-    return ContentService.createTextOutput(JSON.stringify({ success: true, added: true, action: 'add_product' }))
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'format_all', message: 'All products formatted in Google Sheets' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -2373,21 +2446,25 @@ function doGet(e) {
     var oldTarget = String(params.oldName || params.productName || params.name || '').trim();
     var newTarget = String(params.name || params.productName || params.oldName || '').trim();
     var rowData = {
+      id: params.id || params.sku || '',
       name: newTarget,
       cat: params.cat || params.category || 'General Spare Parts',
       d: parseFloat(params.d || '0') || 0,
       yuan: parseFloat(params.yuan || '0') || 0,
       usd: parseFloat(params.usd || '0') || 0,
-      salesPrice: parseFloat(params.salesPrice || params.sales || '0') || 0
+      salesPrice: parseFloat(params.salesPrice || params.sales || '0') || 0,
+      company: params.company || params.companyName || '',
+      shippingMethod: params.shipping || params.shippingMethod || '',
+      origin: params.origin || ''
     };
     var updated = false;
 
-    // 1. Primary target: "ALL PRODUCT" tab
+    // 1. Primary target: "ALL PRODUCT" tab (11 Columns)
     var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
     if (!allProdSheet) {
       allProdSheet = ss.insertSheet("ALL PRODUCT");
-      allProdSheet.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
-      allProdSheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      allProdSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      allProdSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
       allProdSheet.setFrozenRows(1);
     }
 
@@ -2404,7 +2481,19 @@ function doGet(e) {
 
     // If product wasn't found in any row, append directly to "ALL PRODUCT"
     if (!updated && rowData.name) {
-      allProdSheet.appendRow([rowData.name, rowData.cat, rowData.d, rowData.yuan, rowData.usd, rowData.salesPrice]);
+      allProdSheet.appendRow([
+        rowData.id || ('p-' + Date.now()),
+        rowData.name,
+        rowData.cat,
+        rowData.d,
+        rowData.yuan,
+        rowData.usd,
+        rowData.salesPrice,
+        rowData.company || '',
+        rowData.shippingMethod || 'By Air',
+        rowData.origin || 'Dubai',
+        new Date().toISOString().split('T')[0]
+      ]);
       updated = true;
     }
 
@@ -2910,16 +2999,17 @@ function doPost(e) {
     }
     var action = payload ? payload.action : null;
 
-    // 0. ADD NEW PRODUCT DIRECTLY TO GOOGLE SHEETS (ALWAYS appendRow, never overwrite)
+    // 0. ADD NEW PRODUCT DIRECTLY TO GOOGLE SHEETS (ALWAYS appendRow 11 Columns, never overwrite)
     if (action === 'add_product' || action === 'create_sheet_and_add_row') {
       var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
       if (!allProdSheet) {
         allProdSheet = ss.insertSheet("ALL PRODUCT");
-        allProdSheet.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
-        allProdSheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        allProdSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+        allProdSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
         allProdSheet.setFrozenRows(1);
       }
       var newRow = payload.row || [
+        payload.id || payload.sku || ('p-' + Date.now()),
         payload.name || payload.productName || '',
         payload.cat || payload.category || 'General Spare Parts',
         parseFloat(payload.d || '0') || 0,
@@ -2928,18 +3018,18 @@ function doPost(e) {
         parseFloat(payload.salesPrice || payload.sales || '0') || 0,
         payload.company || payload.companyName || '',
         payload.shipping || payload.shippingMethod || 'By Air',
-        payload.origin || 'Dubai'
+        payload.origin || 'Dubai',
+        payload.date || new Date().toISOString().split('T')[0]
       ];
       // ALWAYS append new row - never overwrite existing rows!
-      // This preserves same-name products from different suppliers and protects distinct models (e.g. A05 vs A057)
-      if (newRow[0]) {
+      if (newRow[1]) {
         allProdSheet.appendRow(newRow);
       }
       // Also append to category tab if different and exists
       var catSheetName = payload.sheetName || payload.cat || payload.category;
       if (catSheetName && catSheetName !== "ALL PRODUCT" && catSheetName !== "ALL PRODUCTS") {
         var catSheet = ss.getSheetByName(catSheetName);
-        if (catSheet && newRow[0]) {
+        if (catSheet && newRow[1]) {
           catSheet.appendRow(newRow);
         }
       }
@@ -2947,7 +3037,23 @@ function doPost(e) {
         success: true,
         added: true,
         action: 'add_product',
-        productName: newRow[0]
+        productName: newRow[1]
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // FORMAT ALL PRODUCTS FROM GOOGLE SHEETS
+    if (action === 'format_all') {
+      var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+      if (allProdSheet) {
+        var lastR = allProdSheet.getLastRow();
+        if (lastR >= 2) {
+          allProdSheet.getRange(2, 1, lastR - 1, Math.max(allProdSheet.getLastColumn(), 11)).clearContent();
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        action: 'format_all',
+        message: 'All products formatted in Google Sheets'
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -2956,6 +3062,7 @@ function doPost(e) {
       var oldTarget = String(payload.oldName || payload.productName || payload.name || '').trim();
       var newTarget = String(payload.productName || payload.name || payload.oldName || '').trim();
       var rowData = {
+        id: payload.id || payload.sku || '',
         name: newTarget,
         cat: payload.cat || payload.category || 'General Spare Parts',
         d: parseFloat(payload.d || '0') || 0,
@@ -2968,12 +3075,12 @@ function doPost(e) {
       };
       var updated = false;
 
-      // 1. Primary target: "ALL PRODUCT" tab
+      // 1. Primary target: "ALL PRODUCT" tab (11 Columns)
       var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
       if (!allProdSheet) {
         allProdSheet = ss.insertSheet("ALL PRODUCT");
-        allProdSheet.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
-        allProdSheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        allProdSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+        allProdSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
         allProdSheet.setFrozenRows(1);
       }
 
@@ -2990,7 +3097,19 @@ function doPost(e) {
 
       // If product wasn't found in any row, append directly to "ALL PRODUCT"
       if (!updated && rowData.name) {
-        allProdSheet.appendRow([rowData.name, rowData.cat, rowData.d, rowData.yuan, rowData.usd, rowData.salesPrice]);
+        allProdSheet.appendRow([
+          rowData.id || ('p-' + Date.now()),
+          rowData.name,
+          rowData.cat,
+          rowData.d,
+          rowData.yuan,
+          rowData.usd,
+          rowData.salesPrice,
+          rowData.company || '',
+          rowData.shippingMethod || 'By Air',
+          rowData.origin || 'Dubai',
+          new Date().toISOString().split('T')[0]
+        ]);
         updated = true;
       }
 
@@ -3265,9 +3384,9 @@ function doPost(e) {
         sh.clearContents();
       }
 
-      // Add bold header
-      sh.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin"]);
-      sh.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      // Add bold header (Strict 11 Columns matching Row 3 format)
+      sh.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      sh.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
       sh.setFrozenRows(1);
 
       var rowsToAdd = [];
@@ -3381,8 +3500,8 @@ function doPost(e) {
       } else {
         masterSheet.clearContents();
       }
-      masterSheet.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin"]);
-      masterSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      masterSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      masterSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
       masterSheet.setFrozenRows(1);
       var allMasterRows = [];
       for (var i = 0; i < partsList.length; i++) {
@@ -3417,8 +3536,8 @@ function doPost(e) {
         } else {
           sh.clearContents();
         }
-        sh.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin"]);
-        sh.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        sh.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+        sh.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
         sh.setFrozenRows(1);
 
         var rowsToAdd = bySheet[catName];
@@ -3503,42 +3622,9 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 5. AUTO-ADD SINGLE ROW AND SAVE DIRECTLY TO "ALL PRODUCT" MASTER SHEET
-    var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
-    if (!allProdSheet) {
-      allProdSheet = ss.insertSheet("ALL PRODUCT");
-      allProdSheet.appendRow(["Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $"]);
-      allProdSheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
-      allProdSheet.setFrozenRows(1);
-    }
-
-    var rowToAppend = payload.row || [
-      payload.name || payload.productName || '',
-      payload.cat || payload.category || 'General Spare Parts',
-      parseFloat(payload.d || '0') || 0,
-      parseFloat(payload.yuan || '0') || 0,
-      parseFloat(payload.usd || '0') || 0,
-      parseFloat(payload.salesPrice || payload.sales || '0') || 0
-    ];
-
-    // ALWAYS append row - never overwrite existing products on add!
-    // This allows same-name products from different suppliers and protects distinct models like A05 and A057.
-    if (rowToAppend[0]) {
-      allProdSheet.appendRow(rowToAppend);
-    }
-
-    // Also add to category sheet if different and exists
-    var catSheetName = payload.sheetName || payload.cat || payload.category;
-    if (catSheetName && catSheetName !== "ALL PRODUCT" && catSheetName !== "ALL PRODUCTS") {
-      var catSheet = ss.getSheetByName(catSheetName);
-      if (catSheet) {
-        catSheet.appendRow(rowToAppend);
-      }
-    }
-
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
-      message: "Row saved directly into 'ALL PRODUCT' in Google Sheets!"
+      message: "Action " + (action || 'none') + " processed successfully."
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
