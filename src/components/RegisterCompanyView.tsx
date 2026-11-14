@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { RegisteredCompany, SparePartItem, AUTHENTIC_GOOGLE_SHEET_CATEGORIES } from '../data/initialData';
+import { RegisteredCompany, SparePartItem, AUTHENTIC_GOOGLE_SHEET_CATEGORIES, detectOriginFromCompany } from '../data/initialData';
 import { sound } from '../services/soundService';
 import { extractPhoneModel, detectBrand } from '../utils/productUtils';
 import { GoogleSheetsService } from '../services/googleSheetsService';
@@ -123,12 +123,16 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
   const [modelFilter, setModelFilter] = useState('ALL');
   const [partTypeFilter, setPartTypeFilter] = useState('ALL');
   const [purchaseDateFilter, setPurchaseDateFilter] = useState('ALL');
+  const [showQuickAddInView, setShowQuickAddInView] = useState(false);
+  const [quickAddCategoryFilter, setQuickAddCategoryFilter] = useState('ALL');
+  const [quickAddSelectedIds, setQuickAddSelectedIds] = useState<Set<string>>(new Set());
 
   // Add Form State
   const [addName, setAddName] = useState('');
   const [addPhone, setAddPhone] = useState('');
   const [addWhatsApp, setAddWhatsApp] = useState('');
   const [addLocation, setAddLocation] = useState('');
+  const [addOrigin, setAddOrigin] = useState<'Dubai' | 'China'>('Dubai');
   const [addNote, setAddNote] = useState('');
   const [addCategory, setAddCategory] = useState('All LCD Screens (Multi-Brand)');
   const [addCustomCategory, setAddCustomCategory] = useState('');
@@ -140,11 +144,24 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
   const [editPhone, setEditPhone] = useState('');
   const [editWhatsApp, setEditWhatsApp] = useState('');
   const [editLocation, setEditLocation] = useState('');
+  const [editOrigin, setEditOrigin] = useState<'Dubai' | 'China'>('Dubai');
   const [editNote, setEditNote] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editCustomCategory, setEditCustomCategory] = useState('');
   const [editContactPerson, setEditContactPerson] = useState('');
   const [editStatus, setEditStatus] = useState<'preferred' | 'active' | 'verified'>('active');
+
+  const inferOriginFromText = (txt: string): 'Dubai' | 'China' | null => {
+    const cleaned = String(txt || '').trim();
+    if (!cleaned) return null;
+    if (/\b(china|chn|chinese|guangzhou|shenzhen|hong\s*kong|hongkong|yiwu|foshan|dongguan|huaqiangbei)\b/i.test(cleaned)) {
+      return 'China';
+    }
+    if (/\b(dubai|dubia|dubiaa|dxb|uae|emirates|deira|naif|sabkha|sharjah|abu\s*dhabi|ajman)\b/i.test(cleaned)) {
+      return 'Dubai';
+    }
+    return null;
+  };
 
   // Extract ALL actual categories existing across the catalog and Google Sheet in the app
   const allAppCategories = useMemo(() => {
@@ -268,11 +285,13 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
       ? addCustomCategory.trim()
       : (addCategory || 'All LCD Screens (Multi-Brand)');
 
+    const compNameRegistered = addName.trim();
     onAddCompany({
-      name: addName.trim(),
+      name: compNameRegistered,
       phoneNo: addPhone.trim(),
       whatsappNo: addWhatsApp.trim() || addPhone.trim(),
-      location: addLocation.trim() || 'Dubai / China Market',
+      location: addLocation.trim() || (addOrigin === 'China' ? 'China' : 'Dubai'),
+      origin: addOrigin,
       note: addNote.trim() || 'Direct parts supplier.',
       category: finalCategory,
       contactPerson: addContactPerson.trim() || 'Sales Representative',
@@ -281,10 +300,14 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     });
 
     sound.playVictory();
+    setSyncMessage(`☁️ Successfully registered "${compNameRegistered}" (${addOrigin}) and auto-backed up to Google Sheet "REGISTERED COMPANIES"!`);
+    setTimeout(() => setSyncMessage(null), 6000);
+
     setAddName('');
     setAddPhone('');
     setAddWhatsApp('');
     setAddLocation('');
+    setAddOrigin('Dubai');
     setAddNote('');
     setAddContactPerson('');
     setAddCategory('All LCD Screens (Multi-Brand)');
@@ -299,6 +322,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     setEditPhone(comp.phoneNo);
     setEditWhatsApp(comp.whatsappNo || comp.phoneNo);
     setEditLocation(comp.location);
+    const detected = comp.origin || detectOriginFromCompany([comp], comp.name) || 'Dubai';
+    setEditOrigin(detected);
     setEditNote(comp.note);
     setEditCategory(comp.category || 'All LCD Screens (Multi-Brand)');
     setEditCustomCategory('');
@@ -319,7 +344,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
       name: editName.trim(),
       phoneNo: editPhone.trim(),
       whatsappNo: editWhatsApp.trim() || editPhone.trim(),
-      location: editLocation.trim(),
+      location: editLocation.trim() || (editOrigin === 'China' ? 'China' : 'Dubai'),
+      origin: editOrigin,
       note: editNote.trim(),
       category: finalCategory,
       contactPerson: editContactPerson.trim(),
@@ -473,7 +499,67 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
     setModelFilter('ALL');
     setPartTypeFilter('ALL');
     setPurchaseDateFilter('ALL');
+    setQuickAddCategoryFilter('ALL');
     sound.playTick();
+  };
+
+  // Catalog search results inside "Products Sourced from Company" so user can add already-bought products directly
+  const catalogMatchesForCompanyModal = useMemo(() => {
+    if (!viewingCompanyProducts) return [];
+    const q = productSearch.trim().toLowerCase();
+    const targetComp = viewingCompanyProducts.name.trim().toLowerCase();
+
+    return parts
+      .filter(p => {
+        if (quickAddCategoryFilter !== 'ALL' && p.cat !== quickAddCategoryFilter) {
+          return false;
+        }
+        if (!q) return true;
+        const brand = p.brand || detectBrand(p.name, p.cat);
+        const model = p.model || extractPhoneModel(p.name);
+        return (
+          p.name.toLowerCase().includes(q) ||
+          p.cat.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q) ||
+          brand.toLowerCase().includes(q) ||
+          model.toLowerCase().includes(q) ||
+          (p.companyName && p.companyName.toLowerCase().includes(q))
+        );
+      })
+      .sort((a, b) => {
+        const aBelongs = (a.companyName || '').trim().toLowerCase() === targetComp ? 1 : 0;
+        const bBelongs = (b.companyName || '').trim().toLowerCase() === targetComp ? 1 : 0;
+        return aBelongs - bBelongs;
+      })
+      .slice(0, 60);
+  }, [parts, viewingCompanyProducts, productSearch, quickAddCategoryFilter]);
+
+  const handleQuickAddSinglePart = (part: SparePartItem) => {
+    if (!viewingCompanyProducts) return;
+    sound.playVictory();
+    onAssignCompanyToParts?.(viewingCompanyProducts.name, [part.id]);
+    setQuickAddSelectedIds(prev => {
+      const next = new Set(prev);
+      next.delete(part.id);
+      return next;
+    });
+  };
+
+  const handleToggleQuickAddSelect = (partId: string) => {
+    sound.playTick();
+    setQuickAddSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(partId)) next.delete(partId);
+      else next.add(partId);
+      return next;
+    });
+  };
+
+  const handleQuickAddSelectedParts = () => {
+    if (!viewingCompanyProducts || quickAddSelectedIds.size === 0) return;
+    sound.playVictory();
+    onAssignCompanyToParts?.(viewingCompanyProducts.name, Array.from(quickAddSelectedIds));
+    setQuickAddSelectedIds(new Set());
   };
 
   // Requirement 4E: PDF Export for Company Products
@@ -837,7 +923,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
-                  Diwaan gali shirkadaha aad ka soo qaadato alaabta & LCD kasta (Suppliers where you source each LCD and spare part).
+                  Register the suppliers where you source each LCD screen and spare part.
                 </p>
               </div>
             </div>
@@ -1016,7 +1102,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
           </h3>
           <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
             {companies.length === 0 
-              ? 'Diwaan gali shirkadaha aad ka soo qaadato alaabta & LCD kasta. Click "+ Register Company" below to add your first supplier.' 
+              ? 'Register the suppliers where you source each LCD and spare part. Click "+ Register Company" below to add your first supplier.' 
               : 'Try adjusting your search terms or category filter.'}
           </p>
           <div className="pt-1 flex items-center justify-center gap-2">
@@ -1210,7 +1296,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                       <span>View ({sourcedCount})</span>
                     </button>
 
-                    {/* Assign LCDs Button (Direct answer to "Waxaan rabaa in aan ogaado halka aan ka keenay LCD kasta") */}
+                    {/* Assign LCDs Button */}
                     <button
                       type="button"
                       onClick={() => handleOpenAssignModal(company)}
@@ -1278,7 +1364,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                     Assign LCDs Sourced from {assigningCompany.name}
                   </h3>
                   <p className="text-xs text-slate-300 mt-0.5">
-                    Dooro LCD-yada aad shirkadaan ka keentay si aad u ogaato halka LCD kasta ka yimid ({assignSelectedIds.size} LCDs selected).
+                    Select the LCD screens sourced from this supplier to track where each screen comes from ({assignSelectedIds.size} LCDs selected).
                   </p>
                 </div>
               </div>
@@ -1486,8 +1572,25 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: PDF Export, Print Report, Close */}
+              {/* Action Buttons: Add Bought Products, PDF Export, Print Report, Close */}
               <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setShowQuickAddInView(prev => !prev);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-lg transition-all cursor-pointer active:scale-95 ${
+                    showQuickAddInView
+                      ? 'bg-cyan-500 text-slate-950 border border-cyan-300'
+                      : 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-cyan-950/60'
+                  }`}
+                  title="Search and add already-bought products to this company"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>{showQuickAddInView ? 'Hide Add Products' : 'Add Bought Products'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleExportCompanyProductsPdf}
@@ -1513,6 +1616,8 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                   onClick={() => {
                     sound.playTick();
                     setViewingCompanyProducts(null);
+                    setShowQuickAddInView(false);
+                    setQuickAddSelectedIds(new Set());
                   }}
                   className="p-2.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
                   title="Close Modal"
@@ -1642,14 +1747,135 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
               </div>
             </div>
 
+            {/* Quick Add Catalog Products to This Company (Visible when toggled, searching, or when company has 0 products) */}
+            {(showQuickAddInView || productSearch.trim() !== '' || rawCompanyProducts.length === 0) && (
+              <div className="mb-3 p-3.5 rounded-2xl bg-[#070c18] border border-cyan-500/40 space-y-2.5 shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Products Bought from {viewingCompanyProducts.name}</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      ({catalogMatchesForCompanyModal.length} catalog matches{productSearch.trim() ? ` for "${productSearch.trim()}"` : ''})
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <select
+                      value={quickAddCategoryFilter}
+                      onChange={(e) => {
+                        sound.playTick();
+                        setQuickAddCategoryFilter(e.target.value);
+                      }}
+                      className="bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 font-medium outline-none cursor-pointer"
+                    >
+                      <option value="ALL">All Catalog Categories ({allAppCategories.length})</option>
+                      {allAppCategories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+
+                    {quickAddSelectedIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleQuickAddSelectedParts}
+                        className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Add Selected ({quickAddSelectedIds.size})</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="max-h-52 overflow-y-auto divide-y divide-slate-800/80 rounded-xl border border-slate-800 bg-slate-950/70">
+                  {catalogMatchesForCompanyModal.length === 0 ? (
+                    <div className="py-4 px-3 text-center text-xs text-slate-400">
+                      No catalog products match your search.
+                    </div>
+                  ) : (
+                    catalogMatchesForCompanyModal.map(part => {
+                      const targetComp = viewingCompanyProducts.name.trim().toLowerCase();
+                      const currentComp = (part.companyName || '').trim();
+                      const alreadyInCompany = currentComp.toLowerCase() === targetComp;
+                      const isChecked = quickAddSelectedIds.has(part.id);
+
+                      return (
+                        <div
+                          key={part.id}
+                          className={`px-3 py-2 flex items-center justify-between gap-2 transition-colors ${
+                            alreadyInCompany
+                              ? 'bg-emerald-950/20'
+                              : isChecked
+                              ? 'bg-cyan-950/30'
+                              : 'hover:bg-slate-900/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {!alreadyInCompany && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleQuickAddSelect(part.id)}
+                                className="text-slate-400 hover:text-cyan-300 cursor-pointer shrink-0"
+                                title="Select product"
+                              >
+                                {isChecked ? (
+                                  <CheckSquare className="w-4 h-4 text-cyan-400" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-slate-600" />
+                                )}
+                              </button>
+                            )}
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-white block truncate">{part.name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono flex items-center gap-2 flex-wrap">
+                                <span>{part.id}</span>
+                                <span className="font-sans text-slate-300">{part.cat}</span>
+                                {currentComp && !alreadyInCompany && (
+                                  <span className="text-amber-300 font-sans">🏢 {currentComp}</span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <div className="text-right font-mono">
+                              <span className="text-xs font-bold text-cyan-300 block">{fmt(part.d)} D</span>
+                              <span className="text-[10px] text-emerald-400">${fmt(part.usd)}</span>
+                            </div>
+                            {alreadyInCompany ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold flex items-center gap-1">
+                                <Check className="w-3 h-3" />
+                                <span>Added</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickAddSinglePart(part)}
+                                className="px-2.5 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/60 text-cyan-200 hover:text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Add</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Table of Products */}
             <div className="flex-1 overflow-y-auto border border-slate-800 rounded-2xl bg-[#070c18] shadow-inner">
               {filteredCompanyProducts.length === 0 ? (
-                <div className="p-12 text-center space-y-3">
+                <div className="p-10 text-center space-y-3">
                   <Package className="w-10 h-10 text-slate-600 mx-auto" />
-                  <p className="text-sm font-semibold text-white">No products found matching the criteria</p>
-                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                    Try clearing filters or search to see all items assigned to {viewingCompanyProducts.name}.
+                  <p className="text-sm font-semibold text-white">No products assigned to {viewingCompanyProducts.name} yet</p>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Use the search bar or category filter above to find any product you already bought from {viewingCompanyProducts.name} and click + Add.
                   </p>
                   {hasActiveProductFilters && (
                     <button
@@ -1736,7 +1962,11 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
               <span>Showing {filteredCompanyProducts.length} of {rawCompanyProducts.length} sourced products</span>
               <button
                 type="button"
-                onClick={() => setViewingCompanyProducts(null)}
+                onClick={() => {
+                  setViewingCompanyProducts(null);
+                  setShowQuickAddInView(false);
+                  setQuickAddSelectedIds(new Set());
+                }}
                 className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold cursor-pointer"
               >
                 Close
@@ -1760,7 +1990,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-white">Register Company</h3>
-                  <p className="text-xs text-slate-400">Diwaan gali shirkad alaabta laga soo qaado (Supplier Sourcing Registry)</p>
+                  <p className="text-xs text-slate-400">Register a supplier company for your parts catalog (Supplier Sourcing Registry)</p>
                 </div>
               </div>
               <button
@@ -1840,10 +2070,57 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                     type="text"
                     required
                     value={addLocation}
-                    onChange={(e) => setAddLocation(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAddLocation(val);
+                      const guessed = inferOriginFromText(val);
+                      if (guessed) setAddOrigin(guessed);
+                    }}
                     placeholder="e.g. Deira Dubai / Shenzhen China"
                     className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-sm text-white font-medium outline-none"
                   />
+                </div>
+              </div>
+
+              {/* Origin Selector (Dubai / China) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-cyan-300 uppercase tracking-wider">
+                    Origin (Dubai or China) *
+                  </label>
+                  <span className="text-[10px] font-mono font-bold text-cyan-400">
+                    {addOrigin === 'China' ? '🇨🇳 CHINA' : '🇦🇪 DUBAI'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setAddOrigin('Dubai');
+                    }}
+                    className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      addOrigin === 'Dubai'
+                        ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 font-bold ring-2 ring-cyan-400/60 shadow-lg'
+                        : 'bg-[#070c18] border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-xs sm:text-sm font-semibold">🇦🇪 Dubai</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setAddOrigin('China');
+                    }}
+                    className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      addOrigin === 'China'
+                        ? 'bg-amber-950/80 border-amber-500 text-amber-300 font-bold ring-2 ring-amber-400/60 shadow-lg'
+                        : 'bg-[#070c18] border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-xs sm:text-sm font-semibold">🇨🇳 China</span>
+                  </button>
                 </div>
               </div>
 
@@ -1851,7 +2128,7 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-semibold text-cyan-300 uppercase tracking-wider">
-                    Categories App Ku Jiro (All App Categories) *
+                    App Categories (All App Categories) *
                   </label>
                   <span className="text-[10px] text-cyan-400 font-mono font-bold">
                     {allAppCategories.length} Categories ({totalLcdPartsCount} LCDs)
@@ -2068,9 +2345,56 @@ export const RegisterCompanyView: React.FC<RegisterCompanyViewProps> = ({
                     type="text"
                     required
                     value={editLocation}
-                    onChange={(e) => setEditLocation(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditLocation(val);
+                      const guessed = inferOriginFromText(val);
+                      if (guessed) setEditOrigin(guessed);
+                    }}
                     className="w-full bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-sm text-white font-medium outline-none"
                   />
+                </div>
+              </div>
+
+              {/* Origin Selector (Dubai / China) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                    Origin (Dubai or China) *
+                  </label>
+                  <span className="text-[10px] font-mono font-bold text-amber-400">
+                    {editOrigin === 'China' ? '🇨🇳 CHINA' : '🇦🇪 DUBAI'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setEditOrigin('Dubai');
+                    }}
+                    className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      editOrigin === 'Dubai'
+                        ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 font-bold ring-2 ring-cyan-400/60 shadow-lg'
+                        : 'bg-[#070c18] border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-xs sm:text-sm font-semibold">🇦🇪 Dubai</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setEditOrigin('China');
+                    }}
+                    className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      editOrigin === 'China'
+                        ? 'bg-amber-950/80 border-amber-500 text-amber-300 font-bold ring-2 ring-amber-400/60 shadow-lg'
+                        : 'bg-[#070c18] border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-xs sm:text-sm font-semibold">🇨🇳 China</span>
+                  </button>
                 </div>
               </div>
 

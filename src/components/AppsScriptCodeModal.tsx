@@ -45,7 +45,7 @@ export const AppsScriptCodeModal: React.FC<AppsScriptCodeModalProps> = ({
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Nuqul ka qaad koodhkan oo geli Google Sheet-kaaga (Extensions &gt; Apps Script)
+                Copy this code and paste it into your Google Sheet (Extensions &gt; Apps Script)
               </p>
             </div>
           </div>
@@ -62,24 +62,24 @@ export const AppsScriptCodeModal: React.FC<AppsScriptCodeModalProps> = ({
         <div className="p-4 bg-[#070b14] border-b border-slate-800 text-xs text-slate-300 space-y-2 shrink-0">
           <div className="flex items-center gap-1.5 text-cyan-400 font-bold uppercase tracking-wider text-[11px]">
             <BookOpen className="w-3.5 h-3.5" />
-            <span>4 Tallaabo oo Fudud (How to Install):</span>
+            <span>4 Simple Steps (How to Install):</span>
           </div>
           <ol className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px] text-slate-300">
             <li className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
               <strong className="text-white block mb-0.5">1. Extensions</strong>
-              Geli Google Sheets, guji <span className="text-cyan-300">Extensions &gt; Apps Script</span>.
+              Open Google Sheets and click <span className="text-cyan-300">Extensions &gt; Apps Script</span>.
             </li>
             <li className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
               <strong className="text-white block mb-0.5">2. Paste Code</strong>
-              Tirtir wixii ku jiray oo paste ku dheh koodhkan, kadib guji <span className="text-cyan-300">Save (Disk icon)</span>.
+              Delete the existing code, paste this script, and click <span className="text-cyan-300">Save (Disk icon)</span>.
             </li>
             <li className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
               <strong className="text-white block mb-0.5">3. Deploy as Web App</strong>
-              Guji <span className="text-cyan-300">Deploy &gt; Manage deployments &gt; Edit (ama New deployment)</span>, dooro <span className="text-cyan-300">Web app</span>.
+              Click <span className="text-cyan-300">Deploy &gt; Manage deployments &gt; Edit (or New deployment)</span>, then select <span className="text-cyan-300">Web app</span>.
             </li>
             <li className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
               <strong className="text-emerald-400 block mb-0.5">4. Anyone Access</strong>
-              Dooro <span className="text-emerald-400 font-bold">Who has access: Anyone</span>, guji Deploy, oo soo qaado link-ga ku dhamaada <span className="font-mono text-cyan-300">/exec</span>!
+              Select <span className="text-emerald-400 font-bold">Who has access: Anyone</span>, click Deploy, and copy the link ending with <span className="font-mono text-cyan-300">/exec</span>!
             </li>
           </ol>
         </div>
@@ -100,9 +100,15 @@ export const AppsScriptCodeModal: React.FC<AppsScriptCodeModalProps> = ({
             </button>
           </div>
 
-          <pre className="p-4 bg-[#050811] rounded-2xl border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto select-all leading-relaxed max-h-[380px]">
-            {scriptCode}
-          </pre>
+          <div className="relative group">
+            <div className="absolute -top-3 left-4 z-10 px-3 py-0.5 rounded-full bg-pink-500/20 border-2 border-pink-500 text-[10px] font-bold text-pink-200 flex items-center gap-1.5 shadow-lg backdrop-blur-md">
+              <span className="w-2 h-2 rounded-full bg-pink-400 animate-pulse"></span>
+              <span className="uppercase tracking-wider">Smart Product Matching (Name + Company + Cargo/Shipping) • No-Duplicate Guard • New Row When Differs</span>
+            </div>
+            <pre className="p-5 pt-6 bg-[#050811] rounded-2xl border-2 border-pink-500 shadow-[0_0_30px_rgba(236,72,153,0.4)] ring-2 ring-pink-500/40 text-[11px] font-mono text-cyan-300 overflow-x-auto select-all leading-relaxed max-h-[420px]">
+              {scriptCode}
+            </pre>
+          </div>
         </div>
 
         {/* Footer */}

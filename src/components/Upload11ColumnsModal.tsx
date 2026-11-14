@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Upload, 
   X, 
@@ -12,7 +12,7 @@ import {
   Database
 } from 'lucide-react';
 import { GoogleSheetsService, DEFAULT_WEB_APP_URL } from '../services/googleSheetsService';
-import { SparePartItem } from '../data/initialData';
+import { SparePartItem, dedupeSpareParts, normalizeProductKey, normalizeCargoKey } from '../data/initialData';
 import { sound } from '../services/soundService';
 
 interface Upload11ColumnsModalProps {
@@ -37,6 +37,15 @@ export const Upload11ColumnsModal: React.FC<Upload11ColumnsModalProps> = ({
   const [parsedPreview, setParsedPreview] = useState<SparePartItem[]>([]);
   const [fileName, setFileName] = useState<string>('');
   const [updateMatchingIds, setUpdateMatchingIds] = useState(true);
+
+  useEffect(() => {
+    if (isOpen) {
+      const cfg = GoogleSheetsService.getSavedConfig();
+      if (cfg.webAppUrl) {
+        setWebAppUrl(cfg.webAppUrl);
+      }
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -123,54 +132,103 @@ export const Upload11ColumnsModal: React.FC<Upload11ColumnsModalProps> = ({
     reader.readAsText(file);
   };
 
-  // Merge products according to selected policy (Update matching IDs & append new products)
+  // Merge products according to Smart Product Matching Rules 1-4 (Product Name + Company Name primary key)
   const handleApplyImport = () => {
     if (parsedPreview.length === 0) return;
 
     sound.playVictory();
+    const normKey = normalizeProductKey;
+    const makeCompositeKey = (name?: string, comp?: string, ship?: string) =>
+      `${normKey(name)}||${normKey(comp)}||${normalizeCargoKey(ship)}`;
+
     let finalParts: SparePartItem[] = [];
+    let duplicateSkipped = 0;
 
     if (updateMatchingIds) {
-      // 1. Update matching IDs and append new products
-      const existingMap = new Map<string, SparePartItem>();
-      const existingNameMap = new Map<string, SparePartItem>();
-
-      // Index current items
-      currentParts.forEach(p => {
-        if (p.id) existingMap.set(p.id.toLowerCase().trim(), p);
-        existingNameMap.set(p.name.toLowerCase().trim(), p);
+      const mergedList: SparePartItem[] = dedupeSpareParts([...currentParts]);
+      const usedIds = new Set<string>(mergedList.map(p => (p.id || '').toLowerCase().trim()).filter(Boolean));
+      let maxDx = 0;
+      mergedList.forEach(p => {
+        const m = String(p.id || '').match(/^DX-(\d+)$/i);
+        if (m) maxDx = Math.max(maxDx, parseInt(m[1], 10));
       });
-
-      // Track updated IDs
-      const touchedIds = new Set<string>();
+      const nextUniqueId = (preferred?: string) => {
+        const clean = (preferred || '').trim();
+        if (clean && !usedIds.has(clean.toLowerCase())) {
+          usedIds.add(clean.toLowerCase());
+          return clean;
+        }
+        maxDx += 1;
+        let cand = `DX-${String(maxDx).padStart(6, '0')}`;
+        while (usedIds.has(cand.toLowerCase())) {
+          maxDx += 1;
+          cand = `DX-${String(maxDx).padStart(6, '0')}`;
+        }
+        usedIds.add(cand.toLowerCase());
+        return cand;
+      };
 
       parsedPreview.forEach(incoming => {
-        const idKey = incoming.id ? incoming.id.toLowerCase().trim() : '';
-        if (idKey && existingMap.has(idKey)) {
-          // Update matching ID
-          const prev = existingMap.get(idKey)!;
-          existingMap.set(idKey, { ...prev, ...incoming });
-          touchedIds.add(idKey);
+        const incomingComp = incoming.companyName || 'NAJI HASSAN';
+        const incomingShip = incoming.shippingMethod || 'air';
+        const incomingKey = makeCompositeKey(incoming.name, incomingComp, incomingShip);
+        const matchIndices: number[] = [];
+        mergedList.forEach((p, idx) => {
+          if (
+            makeCompositeKey(p.name, p.companyName || 'NAJI HASSAN', p.shippingMethod) === incomingKey ||
+            makeCompositeKey(p.name, p.companyName, p.shippingMethod) === makeCompositeKey(incoming.name, incoming.companyName, incomingShip)
+          ) {
+            matchIndices.push(idx);
+          }
+        });
+
+        if (matchIndices.length >= 1) {
+          // Same Name + Company + Cargo/Shipping => ONLY UPDATE existing row, preserving ID and Date Added
+          const prev = mergedList[matchIndices[0]];
+          mergedList[matchIndices[0]] = {
+            ...prev,
+            ...incoming,
+            id: prev.id,
+            purchaseDate: prev.purchaseDate || incoming.purchaseDate
+          };
+          if (matchIndices.length > 1) duplicateSkipped += matchIndices.length - 1;
         } else {
-          // Append as new product
-          const newId = incoming.id || `p-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-          existingMap.set(newId.toLowerCase().trim(), { ...incoming, id: newId });
+          // Same Name with DIFFERENT Company OR DIFFERENT Cargo/Shipping (or New) => Write NEW ROW with unique ID
+          const uniqueId = nextUniqueId(incoming.id);
+          mergedList.push({ ...incoming, id: uniqueId });
         }
       });
 
-      finalParts = Array.from(existingMap.values());
+      finalParts = mergedList;
     } else {
       // Direct replace
       finalParts = parsedPreview;
     }
 
+    // Guarantee all 11 columns are completely filled & deduplicated on (Name + Company + Cargo/Shipping)
+    const todayStr = new Date().toISOString().split('T')[0];
+    const sanitizedParts: SparePartItem[] = dedupeSpareParts(
+      finalParts.map((p, idx) => ({
+        ...p,
+        id: p.id || `DX-${String(idx + 1).padStart(6, '0')}`,
+        companyName: p.companyName || 'NAJI HASSAN',
+        shippingMethod: (p.shippingMethod as any) || 'air',
+        origin: (p.origin as any) || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai'),
+        purchaseDate: p.purchaseDate || todayStr,
+        salesPrice: p.salesPrice && p.salesPrice > 0 ? p.salesPrice : p.usd,
+        salesPriceD: p.salesPriceD && p.salesPriceD > 0 ? p.salesPriceD : Number(((p.salesPrice || p.usd) * 3.67).toFixed(1)),
+        yuan: p.yuan && p.yuan > 0 ? p.yuan : 0
+      }))
+    );
+
     // Save to storage
-    GoogleSheetsService.saveCustomParts(finalParts);
+    GoogleSheetsService.saveCustomParts(sanitizedParts);
     GoogleSheetsService.saveConfig({ webAppUrl });
 
+    const reviewNote = duplicateSkipped > 0 ? ` (${duplicateSkipped} duplicate groups skipped for review)` : '';
     onImportComplete(
-      finalParts,
-      `Successfully imported ${parsedPreview.length} products with 11 columns!`
+      sanitizedParts,
+      `Successfully synced ${sanitizedParts.length} products with Smart Product Matching & all 11 columns filled!${reviewNote}`
     );
     onClose();
   };
@@ -193,7 +251,7 @@ export const Upload11ColumnsModal: React.FC<Upload11ColumnsModalProps> = ({
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Soo geli 11-ka column ee Google Sheet si toos ah ama fayl CSV ah
+                Import all 11 columns directly from Google Sheets or a CSV file
               </p>
             </div>
           </div>

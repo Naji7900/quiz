@@ -4689,13 +4689,13 @@ export const NAJI_HASSAN_DATA: RawCatalogItem[] = [
 ];
 
 export function getNajiHassanCatalog(): SparePartItem[] {
+  const today = new Date().toISOString().split('T')[0];
   return NAJI_HASSAN_DATA.map((item, idx) => {
     const salesPrice = item.salesPrice > 0 ? item.salesPrice : item.usd;
     const isLcd = item.cat && item.cat.includes('LCD');
     const defaultOrigin: 'Dubai' | 'China' = isLcd ? 'China' : 'Dubai';
-    const smartId = generateSmartPartId(item.name, undefined, 'air', defaultOrigin);
     return {
-      id: `${smartId}-${idx + 1}`,
+      id: `DX-${String(idx + 1).padStart(6, '0')}`,
       cat: item.cat,
       name: item.name,
       d: item.d,
@@ -4704,8 +4704,10 @@ export function getNajiHassanCatalog(): SparePartItem[] {
       salesPrice,
       salesPriceD: Number((salesPrice * 3.67).toFixed(1)),
       expense: 0,
+      companyName: 'NAJI HASSAN',
       shippingMethod: 'air' as const,
-      origin: defaultOrigin
+      origin: defaultOrigin,
+      purchaseDate: today
     };
   });
 }

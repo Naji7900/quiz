@@ -56,14 +56,14 @@ export const TopNav: React.FC<TopNavProps> = ({
         </div>
 
         {/* Desktop Navigation Tabs (Visible on lg+) */}
-        <nav className="hidden lg:flex items-center gap-1 p-1.5 bg-[#0e1424] rounded-2xl border border-slate-700/80 shadow-inner overflow-x-auto">
+        <nav className="hidden lg:flex items-center gap-1.5 p-1.5 bg-[#0b1120] rounded-2xl border border-cyan-800/50 shadow-inner overflow-x-auto">
           {[
-            { id: 'prolist', label: 'Catalog' },
+            { id: 'prolist', label: 'Catalog', badge: '11 Col' },
             { id: 'quiz', label: 'Quiz' },
-            { id: 'photos', label: 'Photos' },
-            { id: 'compat', label: 'Compatible LCDs' },
-            { id: 'pricetracker', label: 'Price Tracker' },
-            { id: 'register_company', label: 'Register Company' }
+            { id: 'photos', label: 'Photos', badge: 'Sheet' },
+            { id: 'compat', label: 'Compatible LCDs', badge: 'Sheet' },
+            { id: 'pricetracker', label: 'Price Tracker', badge: 'Sheet' },
+            { id: 'register_company', label: 'Register Company', badge: 'Sheet' }
           ].map(tab => {
             const isActive = activeTab === tab.id;
             return (
@@ -71,21 +71,26 @@ export const TopNav: React.FC<TopNavProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => { sound.playTick(); setActiveTab(tab.id as AppTab); }}
-                className={`px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5 ${
                   isActive
                     ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/30 font-bold'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
-                <span className="flex items-center gap-1.5">
-                  <span>{tab.label}</span>
-                  {tab.id === 'quiz' && currentStreak > 2 && (
-                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 bg-amber-500 text-slate-950 rounded flex items-center gap-0.5">
-                      <Flame className="w-3 h-3 fill-slate-950" />
-                      <span>{currentStreak}</span>
-                    </span>
-                  )}
-                </span>
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-semibold ${
+                    isActive ? 'bg-cyan-950/80 text-cyan-200 border border-cyan-400/40' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {tab.badge}
+                  </span>
+                )}
+                {tab.id === 'quiz' && currentStreak > 2 && (
+                  <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 bg-amber-500 text-slate-950 rounded flex items-center gap-0.5">
+                    <Flame className="w-3 h-3 fill-slate-950" />
+                    <span>{currentStreak}</span>
+                  </span>
+                )}
               </button>
             );
           })}
@@ -93,16 +98,21 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-          
-          {/* Install Button */}
+          {/* DOWNLOAD BUTTON (PC & Mobile QR Code) */}
           <button
             type="button"
-            onClick={onOpenInstallModal}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 rounded-xl shadow-md transition-all whitespace-nowrap border border-emerald-400/40 cursor-pointer"
-            title="Download App on Mobile & Laptop"
+            onClick={() => {
+              sound.playTick();
+              onOpenInstallModal();
+            }}
+            className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-gradient-to-r from-cyan-600 via-indigo-600 to-purple-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-950/60 border border-cyan-400/50 flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer"
+            title="DOWNLOAD (PC Desktop & Mobile QR Code)"
           >
-            <Download className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span className="hidden sm:inline">Download App</span>
+            <Download className="w-4 h-4 text-cyan-200 animate-pulse shrink-0" />
+            <span className="font-extrabold tracking-wide uppercase">DOWNLOAD</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950/80 text-cyan-300 border border-cyan-400/30 hidden md:inline">
+              PC &amp; Mobile QR
+            </span>
           </button>
 
           {/* Sound Toggle */}
@@ -115,21 +125,20 @@ export const TopNav: React.FC<TopNavProps> = ({
           >
             {soundMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-cyan-400" />}
           </button>
-
         </div>
 
       </div>
 
       {/* Sub-header Navigation Bar (Visible on mobile & tablets < lg) */}
       <div className="lg:hidden px-2.5 pb-2 pt-0.5 overflow-x-auto scrollbar-none">
-        <nav className="flex items-center gap-1 p-1 bg-[#0b101e] rounded-xl border border-slate-800 w-max min-w-full">
+        <nav className="flex items-center gap-1 p-1 bg-[#0b101e] rounded-xl border border-cyan-900/40 w-max min-w-full">
           {[
-            { id: 'prolist', label: 'Catalog' },
+            { id: 'prolist', label: 'Catalog', badge: '11 Col' },
             { id: 'quiz', label: 'Quiz' },
-            { id: 'photos', label: 'Photos' },
-            { id: 'compat', label: 'Compatible LCDs' },
-            { id: 'pricetracker', label: 'Price Tracker' },
-            { id: 'register_company', label: 'Register Company' }
+            { id: 'photos', label: 'Photos', badge: 'Sheet' },
+            { id: 'compat', label: 'Compatible LCDs', badge: 'Sheet' },
+            { id: 'pricetracker', label: 'Price Tracker', badge: 'Sheet' },
+            { id: 'register_company', label: 'Register Company', badge: 'Sheet' }
           ].map(tab => {
             const isActive = activeTab === tab.id;
             return (
@@ -137,13 +146,20 @@ export const TopNav: React.FC<TopNavProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => { sound.playTick(); setActiveTab(tab.id as AppTab); }}
-                className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1 ${
                   isActive
                     ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-900/40 font-bold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <span>{tab.label}</span>
+                {tab.badge && (
+                  <span className={`text-[8px] font-mono px-1 rounded ${
+                    isActive ? 'bg-cyan-950 text-cyan-200' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {tab.badge}
+                  </span>
+                )}
               </button>
             );
           })}

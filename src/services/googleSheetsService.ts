@@ -1,4 +1,4 @@
-import { SparePartItem, CompareItem, CompatItem, PhotoItem, RegisteredCompany, PriceChangeRecord, calculatePricing, generateSmartPartId } from '../data/initialData';
+import { SparePartItem, CompareItem, CompatItem, PhotoItem, RegisteredCompany, PriceChangeRecord, calculatePricing, generateSmartPartId, dedupeSpareParts } from '../data/initialData';
 
 export interface SheetSyncResult {
   success: boolean;
@@ -24,7 +24,7 @@ export interface StoredDatabaseState {
   isFormattedEmpty?: boolean;
 }
 
-export const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxY6NbvZoADg7L1Gm59tuSHz79E0zEnMbK5kfq3lHbTGaVxO2fgNnWtualZjc0U_y9t/exec';
+export const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzd1T7OoTOWHLGtAnh9Rp1lYKLmNhcxXjoG8MFmRGiSuwTzSUSUxbs7SgBUwUAeCYuf/exec';
 
 export interface CompleteSuiteBackupPayload {
   parts: SparePartItem[];
@@ -67,6 +67,14 @@ export class GoogleSheetsService {
           parsed.webAppUrl = parsed.sheetUrl;
         } else if (!parsed.sheetUrl && parsed.webAppUrl) {
           parsed.sheetUrl = parsed.webAppUrl;
+        }
+        // Auto-upgrade if using the legacy default URL
+        if (parsed.webAppUrl && parsed.webAppUrl.includes('AKfycbxY6NbvZoADg7L1Gm59tuSHz79E0zEnMbK5kfq3lHbTGaVxO2fgNnWtualZjc0U_y9t')) {
+          parsed.webAppUrl = fallbackUrl;
+          if (parsed.sheetUrl && parsed.sheetUrl.includes('AKfycbxY6NbvZoADg7L1Gm59tuSHz79E0zEnMbK5kfq3lHbTGaVxO2fgNnWtualZjc0U_y9t')) {
+            parsed.sheetUrl = fallbackUrl;
+          }
+          localStorage.setItem(STORAGE_KEY_DB, JSON.stringify(parsed));
         }
         return parsed;
       }
@@ -208,6 +216,7 @@ export class GoogleSheetsService {
     const compIdx = rawHeaders.findIndex(h => h.includes('company') || h.includes('supplier') || h.includes('vendor'));
     const shipIdx = rawHeaders.findIndex(h => h.includes('ship') || h.includes('cargo') || h.includes('air') || h.includes('sea'));
     const originIdx = rawHeaders.findIndex(h => h.includes('origin') || h.includes('from') || h.includes('dubai') || h.includes('china'));
+    const dateIdx = rawHeaders.findIndex(h => h.includes('date') || h.includes('added') || h.includes('time') || h.includes('purchase') || h.includes('created'));
     const urlIdx = rawHeaders.findIndex(h => h.includes('url') || h.includes('photo') || h.includes('image'));
 
     // Fallbacks corresponding directly to user's exact 11 columns:
@@ -222,6 +231,9 @@ export class GoogleSheetsService {
     const safeCompIdx = compIdx >= 0 ? compIdx : (hasExplicitId ? 7 : 6);
     const safeShipIdx = shipIdx >= 0 ? shipIdx : (hasExplicitId ? 8 : 7);
     const safeOriginIdx = originIdx >= 0 ? originIdx : (hasExplicitId ? 9 : 8);
+    const safeDateIdx = dateIdx >= 0 ? dateIdx : (hasExplicitId ? 10 : 9);
+
+    const todayStr = new Date().toISOString().split('T')[0];
 
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
@@ -247,16 +259,19 @@ export class GoogleSheetsService {
       // Sales $ strictly follows origin price $
       const salesPrice = !isNaN(rawSales) && rawSales > 0 ? rawSales : usd;
 
-      // Parse Company / Supplier, Shipment (By Air / By Sea), and Origin (Dubai / China)
+      // Parse Company / Supplier, Shipment (By Air / By Sea), Origin (Dubai / China), and Date Added
       const rawComp = safeCompIdx >= 0 && row[safeCompIdx] ? row[safeCompIdx].trim() : '';
       const rawShip = safeShipIdx >= 0 && row[safeShipIdx] ? row[safeShipIdx].trim().toLowerCase() : '';
       const rawOrigin = safeOriginIdx >= 0 && row[safeOriginIdx] ? row[safeOriginIdx].trim().toLowerCase() : '';
+      const rawDate = safeDateIdx >= 0 && row[safeDateIdx] ? String(row[safeDateIdx]).trim() : '';
 
-      const companyName = rawComp || undefined;
+      // Guarantee all 11 columns are filled
+      const companyName = rawComp || 'NAJI HASSAN';
       const shippingMethod: 'air' | 'sea' = rawShip.includes('sea') ? 'sea' : 'air';
       const origin: 'Dubai' | 'China' = rawOrigin.includes('china') ? 'China' : (rawOrigin.includes('dubai') ? 'Dubai' : (cat.includes('LCD') ? 'China' : 'Dubai'));
+      const purchaseDate = rawDate || todayStr;
 
-      const finalId = rawId || generateSmartPartId(name, companyName, shippingMethod, origin, new Set(parts.map(p => p.id))) || `part-${r}`;
+      const finalId = rawId || `DX-${String(r).padStart(6, '0')}`;
 
       parts.push({
         id: finalId,
@@ -270,7 +285,8 @@ export class GoogleSheetsService {
         expense: exp,
         companyName,
         shippingMethod,
-        origin
+        origin,
+        purchaseDate
       });
 
       if (urlIdx >= 0 && row[urlIdx]) {
@@ -610,32 +626,43 @@ export class GoogleSheetsService {
   }
 
   /**
-   * Export catalog to All-In-One Google Sheet format
-   * Product Name, Price D, USD+, Yuan ¥, Sales $, Category
+   * Export catalog to All-In-One Google Sheet 11-Column format
+   * ID, Product Name, Category (Brand _Part Type), Price D, Yuan ¥, USD+, Sales $, Company, Shipment, Origin, Date Added
    */
   public static exportToCSV(parts: SparePartItem[]) {
     const headers = [
+      'ID',
       'Product Name',
       'Category (Brand _Part Type)',
       'Price D',
       'Yuan ¥',
       'USD+',
-      'Sales $'
+      'Sales $',
+      'Company',
+      'Shipment',
+      'Origin',
+      'Date Added'
     ];
-    const rows = parts.map(p => [
+    const today = new Date().toISOString().split('T')[0];
+    const rows = parts.map((p, idx) => [
+      `"${(p.id || `DX-${String(idx + 1).padStart(6, '0')}`).replace(/"/g, '""')}"`,
       `"${p.name.replace(/"/g, '""')}"`,
       `"${p.cat.replace(/"/g, '""')}"`,
       p.d,
-      p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+      p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(2)),
       p.usd,
-      p.salesPrice
+      p.salesPrice,
+      `"${(p.companyName || 'NAJI HASSAN').replace(/"/g, '""')}"`,
+      `"${p.shippingMethod === 'sea' ? 'By Sea' : 'By Air'}"`,
+      `"${(p.origin || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai')).replace(/"/g, '""')}"`,
+      `"${(p.purchaseDate || today).replace(/"/g, '""')}"`
     ]);
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `ALL_PRODUCT_Master_Sheet_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `NAJI_HASSAN_ALL_PRODUCT_11_COLUMNS_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1096,7 +1123,8 @@ ${worksheetsXml}
   public static async deleteFromGoogleSheet(
     endpointUrl: string,
     productName: string,
-    category?: string
+    category?: string,
+    id?: string
   ): Promise<{ success: boolean; message: string }> {
     const rawUrl = endpointUrl.trim();
     if (!rawUrl) {
@@ -1110,6 +1138,8 @@ ${worksheetsXml}
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'delete_product',
+          id: id || '',
+          sku: id || '',
           productName,
           name: productName,
           category
@@ -1120,6 +1150,8 @@ ${worksheetsXml}
       // 2. Dual fallback: GET query parameter (survives Google 302 redirects)
       const queryParams = new URLSearchParams({
         action: 'delete_product',
+        id: id || '',
+        sku: id || '',
         productName: productName,
         name: productName,
         category: category || '',
@@ -1135,7 +1167,7 @@ ${worksheetsXml}
 
       return {
         success: true,
-        message: `Successfully sent delete request for "${productName}" to Google Sheets!`
+        message: `Successfully sent delete request for "${productName}" (ID: ${id || 'auto'}) to Google Sheets!`
       };
     } catch (err) {
       console.warn('Google Sheet delete error:', err);
@@ -1151,9 +1183,10 @@ ${worksheetsXml}
    */
   public static async bulkDeleteFromGoogleSheet(
     endpointUrl: string,
-    productNames: string[]
+    productNames: string[],
+    ids?: string[]
   ): Promise<{ success: boolean; message: string }> {
-    if (!endpointUrl.trim() || productNames.length === 0) {
+    if (!endpointUrl.trim() || (productNames.length === 0 && (!ids || ids.length === 0))) {
       return { success: false, message: 'No products or endpoint configured.' };
     }
 
@@ -1163,14 +1196,15 @@ ${worksheetsXml}
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'bulk_delete_products',
-          productNames
+          productNames,
+          ids: ids || []
         }),
         mode: 'no-cors'
       });
 
       return {
         success: true,
-        message: `Successfully requested deletion of ${productNames.length} products from Google Sheets!`
+        message: `Successfully requested deletion of ${Math.max(productNames.length, (ids || []).length)} products from Google Sheets!`
       };
     } catch (err) {
       console.warn('Google Sheet bulk delete error:', err);
@@ -1189,7 +1223,9 @@ ${worksheetsXml}
   public static async updateInGoogleSheet(
     endpointUrl: string,
     oldProductName: string,
-    updatedItem: SparePartItem
+    updatedItem: SparePartItem,
+    oldCompanyName?: string,
+    oldShippingMethod?: string
   ): Promise<{ success: boolean; message: string }> {
     const rawUrl = endpointUrl.trim();
     if (!rawUrl) {
@@ -1197,15 +1233,22 @@ ${worksheetsXml}
     }
 
     const yuanVal = typeof updatedItem.yuan === 'number' && !isNaN(updatedItem.yuan) ? updatedItem.yuan : 0;
+    const preservedDate = updatedItem.purchaseDate || new Date().toISOString().split('T')[0];
+    const resolvedShipLabel = updatedItem.shippingMethod === 'sea' ? 'By Sea' : 'By Air';
+    const resolvedOldShipLabel = oldShippingMethod
+      ? (String(oldShippingMethod).toLowerCase().includes('sea') ? 'By Sea' : 'By Air')
+      : resolvedShipLabel;
 
     try {
-      // 1. Primary method: POST with JSON payload in text/plain (avoids CORS preflight)
-      const postPromise = fetch(rawUrl, {
+      // 1. Primary method: Single POST with JSON payload in text/plain (avoids CORS preflight & prevents concurrent double writes)
+      await fetch(rawUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'update_product',
           oldName: oldProductName,
+          oldCompany: oldCompanyName || updatedItem.companyName || '',
+          oldShipping: resolvedOldShipLabel,
           id: updatedItem.id,
           sku: updatedItem.id,
           productId: updatedItem.id,
@@ -1220,10 +1263,10 @@ ${worksheetsXml}
           salesPrice: updatedItem.salesPrice,
           company: updatedItem.companyName || '',
           companyName: updatedItem.companyName || '',
-          shipping: updatedItem.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
-          shippingMethod: updatedItem.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
+          shipping: resolvedShipLabel,
+          shippingMethod: resolvedShipLabel,
           origin: updatedItem.origin || 'Dubai',
-          date: new Date().toISOString().split('T')[0],
+          date: preservedDate,
           row: [
             updatedItem.id,
             updatedItem.name,
@@ -1233,50 +1276,59 @@ ${worksheetsXml}
             updatedItem.usd,
             updatedItem.salesPrice,
             updatedItem.companyName || '',
-            updatedItem.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
+            resolvedShipLabel,
             updatedItem.origin || 'Dubai',
-            new Date().toISOString().split('T')[0]
+            preservedDate
           ]
         }),
         mode: 'no-cors'
-      }).catch(e => console.warn('POST update notice:', e));
-
-      // 2. Dual fallback: GET query parameter (preserves parameters across Google 302 redirects)
-      const queryParams = new URLSearchParams({
-        action: 'update_product',
-        oldName: oldProductName,
-        id: updatedItem.id,
-        sku: updatedItem.id,
-        name: updatedItem.name,
-        productName: updatedItem.name,
-        cat: updatedItem.cat,
-        d: String(updatedItem.d),
-        yuan: String(yuanVal),
-        usd: String(updatedItem.usd),
-        salesPrice: String(updatedItem.salesPrice),
-        company: updatedItem.companyName || '',
-        shipping: updatedItem.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
-        origin: updatedItem.origin || 'Dubai',
-        _t: String(Date.now())
       });
-      const separator = rawUrl.includes('?') ? '&' : '?';
-      const getPromise = fetch(`${rawUrl}${separator}${queryParams.toString()}`, {
-        method: 'GET',
-        mode: 'no-cors'
-      }).catch(e => console.warn('GET update notice:', e));
-
-      await Promise.allSettled([postPromise, getPromise]);
 
       return {
         success: true,
         message: `Directly synced "${updatedItem.name}" to Google Sheet!`
       };
-    } catch (err) {
-      console.warn('Google Sheet update error:', err);
-      return {
-        success: false,
-        message: (err as Error).message || 'Failed to update row in Google Sheets.'
-      };
+    } catch (postErr) {
+      console.warn('POST update notice, falling back to GET:', postErr);
+      try {
+        // 2. Fallback only if POST fails: GET query parameter (survives Google 302 redirects)
+        const queryParams = new URLSearchParams({
+          action: 'update_product',
+          oldName: oldProductName,
+          oldCompany: oldCompanyName || updatedItem.companyName || '',
+          oldShipping: resolvedOldShipLabel,
+          id: updatedItem.id,
+          sku: updatedItem.id,
+          name: updatedItem.name,
+          productName: updatedItem.name,
+          cat: updatedItem.cat,
+          d: String(updatedItem.d),
+          yuan: String(yuanVal),
+          usd: String(updatedItem.usd),
+          salesPrice: String(updatedItem.salesPrice),
+          company: updatedItem.companyName || '',
+          shipping: resolvedShipLabel,
+          origin: updatedItem.origin || 'Dubai',
+          date: preservedDate,
+          _t: String(Date.now())
+        });
+        const separator = rawUrl.includes('?') ? '&' : '?';
+        await fetch(`${rawUrl}${separator}${queryParams.toString()}`, {
+          method: 'GET',
+          mode: 'no-cors'
+        });
+
+        return {
+          success: true,
+          message: `Directly synced "${updatedItem.name}" to Google Sheet!`
+        };
+      } catch (err) {
+        console.warn('Google Sheet update error:', err);
+        return {
+          success: false,
+          message: (err as Error).message || 'Failed to update row in Google Sheets.'
+        };
+      }
     }
   }
 
@@ -1423,65 +1475,36 @@ ${worksheetsXml}
     const sheetName = 'REGISTERED COMPANIES';
     const actionKey = action === 'add' ? 'add_company' : action === 'update' ? 'update_company' : 'delete_company';
 
-    try {
-      // 1. Primary method: POST with JSON payload in text/plain (avoids CORS preflight)
-      const postPromise = fetch(rawUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: actionKey,
-          sheetName: sheetName,
-          companyId: company.id,
-          id: company.id,
-          name: company.name,
-          companyName: company.name,
-          phone: company.phoneNo,
-          whatsapp: company.whatsappNo || '',
-          location: company.location,
-          category: company.category || 'All LCD Screens',
-          contactPerson: company.contactPerson || '',
-          status: company.status || 'active',
-          note: company.note || '',
-          createdAt: company.createdAt || new Date().toISOString().slice(0, 10),
-          row: [
-            company.name,
-            company.phoneNo,
-            company.whatsappNo || '',
-            company.location,
-            company.category || 'All LCD Screens',
-            company.contactPerson || '',
-            company.status || 'active',
-            company.note || '',
-            company.createdAt || new Date().toISOString().slice(0, 10)
-          ]
-        }),
-        mode: 'no-cors'
-      }).catch(e => console.warn('POST company sync notice:', e));
+    const cleanPhone = company.phoneNo && (company.phoneNo.startsWith('+') || company.phoneNo.startsWith('='))
+      ? "'" + company.phoneNo
+      : (company.phoneNo || '');
+    const rawWa = company.whatsappNo || company.phoneNo || '';
+    const cleanWa = rawWa && (rawWa.startsWith('+') || rawWa.startsWith('='))
+      ? "'" + rawWa
+      : rawWa;
 
-      // 2. Dual fallback: GET query parameter (preserves parameters across Google 302 redirects)
+    try {
       const queryParams = new URLSearchParams({
         action: actionKey,
         sheetName: sheetName,
         id: company.id,
         name: company.name,
         companyName: company.name,
-        phone: company.phoneNo,
-        whatsapp: company.whatsappNo || '',
-        location: company.location,
-        category: company.category || '',
+        phone: cleanPhone,
+        whatsapp: cleanWa,
+        location: company.location || 'Dubai / China Market',
+        category: company.category || 'All LCD Screens (Multi-Brand)',
         contactPerson: company.contactPerson || '',
-        status: company.status || 'active',
+        status: company.status || 'preferred',
         note: company.note || '',
-        createdAt: company.createdAt || '',
+        createdAt: company.createdAt || new Date().toISOString().slice(0, 10),
         _t: String(Date.now())
       });
       const separator = rawUrl.includes('?') ? '&' : '?';
-      const getPromise = fetch(`${rawUrl}${separator}${queryParams.toString()}`, {
+      await fetch(`${rawUrl}${separator}${queryParams.toString()}`, {
         method: 'GET',
         mode: 'no-cors'
-      }).catch(e => console.warn('GET company sync notice:', e));
-
-      await Promise.allSettled([postPromise, getPromise]);
+      });
 
       return {
         success: true,
@@ -1509,17 +1532,22 @@ ${worksheetsXml}
     }
 
     try {
-      const rows = companies.map(c => [
-        c.name,
-        c.phoneNo,
-        c.whatsappNo || '',
-        c.location,
-        c.category || 'All LCD Screens',
-        c.contactPerson || '',
-        c.status || 'active',
-        c.note || '',
-        c.createdAt || new Date().toISOString().slice(0, 10)
-      ]);
+      const rows = companies.map(c => {
+        const cleanP = c.phoneNo && (c.phoneNo.startsWith('+') || c.phoneNo.startsWith('=')) ? "'" + c.phoneNo : (c.phoneNo || '');
+        const rawW = c.whatsappNo || c.phoneNo || '';
+        const cleanW = rawW && (rawW.startsWith('+') || rawW.startsWith('=')) ? "'" + rawW : rawW;
+        return [
+          c.name,
+          cleanP,
+          cleanW,
+          c.location || 'Dubai / China Market',
+          c.category || 'All LCD Screens',
+          c.contactPerson || '',
+          c.status || 'preferred',
+          c.note || '',
+          c.createdAt || new Date().toISOString().slice(0, 10)
+        ];
+      });
 
       await fetch(rawUrl, {
         method: 'POST',
@@ -1554,7 +1582,7 @@ ${worksheetsXml}
   ): Promise<{ success: boolean; message: string }> {
     const rawUrl = endpointUrl.trim();
     if (!rawUrl) {
-      return { success: false, message: 'Fadlan geli link-ga Google Sheets ama Web App-ka si loo abuuro tab-ka REGISTERED COMPANIES.' };
+      return { success: false, message: 'Please enter a Google Sheets or Web App URL to create the REGISTERED COMPANIES tab.' };
     }
 
     try {
@@ -1595,7 +1623,7 @@ ${worksheetsXml}
 
       return {
         success: true,
-        message: `Guul! Waxaa toos loo abuuray loona cusboonaysiiyay tab-ka 'REGISTERED COMPANIES' ee Google Sheet-kaaga NAJI HASSAN!`
+        message: `Success! Created and updated the 'REGISTERED COMPANIES' tab in your NAJI HASSAN Google Sheet!`
       };
     } catch (err) {
       return {
@@ -1947,15 +1975,15 @@ ${worksheetsXml}
       const compat = payload.compat || [];
 
       // 1. Catalog Parts Rows (11 columns with ID in Col A)
-      const partRows = parts.map(p => [
-        p.id,
+      const partRows = parts.map((p, idx) => [
+        p.id || `DX-${String(idx + 1).padStart(6, '0')}`,
         p.name,
         p.cat,
         p.d,
-        p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(1)),
+        p.yuan ?? Number(((p.d / 3.67) * 7.23).toFixed(2)),
         p.usd,
         p.salesPrice,
-        p.companyName || '',
+        p.companyName || 'NAJI HASSAN',
         p.shippingMethod === 'sea' ? 'By Sea' : 'By Air',
         p.origin || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai'),
         p.purchaseDate || new Date().toISOString().split('T')[0]
@@ -2071,8 +2099,8 @@ ${worksheetsXml}
     const rawPhotos: any[] = data.photos || [];
     const rawCompat: any[] = data.compat || [];
 
-    // Parse parts into typed SparePartItem[]
-    const parts: SparePartItem[] = rawParts.map((p, idx) => {
+    // Parse parts into typed SparePartItem[] and dedupe by (Name + Company + Cargo/Shipping)
+    const mappedParts: SparePartItem[] = rawParts.map((p, idx) => {
       const rawId = String(p.id || p.sku || '').trim();
       const name = String(p.name || '').trim();
       const cat = String(p.cat || p.category || 'General Spare Parts').trim();
@@ -2100,6 +2128,7 @@ ${worksheetsXml}
         origin
       };
     });
+    const parts: SparePartItem[] = dedupeSpareParts(mappedParts);
 
     // Parse companies into typed RegisteredCompany[]
     const companies: RegisteredCompany[] = rawCompanies.map((c, idx) => ({
@@ -2186,12 +2215,12 @@ ${worksheetsXml}
   public static async testConnection(endpointUrl: string): Promise<{ success: boolean; sheetName?: string; message: string }> {
     const rawUrl = endpointUrl.trim();
     if (!rawUrl) {
-      return { success: false, message: 'Fadlan geli link-ga Google Apps Script Web App (/exec).' };
+      return { success: false, message: 'Please enter the Google Apps Script Web App URL (/exec).' };
     }
     if (!this.isWebAppUrl(rawUrl)) {
       return {
         success: false,
-        message: 'Link-gan ma ahan Google Apps Script Web App. Wuxuu u baahan yahay inuu ku dhamaado /exec (waxaad heshay link-ga spreadsheet-ka caadiga ah).'
+        message: 'This URL is not a Google Apps Script Web App. It must end with /exec (you entered a standard spreadsheet URL).'
       };
     }
     try {
@@ -2205,14 +2234,14 @@ ${worksheetsXml}
         return {
           success: true,
           sheetName: data.spreadsheetName || 'Google Sheet',
-          message: `Xiriirku waa sax! Wuxuu ku xiran yahay Google Sheet: "${data.spreadsheetName || 'NAJI HASSAN'}"`
+          message: `Connection verified! Connected to Google Sheet: "${data.spreadsheetName || 'NAJI HASSAN'}"`
         };
       }
-      return { success: false, message: data?.message || 'Xiriirinta laguma guuleysan.' };
+      return { success: false, message: data?.message || 'Connection failed.' };
     } catch (err) {
       return {
         success: false,
-        message: 'Khalad ayaa dhacay: ' + (err as Error).message + '. Hubi in "Who has access" uu yahay "Anyone".'
+        message: 'Connection error: ' + (err as Error).message + '. Make sure "Who has access" is set to "Anyone".'
       };
     }
   }
@@ -2309,6 +2338,267 @@ function _normName(str) {
     .trim();
 }
 
+// SMART PRODUCT MATCHING: Normalize key (trim, collapse internal spaces, case-insensitive)
+function _normKey(str) {
+  return String(str || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+}
+
+// Normalize Cargo / Shipping method ('by sea' vs 'by air')
+function _normShip(str) {
+  var s = String(str || '').trim().toLowerCase();
+  if (s.indexOf('sea') !== -1) return 'by sea';
+  return 'by air';
+}
+
+// Deduplicate 11-column rows: NEVER duplicate if (Product Name + Company + Cargo/Shipping) are all the same;
+// IF Company OR Cargo/Shipping is different, keep both as separate rows!
+function _dedupeProductRows(rows) {
+  var seen = {};
+  var result = [];
+  for (var i = 0; i < (rows || []).length; i++) {
+    var row = rows[i];
+    if (!row || !String(row[1] || '').trim()) continue;
+    var key = _normKey(row[1]) + '||' + _normKey(row[7]) + '||' + _normShip(row[8]);
+    if (!seen[key]) {
+      seen[key] = true;
+      result.push(row);
+    }
+  }
+  return result;
+}
+
+// SMART PRODUCT MATCHING: Detect exact 11-column indices without altering headers/formatting
+function _detectAllProductCols(sh) {
+  var lastR = sh.getLastRow();
+  var lastC = Math.max(sh.getLastColumn(), 11);
+  var values = lastR >= 1 ? sh.getRange(1, 1, lastR, lastC).getValues() : [[]];
+  var headers = (values[0] || []).map(function(h) { return String(h || '').trim().toLowerCase(); });
+
+  var idIdx = -1, nameIdx = -1, catIdx = -1, dIdx = -1, yuanIdx = -1, usdIdx = -1, salesIdx = -1;
+  var compIdx = -1, shipIdx = -1, originIdx = -1, dateIdx = -1;
+  for (var h = 0; h < headers.length; h++) {
+    var head = headers[h];
+    if (idIdx === -1 && (head === 'id' || head.indexOf('sku') !== -1 || head === 'product id' || head === 'part id')) idIdx = h;
+    if (nameIdx === -1 && (head.indexOf('name') !== -1 || head.indexOf('product') !== -1 || head.indexOf('model') !== -1) && head !== 'id' && head !== 'product id') nameIdx = h;
+    if (catIdx === -1 && (head.indexOf('category') !== -1 || head.indexOf('brand') !== -1)) catIdx = h;
+    if (dIdx === -1 && (head === 'price d' || head === 'd' || head.indexOf('dirham') !== -1 || (head.indexOf('price') !== -1 && head.indexOf('sale') === -1))) dIdx = h;
+    if (yuanIdx === -1 && (head.indexOf('yuan') !== -1 || head.indexOf('¥') !== -1 || head.indexOf('rmb') !== -1)) yuanIdx = h;
+    if (usdIdx === -1 && (head.indexOf('usd') !== -1 && head.indexOf('sale') === -1)) usdIdx = h;
+    if (salesIdx === -1 && (head.indexOf('sales') !== -1 || head.indexOf('sale') !== -1 || head.indexOf('retail') !== -1)) salesIdx = h;
+    if (compIdx === -1 && (head.indexOf('company') !== -1 || head.indexOf('supplier') !== -1 || head.indexOf('vendor') !== -1)) compIdx = h;
+    if (shipIdx === -1 && (head.indexOf('ship') !== -1 || head.indexOf('cargo') !== -1)) shipIdx = h;
+    if (originIdx === -1 && (head.indexOf('origin') !== -1 || head.indexOf('country') !== -1 || head.indexOf('from') !== -1)) originIdx = h;
+    if (dateIdx === -1 && (head.indexOf('date') !== -1 || head.indexOf('added') !== -1)) dateIdx = h;
+  }
+
+  if (idIdx === 0 && nameIdx === -1) nameIdx = 1;
+  else if (nameIdx === -1) nameIdx = 0;
+  if (catIdx === -1) catIdx = idIdx !== -1 ? 2 : 1;
+  if (dIdx === -1) dIdx = idIdx !== -1 ? 3 : 2;
+  if (yuanIdx === -1) yuanIdx = idIdx !== -1 ? 4 : 3;
+  if (usdIdx === -1) usdIdx = idIdx !== -1 ? 5 : 4;
+  if (salesIdx === -1) salesIdx = idIdx !== -1 ? 6 : 5;
+  if (compIdx === -1) compIdx = idIdx !== -1 ? 7 : 6;
+  if (shipIdx === -1) shipIdx = idIdx !== -1 ? 8 : 7;
+  if (originIdx === -1) originIdx = idIdx !== -1 ? 9 : 8;
+  if (dateIdx === -1) dateIdx = idIdx !== -1 ? 10 : 9;
+
+  return {
+    lastR: lastR,
+    lastC: lastC,
+    values: values,
+    idIdx: idIdx,
+    nameIdx: nameIdx,
+    catIdx: catIdx,
+    dIdx: dIdx,
+    yuanIdx: yuanIdx,
+    usdIdx: usdIdx,
+    salesIdx: salesIdx,
+    compIdx: compIdx,
+    shipIdx: shipIdx,
+    originIdx: originIdx,
+    dateIdx: dateIdx
+  };
+}
+
+// SMART PRODUCT MATCHING RULE 2: Generate a unique DX-XXXXXX Product ID never used by another row
+function _generateUniqueProductId(sh, preferredId) {
+  var info = _detectAllProductCols(sh);
+  var usedIds = {};
+  var maxDxNum = 0;
+  for (var r = 1; r < info.values.length; r++) {
+    var rawId = info.idIdx !== -1 ? String(info.values[r][info.idIdx] || '').trim() : '';
+    if (rawId) {
+      usedIds[rawId.toLowerCase()] = true;
+      var m = rawId.match(/^DX-(\\d+)$/i);
+      if (m) {
+        var num = parseInt(m[1], 10);
+        if (!isNaN(num) && num > maxDxNum) maxDxNum = num;
+      }
+    }
+  }
+  var cleanPref = String(preferredId || '').trim();
+  if (cleanPref && !usedIds[cleanPref.toLowerCase()]) {
+    return cleanPref;
+  }
+  var nextNum = maxDxNum + 1;
+  var candidate = 'DX-' + ('000000' + nextNum).slice(-6);
+  while (usedIds[candidate.toLowerCase()]) {
+    nextNum++;
+    candidate = 'DX-' + ('000000' + nextNum).slice(-6);
+  }
+  return candidate;
+}
+
+// SMART PRODUCT MATCHING (Name + Company + Cargo/Shipping):
+// Never duplicate if Name + Company + Cargo/Shipping are identical; if Company or Cargo/Shipping is different, treat as separate row.
+function _findSmartMatchingRows(sh, prodName, compName, shippingMethod) {
+  var info = _detectAllProductCols(sh);
+  var targetProd = _normKey(prodName);
+  var targetComp = _normKey(compName);
+  var targetShip = _normShip(shippingMethod);
+  var matchedRows = [];
+  if (!targetProd || info.lastR < 2) {
+    return { matchedRows: matchedRows, info: info };
+  }
+  for (var r = 2; r <= info.values.length; r++) {
+    var row = info.values[r - 1];
+    var rowProd = _normKey(row[info.nameIdx]);
+    var rowComp = info.compIdx !== -1 && info.compIdx < row.length ? _normKey(row[info.compIdx]) : '';
+    var rowShip = info.shipIdx !== -1 && info.shipIdx < row.length ? _normShip(row[info.shipIdx]) : 'by air';
+    if (rowProd === targetProd && rowComp === targetComp && rowShip === targetShip) {
+      matchedRows.push(r);
+    }
+  }
+  return { matchedRows: matchedRows, info: info };
+}
+
+// Write updated editable fields into an existing row in place while preserving Product ID and Date Added
+function _writeRowInPlacePreserveIdAndDate(sh, info, r, rowData) {
+  var existingRow = info.values[r - 1] || [];
+  var preservedId = info.idIdx !== -1 ? String(existingRow[info.idIdx] || '').trim() : '';
+  var preservedDate = info.dateIdx !== -1 ? existingRow[info.dateIdx] : '';
+
+  if (info.idIdx !== -1 && !preservedId) {
+    preservedId = _generateUniqueProductId(sh, rowData.id);
+    sh.getRange(r, info.idIdx + 1).setValue(preservedId);
+  }
+  if (rowData.name) sh.getRange(r, info.nameIdx + 1).setValue(String(rowData.name).trim());
+  if (rowData.cat) sh.getRange(r, info.catIdx + 1).setValue(String(rowData.cat).trim());
+  if (rowData.d !== undefined) sh.getRange(r, info.dIdx + 1).setValue(rowData.d);
+  if (rowData.yuan !== undefined) sh.getRange(r, info.yuanIdx + 1).setValue(rowData.yuan);
+  if (rowData.usd !== undefined) sh.getRange(r, info.usdIdx + 1).setValue(rowData.usd);
+  if (rowData.salesPrice !== undefined) sh.getRange(r, info.salesIdx + 1).setValue(rowData.salesPrice);
+  if (info.compIdx !== -1 && rowData.company !== undefined && String(rowData.company).trim() !== '') {
+    sh.getRange(r, info.compIdx + 1).setValue(String(rowData.company).trim());
+  }
+  if (info.shipIdx !== -1 && rowData.shippingMethod) {
+    var cleanShip = _normShip(rowData.shippingMethod) === 'by sea' ? 'By Sea' : 'By Air';
+    sh.getRange(r, info.shipIdx + 1).setValue(cleanShip);
+  }
+  if (info.originIdx !== -1 && rowData.origin) sh.getRange(r, info.originIdx + 1).setValue(rowData.origin);
+  if (info.dateIdx !== -1 && !preservedDate) {
+    preservedDate = rowData.date || new Date().toISOString().split('T')[0];
+    sh.getRange(r, info.dateIdx + 1).setValue(preservedDate);
+  }
+  return { id: preservedId, dateAdded: preservedDate };
+}
+
+// Clean any pre-existing duplicate rows on (Product Name + Company Name + Cargo/Shipping)
+// Keeps distinct Company or distinct Cargo/Shipping rows as separate rows!
+function _cleanupDuplicateProductRowsBy3Key(sh) {
+  var info = _detectAllProductCols(sh);
+  if (info.lastR < 2) return 0;
+  var seen = {};
+  var rowsToDelete = [];
+  for (var r = 2; r <= info.values.length; r++) {
+    var row = info.values[r - 1];
+    var pKey = _normKey(row[info.nameIdx]);
+    if (!pKey) continue;
+    var cKey = info.compIdx !== -1 && info.compIdx < row.length ? _normKey(row[info.compIdx]) : '';
+    var sKey = info.shipIdx !== -1 && info.shipIdx < row.length ? _normShip(row[info.shipIdx]) : 'by air';
+    var composite = pKey + '||' + cKey + '||' + sKey;
+    if (seen[composite]) {
+      rowsToDelete.push(r);
+    } else {
+      seen[composite] = r;
+    }
+  }
+  for (var i = rowsToDelete.length - 1; i >= 0; i--) {
+    sh.deleteRow(rowsToDelete[i]);
+  }
+  return rowsToDelete.length;
+}
+
+// SMART PRODUCT MATCHING UPSERT ENGINE (3-Field Key: Product Name + Company + Cargo/Shipping)
+function _upsertSmartProductRow(sh, rowData) {
+  var shipLabel = _normShip(rowData.shippingMethod) === 'by sea' ? 'By Sea' : 'By Air';
+  var matchRes = _findSmartMatchingRows(sh, rowData.name, rowData.company, shipLabel);
+  var matchedRows = matchRes.matchedRows;
+  var info = matchRes.info;
+
+  // Same Product Name + Same Company + Same Cargo/Shipping (1 or more matches) ->
+  // NEVER duplicate! Update the first matching row in place & remove any extra duplicates.
+  if (matchedRows.length >= 1) {
+    var targetRow = matchedRows[0];
+    var preserved = _writeRowInPlacePreserveIdAndDate(sh, info, targetRow, rowData);
+    var removedDuplicates = 0;
+    if (matchedRows.length > 1) {
+      for (var dIdx = matchedRows.length - 1; dIdx >= 1; dIdx--) {
+        sh.deleteRow(matchedRows[dIdx]);
+        removedDuplicates++;
+      }
+    }
+    return {
+      success: true,
+      updated: true,
+      added: false,
+      action: 'updated',
+      row: targetRow,
+      cleanedDuplicates: removedDuplicates,
+      id: preserved.id,
+      dateAdded: preserved.dateAdded,
+      productName: rowData.name,
+      company: rowData.company,
+      shippingMethod: shipLabel,
+      message: 'Updated existing row #' + targetRow + ' for "' + rowData.name + '" (' + (rowData.company || 'Default') + ' · ' + shipLabel + '). Never duplicated; preserved ID ' + preserved.id
+    };
+  }
+
+  // Different Company OR Different Cargo/Shipping (or New Product) -> Write to the NEW ROW with unique Product ID
+  var uniqueId = _generateUniqueProductId(sh, rowData.id);
+  var dateAdded = rowData.date || new Date().toISOString().split('T')[0];
+  var newRow = [
+    uniqueId,
+    String(rowData.name || '').trim(),
+    String(rowData.cat || 'General Spare Parts').trim(),
+    parseFloat(rowData.d || '0') || 0,
+    parseFloat(rowData.yuan || '0') || 0,
+    parseFloat(rowData.usd || '0') || 0,
+    parseFloat(rowData.salesPrice || '0') || 0,
+    String(rowData.company || '').trim(),
+    shipLabel,
+    rowData.origin || 'Dubai',
+    dateAdded
+  ];
+  if (newRow[1]) {
+    sh.appendRow(newRow);
+  }
+  return {
+    success: true,
+    added: true,
+    updated: false,
+    action: 'inserted',
+    row: sh.getLastRow(),
+    id: uniqueId,
+    dateAdded: dateAdded,
+    productName: newRow[1],
+    company: newRow[7],
+    shippingMethod: shipLabel,
+    message: 'Wrote NEW ROW for "' + newRow[1] + '" (' + (newRow[7] || 'Default') + ' · ' + shipLabel + ') with unique ID ' + uniqueId
+  };
+}
+
 function _matchProd(a, b) {
   if (!a || !b) return false;
   var rawA = String(a).toLowerCase().trim();
@@ -2321,64 +2611,61 @@ function _matchProd(a, b) {
 
 function _updateSheetRow(sh, oldTarget, newTarget, rowData) {
   var lastR = sh.getLastRow();
-  var lastC = Math.max(sh.getLastColumn(), 11);
   if (lastR < 2) return false;
-  var values = sh.getRange(1, 1, lastR, lastC).getValues();
-  var headers = values[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+  var info = _detectAllProductCols(sh);
+  var values = info.values;
 
-  var idIdx = -1, nameIdx = -1, catIdx = -1, dIdx = -1, yuanIdx = -1, usdIdx = -1, salesIdx = -1;
-  var compIdx = -1, shipIdx = -1, originIdx = -1;
-  for (var h = 0; h < headers.length; h++) {
-    var head = headers[h];
-    if (idIdx === -1 && (head === 'id' || head.indexOf('sku') !== -1 || head === 'product id')) idIdx = h;
-    if (nameIdx === -1 && (head.indexOf('name') !== -1 || head.indexOf('product') !== -1 || head.indexOf('model') !== -1) && head !== 'id' && head !== 'product id') nameIdx = h;
-    if (catIdx === -1 && (head.indexOf('category') !== -1 || head.indexOf('brand') !== -1)) catIdx = h;
-    if (dIdx === -1 && (head === 'price d' || head === 'd' || head.indexOf('dirham') !== -1 || (head.indexOf('price') !== -1 && head.indexOf('sale') === -1))) dIdx = h;
-    if (yuanIdx === -1 && (head.indexOf('yuan') !== -1 || head.indexOf('¥') !== -1 || head.indexOf('rmb') !== -1)) yuanIdx = h;
-    if (usdIdx === -1 && (head.indexOf('usd') !== -1 && head.indexOf('sale') === -1)) usdIdx = h;
-    if (salesIdx === -1 && (head.indexOf('sales') !== -1 || head.indexOf('sale') !== -1 || head.indexOf('retail') !== -1)) salesIdx = h;
-    if (compIdx === -1 && (head.indexOf('company') !== -1 || head.indexOf('supplier') !== -1 || head.indexOf('vendor') !== -1)) compIdx = h;
-    if (shipIdx === -1 && (head.indexOf('ship') !== -1 || head.indexOf('cargo') !== -1)) shipIdx = h;
-    if (originIdx === -1 && (head.indexOf('origin') !== -1 || head.indexOf('country') !== -1 || head.indexOf('from') !== -1)) originIdx = h;
+  // Primary matching key is normalized (Product Name + Company Name + Cargo/Shipping)
+  var compKey = _normKey(rowData.company);
+  var oldCompKey = _normKey(rowData.oldCompany || rowData.company);
+  var shipKey = _normShip(rowData.shippingMethod);
+  var oldShipKey = _normShip(rowData.oldShipping || rowData.shippingMethod);
+  var newProdKey = _normKey(newTarget || rowData.name);
+  var oldProdKey = _normKey(oldTarget);
+
+  var smartMatches = [];
+  for (var r = 2; r <= lastR; r++) {
+    var cellName = String(values[r - 1][info.nameIdx] || '').trim();
+    var cellComp = info.compIdx !== -1 ? String(values[r - 1][info.compIdx] || '').trim() : '';
+    var cellShip = info.shipIdx !== -1 ? String(values[r - 1][info.shipIdx] || '').trim() : '';
+    var rowProdKey = _normKey(cellName);
+    var rowCompKey = _normKey(cellComp);
+    var rowShipKey = _normShip(cellShip);
+    if ((rowProdKey === newProdKey && rowCompKey === compKey && rowShipKey === shipKey) ||
+        (oldProdKey && rowProdKey === oldProdKey && rowCompKey === oldCompKey && rowShipKey === oldShipKey)) {
+      smartMatches.push(r);
+    }
   }
 
-  if (idIdx === 0 && nameIdx === -1) nameIdx = 1;
-  else if (nameIdx === -1) nameIdx = 0;
-  if (catIdx === -1) catIdx = idIdx !== -1 ? 2 : 1;
-  if (dIdx === -1) dIdx = idIdx !== -1 ? 3 : 2;
-  if (yuanIdx === -1) yuanIdx = idIdx !== -1 ? 4 : 3;
-  if (usdIdx === -1) usdIdx = idIdx !== -1 ? 5 : 4;
-  if (salesIdx === -1) salesIdx = idIdx !== -1 ? 6 : 5;
+  // Multiple matching rows already exist with same 3-field key -> Update first & delete extra duplicate rows
+  if (smartMatches.length > 1) {
+    _writeRowInPlacePreserveIdAndDate(sh, info, smartMatches[0], rowData);
+    for (var dIdx = smartMatches.length - 1; dIdx >= 1; dIdx--) {
+      sh.deleteRow(smartMatches[dIdx]);
+    }
+    return true;
+  }
 
+  // Single 3-field primary key match -> update row in place while preserving Product ID and Date Added
+  if (smartMatches.length === 1) {
+    _writeRowInPlacePreserveIdAndDate(sh, info, smartMatches[0], rowData);
+    return true;
+  }
+
+  // Fallback for legacy/category tabs: require same Company AND same Cargo/Shipping so distinct variants are never overwritten
   for (var r = 2; r <= lastR; r++) {
-    var cellId = idIdx !== -1 ? String(values[r - 1][idIdx] || '').trim() : '';
-    var cellName = String(values[r - 1][nameIdx] || '').trim();
+    var cellId = info.idIdx !== -1 ? String(values[r - 1][info.idIdx] || '').trim() : '';
+    var cellName = String(values[r - 1][info.nameIdx] || '').trim();
+    var cellComp = info.compIdx !== -1 ? String(values[r - 1][info.compIdx] || '').trim() : '';
+    var cellShip = info.shipIdx !== -1 ? String(values[r - 1][info.shipIdx] || '').trim() : '';
 
-    // 1. If matched by ID, exact row update
     var matchById = (rowData.id && cellId && String(rowData.id).trim().toLowerCase() === cellId.toLowerCase());
-    var matchByName = (_matchProd(cellName, oldTarget) || _matchProd(cellName, newTarget));
+    var sameCompany = (!info.compIdx || info.compIdx === -1 || !_normKey(cellComp) || _normKey(cellComp) === compKey || _normKey(cellComp) === oldCompKey);
+    var sameShipping = (!info.shipIdx || info.shipIdx === -1 || !String(cellShip || '').trim() || _normShip(cellShip) === shipKey || _normShip(cellShip) === oldShipKey);
+    var matchByNameCompShip = (_matchProd(cellName, oldTarget) || _matchProd(cellName, newTarget)) && sameCompany && sameShipping;
 
-    if (matchById || matchByName) {
-      // RULE: If matched by name, but ID or company differs, DO NOT OVERWRITE!
-      if (!matchById && rowData.id && cellId && cellId.toLowerCase() !== String(rowData.id).trim().toLowerCase()) {
-        continue;
-      }
-      if (compIdx !== -1 && rowData.company) {
-        var cellComp = String(values[r - 1][compIdx] || '').trim();
-        if (cellComp && rowData.company && cellComp.toLowerCase() !== String(rowData.company).trim().toLowerCase()) {
-          continue;
-        }
-      }
-      if (idIdx !== -1 && rowData.id) sh.getRange(r, idIdx + 1).setValue(rowData.id);
-      if (rowData.name) sh.getRange(r, nameIdx + 1).setValue(rowData.name);
-      if (rowData.cat) sh.getRange(r, catIdx + 1).setValue(rowData.cat);
-      if (rowData.d !== undefined) sh.getRange(r, dIdx + 1).setValue(rowData.d);
-      if (rowData.yuan !== undefined) sh.getRange(r, yuanIdx + 1).setValue(rowData.yuan);
-      if (rowData.usd !== undefined) sh.getRange(r, usdIdx + 1).setValue(rowData.usd);
-      if (rowData.salesPrice !== undefined) sh.getRange(r, salesIdx + 1).setValue(rowData.salesPrice);
-      if (compIdx !== -1 && rowData.company) sh.getRange(r, compIdx + 1).setValue(rowData.company);
-      if (shipIdx !== -1 && rowData.shippingMethod) sh.getRange(r, shipIdx + 1).setValue(rowData.shippingMethod);
-      if (originIdx !== -1 && rowData.origin) sh.getRange(r, originIdx + 1).setValue(rowData.origin);
+    if ((matchById && sameCompany && sameShipping) || matchByNameCompShip) {
+      _writeRowInPlacePreserveIdAndDate(sh, info, r, rowData);
       return true;
     }
   }
@@ -2386,9 +2673,27 @@ function _updateSheetRow(sh, oldTarget, newTarget, rowData) {
 }
 
 function doGet(e) {
+  var lock = LockService.getScriptLock();
+  var hasLock = false;
   var ss = _getSpreadsheet();
   var params = (e && e.parameter) ? e.parameter : {};
   var action = params ? params.action : null;
+
+  try {
+  if (action === 'add_product' || action === 'create_sheet_and_add_row' || action === 'update_product' || action === 'dedupe_products') {
+    try { hasLock = lock.tryLock(15000); } catch (lockErr) {}
+  }
+
+  if (action === 'dedupe_products') {
+    var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+    var removed = allProdSheet ? _cleanupDuplicateProductRowsBy3Key(allProdSheet) : 0;
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      action: 'dedupe_products',
+      removedDuplicates: removed,
+      message: 'Removed ' + removed + ' duplicate rows matching (Product Name + Company + Cargo/Shipping).'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 
   // 0. HEALTHCHECK / PING
   if (action === 'ping' || action === 'test_connection') {
@@ -2401,21 +2706,8 @@ function doGet(e) {
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // DIRECT ACTION DISPATCH FOR GET
+  // DIRECT ACTION DISPATCH FOR GET (SMART PRODUCT MATCHING RULES 1, 2, 3, 4)
   if (action === 'add_product' || action === 'create_sheet_and_add_row') {
-    var newRow = [
-      params.id || params.sku || ('p-' + Date.now()),
-      params.name || params.productName || '',
-      params.cat || params.category || 'General Spare Parts',
-      parseFloat(params.d || '0') || 0,
-      parseFloat(params.yuan || '0') || 0,
-      parseFloat(params.usd || '0') || 0,
-      parseFloat(params.salesPrice || params.sales || '0') || 0,
-      params.company || params.companyName || '',
-      params.shipping || params.shippingMethod || 'By Air',
-      params.origin || 'Dubai',
-      params.date || new Date().toISOString().split('T')[0]
-    ];
     var targetSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
     if (!targetSheet) {
       targetSheet = ss.insertSheet("ALL PRODUCT");
@@ -2423,10 +2715,23 @@ function doGet(e) {
       targetSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
       targetSheet.setFrozenRows(1);
     }
-    if (newRow[1]) {
-      targetSheet.appendRow(newRow);
-    }
-    return ContentService.createTextOutput(JSON.stringify({ success: true, added: true, action: 'add_product' }))
+
+    var rowData = {
+      id: String(params.id || params.sku || '').trim(),
+      name: String(params.name || params.productName || '').trim(),
+      cat: String(params.cat || params.category || 'General Spare Parts').trim(),
+      d: parseFloat(params.d || '0') || 0,
+      yuan: parseFloat(params.yuan || '0') || 0,
+      usd: parseFloat(params.usd || '0') || 0,
+      salesPrice: parseFloat(params.salesPrice || params.sales || '0') || 0,
+      company: String(params.company || params.companyName || '').trim(),
+      shippingMethod: String(params.shipping || params.shippingMethod || 'By Air').trim(),
+      origin: String(params.origin || 'Dubai').trim(),
+      date: String(params.date || new Date().toISOString().split('T')[0]).trim()
+    };
+
+    var upsertRes = _upsertSmartProductRow(targetSheet, rowData);
+    return ContentService.createTextOutput(JSON.stringify(upsertRes))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -2447,6 +2752,8 @@ function doGet(e) {
     var newTarget = String(params.name || params.productName || params.oldName || '').trim();
     var rowData = {
       id: params.id || params.sku || '',
+      oldCompany: params.oldCompany || params.oldCompanyName || '',
+      oldShipping: params.oldShipping || params.oldShippingMethod || '',
       name: newTarget,
       cat: params.cat || params.category || 'General Spare Parts',
       d: parseFloat(params.d || '0') || 0,
@@ -2454,8 +2761,9 @@ function doGet(e) {
       usd: parseFloat(params.usd || '0') || 0,
       salesPrice: parseFloat(params.salesPrice || params.sales || '0') || 0,
       company: params.company || params.companyName || '',
-      shippingMethod: params.shipping || params.shippingMethod || '',
-      origin: params.origin || ''
+      shippingMethod: params.shipping || params.shippingMethod || 'By Air',
+      origin: params.origin || '',
+      date: params.date || ''
     };
     var updated = false;
 
@@ -2468,7 +2776,17 @@ function doGet(e) {
       allProdSheet.setFrozenRows(1);
     }
 
-    updated = _updateSheetRow(allProdSheet, oldTarget, newTarget, rowData);
+    var updateRes = _updateSheetRow(allProdSheet, oldTarget, newTarget, rowData);
+    if (updateRes && updateRes.duplicateReview) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        duplicate: true,
+        action: 'duplicate_review',
+        duplicateRows: updateRes.duplicateRows,
+        message: 'You already Have it - Multiple matching rows (' + updateRes.duplicateRows.join(', ') + ') found for "' + newTarget + '" + "' + rowData.company + '". Review duplicates.'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    updated = Boolean(updateRes);
 
     // Also update any matching category tabs if they exist
     var allSheets = ss.getSheets();
@@ -2479,21 +2797,12 @@ function doGet(e) {
       }
     }
 
-    // If product wasn't found in any row, append directly to "ALL PRODUCT"
+    // RULE 2: If no matching (Product Name + Company Name) row existed in ALL PRODUCT, insert new row with unique ID
     if (!updated && rowData.name) {
-      allProdSheet.appendRow([
-        rowData.id || ('p-' + Date.now()),
-        rowData.name,
-        rowData.cat,
-        rowData.d,
-        rowData.yuan,
-        rowData.usd,
-        rowData.salesPrice,
-        rowData.company || '',
-        rowData.shippingMethod || 'By Air',
-        rowData.origin || 'Dubai',
-        new Date().toISOString().split('T')[0]
-      ]);
+      var insertRes = _upsertSmartProductRow(allProdSheet, rowData);
+      if (insertRes && insertRes.duplicate) {
+        return ContentService.createTextOutput(JSON.stringify(insertRes)).setMimeType(ContentService.MimeType.JSON);
+      }
       updated = true;
     }
 
@@ -2508,24 +2817,33 @@ function doGet(e) {
   }
 
   if (action === 'delete_product') {
-    var targetName = String(params.productName || params.name || '').trim().toLowerCase();
+    var targetId = String(params.id || params.sku || '').trim().toLowerCase();
+    var targetName = String(params.productName || params.name || '').trim();
     var deleted = false;
     var allSheets = ss.getSheets();
     for (var s = 0; s < allSheets.length; s++) {
       var sh = allSheets[s];
       var lastR = sh.getLastRow();
       if (lastR < 2) continue;
-      var colA = sh.getRange(1, 1, lastR, 1).getValues();
+      var numCols = Math.min(Math.max(sh.getLastColumn(), 2), 11);
+      var grid = sh.getRange(1, 1, lastR, numCols).getValues();
       for (var r = lastR; r >= 2; r--) {
-        var val = String(colA[r - 1][0] || '').trim().toLowerCase();
-        if (val === targetName) {
+        var cellA = String(grid[r - 1][0] || '').trim();
+        var cellB = String(grid[r - 1][1] || '').trim();
+        var matchId = targetId && (cellA.toLowerCase() === targetId || cellB.toLowerCase() === targetId);
+        var matchName = targetName && (_matchProd(cellA, targetName) || _matchProd(cellB, targetName));
+        if (matchId || matchName) {
           sh.deleteRow(r);
           deleted = true;
         }
       }
     }
-    return ContentService.createTextOutput(JSON.stringify({ success: true, deleted: deleted, action: 'delete_product' }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      deleted: deleted,
+      action: 'delete_product',
+      message: deleted ? ("Deleted " + (targetName || targetId)) : "Product not found"
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 
   // PHOTOS ACTIONS (add_photo, update_photo, delete_photo)
@@ -2779,9 +3097,12 @@ function doGet(e) {
       var yuan = !isNaN(rawYuan) && rawYuan > 0 ? rawYuan : Number((baseUsd * 7.23).toFixed(2));
       var salesPrice = !isNaN(rawSales) && rawSales > 0 ? rawSales : usd;
 
-      var companyName = compIdx !== -1 && compIdx < row.length ? String(row[compIdx] || '').trim() : (row.length > 6 ? String(row[6] || '').trim() : '');
-      var rawShip = shipIdx !== -1 && shipIdx < row.length ? String(row[shipIdx] || '').trim().toLowerCase() : (row.length > 7 ? String(row[7] || '').trim().toLowerCase() : '');
-      var rawOrigin = originIdx !== -1 && originIdx < row.length ? String(row[originIdx] || '').trim() : (row.length > 8 ? String(row[8] || '').trim() : '');
+      var fallbackCompIdx = idIdx !== -1 ? 7 : 6;
+      var fallbackShipIdx = idIdx !== -1 ? 8 : 7;
+      var fallbackOriginIdx = idIdx !== -1 ? 9 : 8;
+      var companyName = compIdx !== -1 && compIdx < row.length ? String(row[compIdx] || '').trim() : (row.length > fallbackCompIdx ? String(row[fallbackCompIdx] || '').trim() : '');
+      var rawShip = shipIdx !== -1 && shipIdx < row.length ? String(row[shipIdx] || '').trim().toLowerCase() : (row.length > fallbackShipIdx ? String(row[fallbackShipIdx] || '').trim().toLowerCase() : '');
+      var rawOrigin = originIdx !== -1 && originIdx < row.length ? String(row[originIdx] || '').trim() : (row.length > fallbackOriginIdx ? String(row[fallbackOriginIdx] || '').trim() : '');
       var shippingMethod = rawShip.indexOf('sea') !== -1 ? 'sea' : 'air';
       var origin = rawOrigin ? (rawOrigin.toLowerCase().indexOf('china') !== -1 ? 'China' : (rawOrigin.toLowerCase().indexOf('dubai') !== -1 ? 'Dubai' : rawOrigin)) : (cat.indexOf('LCD') !== -1 ? 'China' : 'Dubai');
       var rawId = idIdx !== -1 && idIdx < row.length ? String(row[idIdx] || '').trim() : '';
@@ -2797,8 +3118,22 @@ function doGet(e) {
         expense: 0,
         companyName: companyName,
         shippingMethod: shippingMethod,
+        origin: origin
       });
     }
+
+    // Deduplicate read results by (Product Name + Company + Cargo/Shipping)
+    var seenReadKeys = {};
+    var dedupedAllParts = [];
+    for (var dp = 0; dp < allParts.length; dp++) {
+      var rp = allParts[dp];
+      var rk = _normKey(rp.name) + '||' + _normKey(rp.companyName) + '||' + _normShip(rp.shippingMethod);
+      if (!seenReadKeys[rk]) {
+        seenReadKeys[rk] = true;
+        dedupedAllParts.push(rp);
+      }
+    }
+    allParts = dedupedAllParts;
   }
 
   // 2. FALLBACK: If no "ALL PRODUCT" sheet was found, scan individual category sheets
@@ -2982,10 +3317,21 @@ function doGet(e) {
 
   return ContentService.createTextOutput(JSON.stringify(output))
     .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    if (hasLock) {
+      try {
+        SpreadsheetApp.flush();
+        lock.releaseLock();
+      } catch (le) {}
+    }
+  }
 }
 
 function doPost(e) {
+  var lock = LockService.getScriptLock();
+  var hasLock = false;
   try {
+    try { hasLock = lock.tryLock(15000); } catch (lockErr) {}
     var ss = _getSpreadsheet();
     var payload = {};
     if (e && e.postData && e.postData.contents) {
@@ -2999,7 +3345,18 @@ function doPost(e) {
     }
     var action = payload ? payload.action : null;
 
-    // 0. ADD NEW PRODUCT DIRECTLY TO GOOGLE SHEETS (ALWAYS appendRow 11 Columns, never overwrite)
+    if (action === 'dedupe_products') {
+      var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+      var removed = allProdSheet ? _cleanupDuplicateProductRowsBy3Key(allProdSheet) : 0;
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        action: 'dedupe_products',
+        removedDuplicates: removed,
+        message: 'Removed ' + removed + ' duplicate rows matching (Product Name + Company + Cargo/Shipping).'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 0. SMART PRODUCT MATCHING FOR ADD/UPSERT (RULES 1, 2, 3, 4)
     if (action === 'add_product' || action === 'create_sheet_and_add_row') {
       var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
       if (!allProdSheet) {
@@ -3008,37 +3365,51 @@ function doPost(e) {
         allProdSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
         allProdSheet.setFrozenRows(1);
       }
-      var newRow = payload.row || [
-        payload.id || payload.sku || ('p-' + Date.now()),
-        payload.name || payload.productName || '',
-        payload.cat || payload.category || 'General Spare Parts',
-        parseFloat(payload.d || '0') || 0,
-        parseFloat(payload.yuan || '0') || 0,
-        parseFloat(payload.usd || '0') || 0,
-        parseFloat(payload.salesPrice || payload.sales || '0') || 0,
-        payload.company || payload.companyName || '',
-        payload.shipping || payload.shippingMethod || 'By Air',
-        payload.origin || 'Dubai',
-        payload.date || new Date().toISOString().split('T')[0]
-      ];
-      // ALWAYS append new row - never overwrite existing rows!
-      if (newRow[1]) {
-        allProdSheet.appendRow(newRow);
-      }
-      // Also append to category tab if different and exists
-      var catSheetName = payload.sheetName || payload.cat || payload.category;
-      if (catSheetName && catSheetName !== "ALL PRODUCT" && catSheetName !== "ALL PRODUCTS") {
+
+      var rawRow = payload.row || [];
+      var rowData = {
+        id: String(payload.id || payload.sku || payload.productId || rawRow[0] || '').trim(),
+        name: String(payload.name || payload.productName || rawRow[1] || '').trim(),
+        cat: String(payload.cat || payload.category || rawRow[2] || 'General Spare Parts').trim(),
+        d: parseFloat(payload.d !== undefined ? payload.d : (rawRow[3] || '0')) || 0,
+        yuan: parseFloat(payload.yuan !== undefined ? payload.yuan : (rawRow[4] || '0')) || 0,
+        usd: parseFloat(payload.usd !== undefined ? payload.usd : (rawRow[5] || '0')) || 0,
+        salesPrice: parseFloat(payload.salesPrice !== undefined ? payload.salesPrice : (payload.sales || rawRow[6] || '0')) || 0,
+        company: String(payload.company || payload.companyName || rawRow[7] || '').trim(),
+        shippingMethod: String(payload.shipping || payload.shippingMethod || rawRow[8] || 'By Air').trim(),
+        origin: String(payload.origin || rawRow[9] || 'Dubai').trim(),
+        date: String(payload.date || rawRow[10] || new Date().toISOString().split('T')[0]).trim()
+      };
+
+      var upsertRes = _upsertSmartProductRow(allProdSheet, rowData);
+
+      // Keep matching category tab synchronized (only when inserted or updated, never on duplicate_review)
+      var catSheetName = payload.sheetName || payload.cat || payload.category || rowData.cat;
+      if (upsertRes.success && catSheetName && catSheetName !== "ALL PRODUCT" && catSheetName !== "ALL PRODUCTS") {
         var catSheet = ss.getSheetByName(catSheetName);
-        if (catSheet && newRow[1]) {
-          catSheet.appendRow(newRow);
+        if (catSheet && rowData.name) {
+          if (upsertRes.action === 'updated') {
+            _updateSheetRow(catSheet, rowData.name, rowData.name, rowData);
+          } else if (upsertRes.action === 'inserted') {
+            _upsertSmartProductRow(catSheet, {
+              id: upsertRes.id,
+              name: rowData.name,
+              cat: rowData.cat,
+              d: rowData.d,
+              yuan: rowData.yuan,
+              usd: rowData.usd,
+              salesPrice: rowData.salesPrice,
+              company: rowData.company,
+              shippingMethod: rowData.shippingMethod,
+              origin: rowData.origin,
+              date: upsertRes.dateAdded
+            });
+          }
         }
       }
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true,
-        added: true,
-        action: 'add_product',
-        productName: newRow[1]
-      })).setMimeType(ContentService.MimeType.JSON);
+
+      return ContentService.createTextOutput(JSON.stringify(upsertRes))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
     // FORMAT ALL PRODUCTS FROM GOOGLE SHEETS
@@ -3057,12 +3428,14 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 1. UPDATE PRODUCT DIRECTLY IN GOOGLE SHEETS (Searches ALL PRODUCT first, then all tabs)
+    // 1. UPDATE PRODUCT DIRECTLY IN GOOGLE SHEETS (3-Field Key: Product Name + Company + Cargo/Shipping)
     if (action === 'update_product') {
       var oldTarget = String(payload.oldName || payload.productName || payload.name || '').trim();
       var newTarget = String(payload.productName || payload.name || payload.oldName || '').trim();
       var rowData = {
         id: payload.id || payload.sku || '',
+        oldCompany: payload.oldCompany || payload.oldCompanyName || '',
+        oldShipping: payload.oldShipping || payload.oldShippingMethod || '',
         name: newTarget,
         cat: payload.cat || payload.category || 'General Spare Parts',
         d: parseFloat(payload.d || '0') || 0,
@@ -3070,8 +3443,9 @@ function doPost(e) {
         usd: parseFloat(payload.usd || '0') || 0,
         salesPrice: parseFloat(payload.salesPrice || payload.sales || '0') || 0,
         company: payload.company || payload.companyName || '',
-        shippingMethod: payload.shipping || payload.shippingMethod || '',
-        origin: payload.origin || ''
+        shippingMethod: payload.shipping || payload.shippingMethod || 'By Air',
+        origin: payload.origin || '',
+        date: payload.date || ''
       };
       var updated = false;
 
@@ -3084,7 +3458,17 @@ function doPost(e) {
         allProdSheet.setFrozenRows(1);
       }
 
-      updated = _updateSheetRow(allProdSheet, oldTarget, newTarget, rowData);
+      var updateRes = _updateSheetRow(allProdSheet, oldTarget, newTarget, rowData);
+      if (updateRes && updateRes.duplicateReview) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          duplicate: true,
+          action: 'duplicate_review',
+          duplicateRows: updateRes.duplicateRows,
+          message: 'You already Have it - Multiple matching rows (' + updateRes.duplicateRows.join(', ') + ') found for "' + newTarget + '" + "' + rowData.company + '". Review duplicates.'
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      updated = Boolean(updateRes);
 
       // Also update any other category tabs
       var allSheets = ss.getSheets();
@@ -3095,36 +3479,28 @@ function doPost(e) {
         }
       }
 
-      // If product wasn't found in any row, append directly to "ALL PRODUCT"
+      // RULE 2: If no matching (Product Name + Company Name) row was found, insert new supplier row with unique ID
       if (!updated && rowData.name) {
-        allProdSheet.appendRow([
-          rowData.id || ('p-' + Date.now()),
-          rowData.name,
-          rowData.cat,
-          rowData.d,
-          rowData.yuan,
-          rowData.usd,
-          rowData.salesPrice,
-          rowData.company || '',
-          rowData.shippingMethod || 'By Air',
-          rowData.origin || 'Dubai',
-          new Date().toISOString().split('T')[0]
-        ]);
+        var insertRes = _upsertSmartProductRow(allProdSheet, rowData);
+        if (insertRes && insertRes.duplicate) {
+          return ContentService.createTextOutput(JSON.stringify(insertRes)).setMimeType(ContentService.MimeType.JSON);
+        }
         updated = true;
       }
 
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         updated: updated,
-        message: updated ? "Updated " + rowData.name + " (" + rowData.d + " D)" : "Appended new product to ALL PRODUCT",
+        message: updated ? "Updated " + rowData.name + " (" + rowData.d + " D)" : "Processed " + rowData.name,
         productName: rowData.name,
         d: rowData.d,
         salesPrice: rowData.salesPrice
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 2. DELETE SINGLE PRODUCT FROM GOOGLE SHEETS (Searches ALL PRODUCT and all other tabs)
+    // 2. DELETE SINGLE PRODUCT FROM GOOGLE SHEETS (Searches ALL PRODUCT and all other tabs by ID and Name)
     if (action === 'delete_product') {
+      var targetId = String(payload.id || payload.sku || '').trim().toLowerCase();
       var targetName = String(payload.productName || payload.name || '').trim();
       var deleted = false;
       var sheets = ss.getSheets();
@@ -3133,10 +3509,14 @@ function doPost(e) {
         var sh = sheets[s];
         var lastR = sh.getLastRow();
         if (lastR < 2) continue;
-        var colA = sh.getRange(1, 1, lastR, 1).getValues();
+        var numCols = Math.min(Math.max(sh.getLastColumn(), 2), 11);
+        var grid = sh.getRange(1, 1, lastR, numCols).getValues();
         for (var r = lastR; r >= 2; r--) {
-          var val = String(colA[r - 1][0] || '').trim();
-          if (_matchProd(val, targetName)) {
+          var cellA = String(grid[r - 1][0] || '').trim();
+          var cellB = String(grid[r - 1][1] || '').trim();
+          var matchId = targetId && (cellA.toLowerCase() === targetId || cellB.toLowerCase() === targetId);
+          var matchName = targetName && (_matchProd(cellA, targetName) || _matchProd(cellB, targetName));
+          if (matchId || matchName) {
             sh.deleteRow(r);
             deleted = true;
           }
@@ -3146,15 +3526,23 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         deleted: deleted,
-        message: deleted ? "Deleted " + payload.productName : "Product not found"
+        message: deleted ? ("Deleted " + (targetName || targetId)) : "Product not found"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // 2. BULK DELETE MULTIPLE PRODUCTS FROM GOOGLE SHEETS
-    if (action === 'bulk_delete_products' && payload.productNames) {
+    if (action === 'bulk_delete_products' && (payload.productNames || payload.ids)) {
       var nameSet = {};
-      for (var i = 0; i < payload.productNames.length; i++) {
-        nameSet[String(payload.productNames[i]).trim().toLowerCase()] = true;
+      var idSet = {};
+      if (payload.productNames) {
+        for (var i = 0; i < payload.productNames.length; i++) {
+          nameSet[String(payload.productNames[i]).trim().toLowerCase()] = true;
+        }
+      }
+      if (payload.ids) {
+        for (var i = 0; i < payload.ids.length; i++) {
+          idSet[String(payload.ids[i]).trim().toLowerCase()] = true;
+        }
       }
       var count = 0;
       var sheets = ss.getSheets();
@@ -3162,10 +3550,12 @@ function doPost(e) {
         var sh = sheets[s];
         var lastR = sh.getLastRow();
         if (lastR < 2) continue;
-        var colA = sh.getRange(1, 1, lastR, 1).getValues();
+        var numCols = Math.min(Math.max(sh.getLastColumn(), 2), 11);
+        var grid = sh.getRange(1, 1, lastR, numCols).getValues();
         for (var r = lastR; r >= 2; r--) {
-          var val = String(colA[r - 1][0] || '').trim().toLowerCase();
-          if (nameSet[val]) {
+          var valA = String(grid[r - 1][0] || '').trim().toLowerCase();
+          var valB = String(grid[r - 1][1] || '').trim().toLowerCase();
+          if (idSet[valA] || idSet[valB] || nameSet[valA] || nameSet[valB]) {
             sh.deleteRow(r);
             count++;
           }
@@ -3282,9 +3672,66 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // REGISTERED COMPANIES ACTIONS (add_company, update_company, delete_company)
+    if (action === 'add_company' || action === 'update_company') {
+      var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+      if (!compSheet) {
+        compSheet = ss.insertSheet("REGISTERED COMPANIES");
+        compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+        compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        compSheet.setFrozenRows(1);
+      }
+      var oldCompName = String(payload.oldName || payload.oldCompanyName || payload.name || '').trim();
+      var compName = String(payload.name || payload.companyName || '').trim();
+      var compPhone = String(payload.phone || '').trim();
+      var compWa = String(payload.whatsapp || '').trim();
+      var compLoc = String(payload.location || '').trim();
+      var compCat = String(payload.category || 'All LCD Screens (Multi-Brand)').trim();
+      var compContact = String(payload.contactPerson || '').trim();
+      var compStatus = String(payload.status || 'preferred').trim();
+      var compNote = String(payload.note || '').trim();
+      var compDate = String(payload.createdAt || new Date().toISOString().split('T')[0]).trim();
+      var compRow = [compName, compPhone, compWa, compLoc, compCat, compContact, compStatus, compNote, compDate];
+
+      var compFound = false;
+      var compLastR = compSheet.getLastRow();
+      if (compLastR >= 2) {
+        var compColA = compSheet.getRange(1, 1, compLastR, 1).getValues();
+        for (var cr = 2; cr <= compLastR; cr++) {
+          var existingName = String(compColA[cr - 1][0] || '').trim();
+          if (_matchProd(existingName, oldCompName) || _matchProd(existingName, compName)) {
+            compSheet.getRange(cr, 1, 1, 9).setValues([compRow]);
+            compFound = true;
+            break;
+          }
+        }
+      }
+      if (!compFound && compName) {
+        compSheet.appendRow(compRow);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, company: compName }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'delete_company') {
+      var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+      if (compSheet && compSheet.getLastRow() >= 2) {
+        var delCompName = String(payload.name || payload.companyName || '').trim();
+        var compLastR = compSheet.getLastRow();
+        var compColA = compSheet.getRange(1, 1, compLastR, 1).getValues();
+        for (var cr = compLastR; cr >= 2; cr--) {
+          if (_matchProd(String(compColA[cr - 1][0] || '').trim(), delCompName)) {
+            compSheet.deleteRow(cr);
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'delete_company' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // 3A. COMPLETE SUITE BACKUP: Backs up ALL 5 collections into dedicated tabs
     if (action === 'backup_complete') {
-      var partRows = payload.partRows || [];
+      var partRows = _dedupeProductRows(payload.partRows || []);
       var companyRows = payload.companyRows || [];
       var trackerRows = payload.trackerRows || [];
       var photoRows = payload.photoRows || [];
@@ -3389,12 +3836,13 @@ function doPost(e) {
       sh.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
       sh.setFrozenRows(1);
 
-      var rowsToAdd = [];
+      var rawRowsToAdd = [];
       for (var i = 0; i < partsList.length; i++) {
         if (partsList[i].row) {
-          rowsToAdd.push(partsList[i].row);
+          rawRowsToAdd.push(partsList[i].row);
         }
       }
+      var rowsToAdd = _dedupeProductRows(rawRowsToAdd);
 
       if (rowsToAdd.length > 0) {
         var numCols = rowsToAdd[0].length;
@@ -3503,10 +3951,11 @@ function doPost(e) {
       masterSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
       masterSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
       masterSheet.setFrozenRows(1);
-      var allMasterRows = [];
+      var rawMasterRows = [];
       for (var i = 0; i < partsList.length; i++) {
-        if (partsList[i].row) allMasterRows.push(partsList[i].row);
+        if (partsList[i].row) rawMasterRows.push(partsList[i].row);
       }
+      var allMasterRows = _dedupeProductRows(rawMasterRows);
       if (allMasterRows.length > 0) {
         var numMasterCols = allMasterRows[0].length;
         masterSheet.getRange(2, 1, allMasterRows.length, numMasterCols).setValues(allMasterRows);
@@ -3515,7 +3964,7 @@ function doPost(e) {
       // Process EVERY category tab: clear contents and overwrite cleanly (prevents row duplication)
       var allExistingSheets = ss.getSheets();
       for (var catName in bySheet) {
-        var cleanTabName = String(catName).replace(/[\/\\?*\[\]:]/g, " - ").replace(/\s+/g, " ").trim();
+        var cleanTabName = String(catName).replace(/[\\/\\?*\[\]:]/g, " - ").replace(/\s+/g, " ").trim();
         if (cleanTabName.startsWith("'")) cleanTabName = cleanTabName.substring(1);
         if (cleanTabName.endsWith("'")) cleanTabName = cleanTabName.substring(0, cleanTabName.length - 1);
         if (!cleanTabName) cleanTabName = "General Spare Parts";
@@ -3540,7 +3989,7 @@ function doPost(e) {
         sh.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
         sh.setFrozenRows(1);
 
-        var rowsToAdd = bySheet[catName];
+        var rowsToAdd = _dedupeProductRows(bySheet[catName]);
         if (rowsToAdd && rowsToAdd.length > 0) {
           var numCatCols = rowsToAdd[0].length;
           sh.getRange(2, 1, rowsToAdd.length, numCatCols).setValues(rowsToAdd);
@@ -3632,6 +4081,13 @@ function doPost(e) {
       success: false,
       error: err.toString()
     })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    if (hasLock) {
+      try {
+        SpreadsheetApp.flush();
+        lock.releaseLock();
+      } catch (le) {}
+    }
   }
 }`;
   }

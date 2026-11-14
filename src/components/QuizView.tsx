@@ -49,12 +49,11 @@ export interface QuizViewProps {
   onStreakUpdate: (streak: number) => void;
 }
 
-export type QuizMode = 'mcq' | 'type' | 'truefalse' | 'any' | 'match' | 'samePrice' | 'compat' | 'changes' | 'survival' | 'pricetracker';
+export type QuizMode = 'mcq' | 'type' | 'truefalse' | 'any' | 'match' | 'samePrice' | 'compat' | 'changes' | 'survival' | 'pricetracker' | 'series';
 export type CompatSubMode = 'mcq' | 'match' | 'truefalse' | 'type';
 export type SelMode = 'random' | 'range' | 'custom';
 export type FlowMode = 'quiz' | 'learn';
-export type PricePracticeTarget = 'all' | 'dirham' | 'costUsd' | 'salesPrice' | 'allThree' | 'series';
-export type CurrencyChoice = 'all_one_by_one' | 'dirham' | 'costUsd' | 'salesPrice' | 'yuan' | 'mixed';
+export type PricePracticeTarget = 'all' | 'dirham' | 'costUsd' | 'salesPrice';
 
 export interface QuestionItem {
   id: string;
@@ -116,6 +115,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
   // Setup configuration state
   const [flow, setFlow] = useState<FlowMode>('quiz');
   const [mode, setMode] = useState<QuizMode>(initialQuizMode || 'mcq');
+  const [specialChallenge, setSpecialChallenge] = useState<'catalog' | 'series' | 'compat' | 'pricetracker'>('catalog');
+  const [isSurvivalMode, setIsSurvivalMode] = useState<boolean>(false);
   const [compatSubMode, setCompatSubMode] = useState<CompatSubMode>('mcq');
   const [changeSubMode, setChangeSubMode] = useState<'mcq' | 'type' | 'truefalse' | 'match'>('mcq');
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
@@ -125,7 +126,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [questionCount, setQuestionCount] = useState<number>(20);
   const [isCustomCount, setIsCustomCount] = useState<boolean>(false);
   const [customCountInput, setCustomCountInput] = useState<string>('20');
-  const [pricePracticeTarget, setPricePracticeTarget] = useState<PricePracticeTarget>('allThree');
+  const [pricePracticeTarget, setPricePracticeTarget] = useState<PricePracticeTarget>('dirham');
   const [timerDuration, setTimerDuration] = useState<number>(0);
 
   // Category green box preview state
@@ -173,9 +174,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [allThreeUsd, setAllThreeUsd] = useState('');
   const [allThreeSales, setAllThreeSales] = useState('');
   const [allThreeResult, setAllThreeResult] = useState<{ dOk: boolean; usdOk: boolean; salesOk: boolean } | null>(null);
-
-  // Choice of Currency Type for Price D / USD + / Sale & Series Products (User Requirement 2)
-  const [currencyChoice, setCurrencyChoice] = useState<CurrencyChoice>('all_one_by_one');
 
   // Series Products Configuration State (Feature 2B)
   const [selectedSeriesModel, setSelectedSeriesModel] = useState<string>('__all__');
@@ -360,7 +358,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
       origin: activeQ?.origin
     }]);
 
-    if (mode === 'survival') {
+    if (isSurvivalMode) {
       setLives(l => {
         const next = l - 1;
         if (next <= 0) {
@@ -497,7 +495,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   const buildPool = (): QuestionItem[] => {
     // 1. Compatibility Mode
-    if (mode === 'compat') {
+    if (specialChallenge === 'compat') {
       return compatList.map(c => ({
         id: c.id,
         title: c.lcd,
@@ -505,12 +503,13 @@ export const QuizView: React.FC<QuizViewProps> = ({
         correctVal: c.fits,
         priceKind: 'D',
         rawItem: c,
-        breakdownStr: `Cross-compatible with: ${c.fits}`
+        breakdownStr: `Cross-compatible with: ${c.fits}`,
+        assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)]
       }));
     }
 
-    // 2. Price Tracker Quiz Mode (Feature 1 & 2C)
-    if (mode === 'pricetracker') {
+    // 2. Price Tracker Quiz Mode (Respects Step 1 Price choice!)
+    if (specialChallenge === 'pricetracker') {
       let trackerList = (priceChanges && priceChanges.length > 0) ? priceChanges : [];
       if (trackerList.length === 0) {
         trackerList = parts.slice(0, 30).map((p, i) => {
@@ -541,23 +540,40 @@ export const QuizView: React.FC<QuizViewProps> = ({
       return trackerList.map(item => {
         const typeLabel = 
           item.type === 'new' ? 'NEW PRODUCT ARRIVAL' :
-          item.type === 'increase' ? 'PRICE INCREASE (Kor u kacay)' : 'PRICE DECREASE (Hoos u dhacay)';
+          item.type === 'increase' ? 'PRICE INCREASE' : 'PRICE DECREASE';
         const oldInfo = item.type === 'new' 
           ? `Category: ${item.cat} · Newly Added` 
           : `Old Price was: ${fmt(item.oldD)} D ($${fmt(item.oldUsd)})`;
 
         const matchedPart = parts.find(p => p.name.toLowerCase() === item.name.toLowerCase());
+        const targetKind: 'D' | 'costUsd' | 'salesPrice' =
+          pricePracticeTarget === 'all'
+            ? (['D', 'costUsd', 'salesPrice'][Math.floor(Math.random() * 3)] as 'D' | 'costUsd' | 'salesPrice')
+            : pricePracticeTarget === 'dirham'
+            ? 'D'
+            : pricePracticeTarget === 'costUsd'
+            ? 'costUsd'
+            : 'salesPrice';
+
+        const computedSales = matchedPart?.salesPrice ?? Number((item.newUsd * 1.3).toFixed(1));
+        const correctVal =
+          targetKind === 'D'
+            ? `${fmt(item.newD)} D`
+            : targetKind === 'costUsd'
+            ? `$${fmt(item.newUsd)}`
+            : `$${fmt(computedSales)}`;
 
         return {
           id: `pt-${item.id}`,
           title: item.name,
           subtitle: `${typeLabel} · ${oldInfo}`,
-          correctVal: `${fmt(item.newD)} D`,
-          priceKind: 'D',
+          correctVal,
+          priceKind: targetKind,
           rawItem: item,
           breakdownStr: item.type === 'new'
-            ? `New Product: ${item.name} (${item.cat}) · Current Price: ${fmt(item.newD)} D ($${fmt(item.newUsd)})`
-            : `Old: ${fmt(item.oldD)} D ($${fmt(item.oldUsd)}) ➔ New: ${fmt(item.newD)} D ($${fmt(item.newUsd)}) · Delta: ${item.deltaD > 0 ? '+' : ''}${fmt(item.deltaD)} D (${item.percentage}%)`,
+            ? `New Product: ${item.name} (${item.cat}) · Price D: ${fmt(item.newD)} D · USD+: $${fmt(item.newUsd)} · Sales $: $${fmt(computedSales)}`
+            : `Old: ${fmt(item.oldD)} D ($${fmt(item.oldUsd)}) ➔ New: ${fmt(item.newD)} D ($${fmt(item.newUsd)}) · Sales $: $${fmt(computedSales)} · Delta: ${item.deltaD > 0 ? '+' : ''}${fmt(item.deltaD)} D (${item.percentage}%)`,
+          assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)],
           priceTrackerType: item.type,
           oldD: item.oldD,
           newD: item.newD,
@@ -573,8 +589,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
       });
     }
 
-    // 3. Series Products Mode (Feature 2B)
-    if (pricePracticeTarget === 'series') {
+    // 3. Series Products Mode (Respects Step 1 Price choice & Step 2 Quiz Mode!)
+    if (specialChallenge === 'series') {
       let modelsToPractice = availablePhoneModels;
       if (selectedSeriesModel && selectedSeriesModel !== '__all__') {
         modelsToPractice = [selectedSeriesModel];
@@ -585,7 +601,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
         const modelParts = phoneModelsMap[model] || [];
         modelParts.forEach((part, idx) => {
           const makeSeriesQ = (
-            targetKind: 'D' | 'costUsd' | 'salesPrice' | 'yuan',
+            targetKind: 'D' | 'costUsd' | 'salesPrice',
             label: string,
             stepText?: string
           ): QuestionItem => ({
@@ -608,22 +624,16 @@ export const QuizView: React.FC<QuizViewProps> = ({
             origin: part.origin || (part.cat && part.cat.includes('LCD') ? 'China' : 'Dubai')
           });
 
-          if (currencyChoice === 'all_one_by_one') {
-            seriesPool.push(makeSeriesQ('D', 'Price D (Dirham AED)', `Part ${idx + 1}/${modelParts.length} · Step 1/3 (Price D)`));
-            seriesPool.push(makeSeriesQ('costUsd', 'USD+ (Cost = D/3.67)', `Part ${idx + 1}/${modelParts.length} · Step 2/3 (USD+)`));
-            seriesPool.push(makeSeriesQ('salesPrice', 'Sale Price ($)', `Part ${idx + 1}/${modelParts.length} · Step 3/3 (Sale $)`));
-          } else if (currencyChoice === 'dirham') {
+          if (pricePracticeTarget === 'dirham') {
             seriesPool.push(makeSeriesQ('D', 'Price D (Dirham AED)'));
-          } else if (currencyChoice === 'costUsd') {
+          } else if (pricePracticeTarget === 'costUsd') {
             seriesPool.push(makeSeriesQ('costUsd', 'USD+ (Cost in USD)'));
-          } else if (currencyChoice === 'salesPrice') {
+          } else if (pricePracticeTarget === 'salesPrice') {
             seriesPool.push(makeSeriesQ('salesPrice', 'Sale Price ($)'));
-          } else if (currencyChoice === 'yuan') {
-            seriesPool.push(makeSeriesQ('yuan', 'Yuan ¥ (China RMB)'));
-          } else if (currencyChoice === 'mixed') {
-            const kinds: ('D' | 'costUsd' | 'salesPrice' | 'yuan')[] = ['D', 'costUsd', 'salesPrice', 'yuan'];
+          } else {
+            const kinds: ('D' | 'costUsd' | 'salesPrice')[] = ['D', 'costUsd', 'salesPrice'];
             const chosen = kinds[Math.floor(Math.random() * kinds.length)];
-            const label = chosen === 'D' ? 'Price D (AED)' : chosen === 'costUsd' ? 'USD+ (Cost)' : chosen === 'yuan' ? 'Yuan ¥ (RMB)' : 'Sale Price ($)';
+            const label = chosen === 'D' ? 'Price D (Dirham AED)' : chosen === 'costUsd' ? 'USD+ (Cost in USD)' : 'Sale Price ($)';
             seriesPool.push(makeSeriesQ(chosen, label));
           }
         });
@@ -681,56 +691,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
       pool = shuffleArray(pool);
     }
 
-    // Feature 2A: Price D / USD + / Sale Option - Supports Choice of Currency (User Requirement 2)
-    if (pricePracticeTarget === 'allThree') {
-      const allThreePool: QuestionItem[] = [];
-      for (const p of pool) {
-        const makeAllThreeQ = (
-          targetKind: 'D' | 'costUsd' | 'salesPrice' | 'yuan',
-          label: string,
-          stepText?: string
-        ): QuestionItem => ({
-          id: `allthree-${p.id}-${targetKind}`,
-          title: p.name,
-          subtitle: `Category: ${p.cat}${stepText ? ` · ${stepText}` : ''}`,
-          priceTargetLabel: label,
-          priceStep: stepText,
-          correctVal: getTargetPrice(p, targetKind),
-          priceKind: targetKind,
-          rawItem: p,
-          breakdownStr: `Product: ${p.name} (${p.cat}) ➔ Price D: ${fmt(p.d)} D · USD+: $${fmt(p.usd)} · Sales $: $${fmt(p.salesPrice)}`,
-          assignedMode: (['mcq', 'type', 'truefalse'] as const)[Math.floor(Math.random() * 3)],
-          companyName: p.companyName,
-          shippingMethod: p.shippingMethod || 'air',
-          origin: p.origin || (p.cat && p.cat.includes('LCD') ? 'China' : 'Dubai')
-        });
-
-        if (currencyChoice === 'all_one_by_one') {
-          allThreePool.push(makeAllThreeQ('D', 'Price D (Dirham AED)', 'Step 1/3 (Price D)'));
-          allThreePool.push(makeAllThreeQ('costUsd', 'USD+ (Cost = D/3.67)', 'Step 2/3 (USD+)'));
-          allThreePool.push(makeAllThreeQ('salesPrice', 'Sale Price ($)', 'Step 3/3 (Sale $)'));
-        } else if (currencyChoice === 'dirham') {
-          allThreePool.push(makeAllThreeQ('D', 'Price D (Dirham AED)'));
-        } else if (currencyChoice === 'costUsd') {
-          allThreePool.push(makeAllThreeQ('costUsd', 'USD+ (Cost in USD)'));
-        } else if (currencyChoice === 'salesPrice') {
-          allThreePool.push(makeAllThreeQ('salesPrice', 'Sale Price ($)'));
-        } else if (currencyChoice === 'yuan') {
-          allThreePool.push(makeAllThreeQ('yuan', 'Yuan ¥ (China RMB)'));
-        } else if (currencyChoice === 'mixed') {
-          const kinds: ('D' | 'costUsd' | 'salesPrice' | 'yuan')[] = ['D', 'costUsd', 'salesPrice', 'yuan'];
-          const chosen = kinds[Math.floor(Math.random() * kinds.length)];
-          const label = chosen === 'D' ? 'Price D (AED)' : chosen === 'costUsd' ? 'USD+ (Cost)' : chosen === 'yuan' ? 'Yuan ¥ (RMB)' : 'Sale Price ($)';
-          allThreePool.push(makeAllThreeQ(chosen, label));
-        }
-      }
-
-      if (questionCount > 0 && selMode !== 'range') {
-        return allThreePool.slice(0, questionCount);
-      }
-      return allThreePool;
-    }
-
     return pool.map(p => {
       let targetKind: 'D' | 'costUsd' | 'salesPrice' = 'D';
       if (pricePracticeTarget === 'all') {
@@ -781,8 +741,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
     setLives(3);
     setIsAnswered(false);
     setSelectedOption(null);
-    setFeedback(null);
-    setSelectedOption(null);
+    setTypeInputValue('');
+    setMatchSelectedLeft(null);
+    setMatchedPairs(new Set());
+    setMatchFlashKey(null);
     setFeedback(null);
 
     if (flow === 'learn') {
@@ -836,14 +798,14 @@ export const QuizView: React.FC<QuizViewProps> = ({
     const correct = currentQ.correctVal;
     const options = new Set<string>([correct]);
 
-    if (mode === 'compat') {
+    if (specialChallenge === 'compat') {
       const allFits = compatList.map(c => c.fits);
       const shuffled = [...allFits].sort(() => Math.random() - 0.5);
       for (const fit of shuffled) {
         if (options.size >= 4) break;
         options.add(fit);
       }
-    } else if (mode === 'pricetracker') {
+    } else if (specialChallenge === 'pricetracker' && currentQ.priceKind === 'D') {
       if (currentQ.oldD && currentQ.oldD > 0) {
         options.add(`${fmt(currentQ.oldD)} D`);
       }
@@ -875,7 +837,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
     }
 
     return shuffleArray(Array.from(options));
-  }, [quizPhase, currentIndex, currentQuestions, mode, parts, compatList]);
+  }, [quizPhase, currentIndex, currentQuestions, specialChallenge, parts, compatList]);
 
   const handleSelectOption = (opt: string) => {
     if (isAnswered) return;
@@ -909,7 +871,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (quizPhase !== 'running' || isAnswered) return;
-      if (mode === 'mcq' || (mode === 'compat' && compatSubMode === 'mcq') || mode === 'survival') {
+      const effMode = mode === 'any' ? (currentQuestions[currentIndex]?.assignedMode || 'mcq') : mode;
+      if (effMode === 'mcq') {
         const keyNum = parseInt(e.key);
         if (keyNum >= 1 && keyNum <= currentMcqOptions.length) {
           const opt = currentMcqOptions[keyNum - 1];
@@ -922,7 +885,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [quizPhase, isAnswered, currentMcqOptions]);
+  }, [quizPhase, isAnswered, currentMcqOptions, mode, currentIndex, currentQuestions]);
 
   const handleTypeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -932,12 +895,18 @@ export const QuizView: React.FC<QuizViewProps> = ({
     if (timerRef.current) clearInterval(timerRef.current);
 
     const currentQ = currentQuestions[currentIndex];
-    const cleanUser = typeInputValue.trim().toLowerCase().replace(/[^0-9.]/g, '');
-    const cleanCorrect = currentQ.correctVal.toLowerCase().replace(/[^0-9.]/g, '');
-
-    const userNum = parseFloat(cleanUser);
-    const correctNum = parseFloat(cleanCorrect);
-    const isCorrect = !isNaN(userNum) && !isNaN(correctNum) && Math.abs(userNum - correctNum) < 0.25;
+    let isCorrect = false;
+    if (specialChallenge === 'compat' || currentQ.subtitle === 'Compatible Screen Model') {
+      const u = typeInputValue.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const c = currentQ.correctVal.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      isCorrect = u.length >= 2 && (c === u || c.includes(u) || u.includes(c));
+    } else {
+      const cleanUser = typeInputValue.trim().toLowerCase().replace(/[^0-9.]/g, '');
+      const cleanCorrect = currentQ.correctVal.toLowerCase().replace(/[^0-9.]/g, '');
+      const userNum = parseFloat(cleanUser);
+      const correctNum = parseFloat(cleanCorrect);
+      isCorrect = !isNaN(userNum) && !isNaN(correctNum) && Math.abs(userNum - correctNum) < 0.25;
+    }
 
     if (isCorrect) {
       handleScoreIncrease();
@@ -950,7 +919,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
       handleMistake(currentQ.title, currentQ.correctVal, currentQ.breakdownStr, typeInputValue);
       setFeedback({
         isCorrect: false,
-        message: `Incorrect! Correct price is: ${currentQ.correctVal}`,
+        message: `Incorrect! Correct answer is: ${currentQ.correctVal}`,
         breakdown: currentQ.breakdownStr
       });
     }
@@ -967,6 +936,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
     if (shouldBeTrue) {
       return { shownVal: currentQ.correctVal, isActuallyTrue: true };
     } else {
+      if (specialChallenge === 'compat') {
+        const otherCompat = compatList.find(c => c.fits !== currentQ.correctVal);
+        return { shownVal: otherCompat ? otherCompat.fits : 'iPhone 13 Pro / 13 Pro Max', isActuallyTrue: false };
+      }
       if (currentQ.priceKind === 'allThree') {
         const other = parts.find(p => p.name !== currentQ.title);
         const fake = other 
@@ -980,7 +953,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
       const fake = other ? getTargetPrice(other, currentQ.priceKind) : '$24.5';
       return { shownVal: fake, isActuallyTrue: false };
     }
-  }, [quizPhase, currentIndex, currentQuestions, parts]);
+  }, [quizPhase, currentIndex, currentQuestions, parts, compatList, specialChallenge]);
 
   // Determine active question mode (supports 'any' mode where each question can be MCQ, Type, or T/F)
   const activeQuestionMode = useMemo<QuizMode>(() => {
@@ -992,6 +965,50 @@ export const QuizView: React.FC<QuizViewProps> = ({
     }
     return mode;
   }, [quizPhase, currentIndex, currentQuestions, mode]);
+
+  // Match Pairs current batch (4 pairs per round when activeQuestionMode === 'match')
+  const matchBatchQuestions = useMemo(() => {
+    if (quizPhase !== 'running' || activeQuestionMode !== 'match') return [];
+    const batchStart = Math.floor(currentIndex / 4) * 4;
+    return currentQuestions.slice(batchStart, batchStart + 4);
+  }, [quizPhase, activeQuestionMode, currentIndex, currentQuestions]);
+
+  const matchShuffledRight = useMemo(() => {
+    return shuffleArray(matchBatchQuestions);
+  }, [matchBatchQuestions]);
+
+  const handleMatchRightClick = (rightQ: QuestionItem) => {
+    if (!matchSelectedLeft || matchedPairs.has(rightQ.id)) return;
+    const leftQ = matchBatchQuestions.find(q => q.id === matchSelectedLeft);
+    if (!leftQ) return;
+
+    if (leftQ.id === rightQ.id || leftQ.correctVal === rightQ.correctVal) {
+      const nextMatched = new Set(matchedPairs);
+      nextMatched.add(leftQ.id);
+      setMatchedPairs(nextMatched);
+      setMatchSelectedLeft(null);
+      handleScoreIncrease();
+
+      if (nextMatched.size >= matchBatchQuestions.length) {
+        const batchStart = Math.floor(currentIndex / 4) * 4;
+        const nextIdx = batchStart + matchBatchQuestions.length;
+        setTimeout(() => {
+          setMatchedPairs(new Set());
+          setMatchSelectedLeft(null);
+          if (nextIdx >= currentQuestions.length) {
+            finishQuiz();
+          } else {
+            setCurrentIndex(nextIdx);
+          }
+        }, 650);
+      }
+    } else {
+      setMatchFlashKey(`${leftQ.id}-${rightQ.id}`);
+      handleMistake(leftQ.title, leftQ.correctVal, leftQ.breakdownStr, rightQ.correctVal, leftQ);
+      setMatchSelectedLeft(null);
+      setTimeout(() => setMatchFlashKey(null), 700);
+    }
+  };
 
   const handleTfAnswer = (userSaysTrue: boolean) => {
     if (isAnswered) return;
@@ -1021,10 +1038,14 @@ export const QuizView: React.FC<QuizViewProps> = ({
   };
 
   const getQuestionLabel = (q: QuestionItem) => {
+    if (q.subtitle === 'Compatible Screen Model') {
+      return "COMPATIBILITY · Which Phone Models Fit This LCD?";
+    }
     if (q.priceTrackerType) {
-      if (q.priceTrackerType === 'new') return "NEW PRODUCT ARRIVAL · What is the Registered Price D?";
-      if (q.priceTrackerType === 'increase') return "PRICE INCREASE (Price Up) · What is the New Price D?";
-      return "PRICE DECREASE (Price Down) · What is the New Price D?";
+      const kindText = q.priceKind === 'D' ? 'Price D (AED)' : q.priceKind === 'costUsd' ? 'USD+ (Cost)' : 'Sale Price ($)';
+      if (q.priceTrackerType === 'new') return `NEW PRODUCT ARRIVAL · What is the New ${kindText}?`;
+      if (q.priceTrackerType === 'increase') return `PRICE INCREASE (Price Up) · What is the New ${kindText}?`;
+      return `PRICE DECREASE (Price Down) · What is the New ${kindText}?`;
     }
     if (q.priceTargetLabel) return `${q.priceTargetLabel}`;
     if (q.priceKind === 'allThree') return "Price D / USD + / Sale · Enter All 3 Prices";
@@ -1065,13 +1086,11 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
               1. Choose Price to Practice:
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {[
                 { id: 'dirham', title: 'Price D (Dirham)', desc: 'Supplier AED price (e.g. 115 D)', color: 'text-cyan-400' },
                 { id: 'costUsd', title: 'USD+ (Cost in USD)', desc: 'Formula: Price D / 3.67 + Expense', color: 'text-emerald-400' },
                 { id: 'salesPrice', title: 'Sales $ (Retail)', desc: 'Customer price = USD+ * 1.30', color: 'text-violet-400' },
-                { id: 'allThree', title: 'Price D / USD + / Sale', desc: 'Ask Price D, USD+, and Sale Price one by one for each product', color: 'text-emerald-300 font-bold' },
-                { id: 'series', title: 'Series Products', desc: 'Test all spare parts (LCD, Battery, Flex, Speaker, etc.) for each phone model series one by one', color: 'text-amber-300 font-bold' },
                 { id: 'all', title: 'All 3 (Mixed)', desc: 'Rotate between Price D, USD+, and Sales $', color: 'text-slate-300' }
               ].map(pt => (
                 <button
@@ -1089,80 +1108,122 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 </button>
               ))}
             </div>
+          </div>
 
-            {/* Currency Choice Selector for Price D / USD + / Sale (Button 4) & Series Products (Button 5) - User Requirement 2 */}
-            {(pricePracticeTarget === 'allThree' || pricePracticeTarget === 'series') && (
-              <div className="bg-[#070c18] border border-cyan-500/40 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xl animate-in slide-in-from-top-2 duration-150">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="w-5 h-5 text-cyan-400" />
-                    <div>
-                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                        <span>Select Currency / Price Field to Practice</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold uppercase border border-cyan-500/40">
-                          {pricePracticeTarget === 'series' ? 'Series Products' : 'Price D / USD+ / Sale'}
-                        </span>
-                      </h4>
-                      <p className="text-xs text-slate-400">
-                        Choose which currency you want to be quizzed on (or test all prices one by one):
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-[11px] font-mono text-cyan-300 bg-cyan-950/40 px-2.5 py-1 rounded-lg border border-cyan-500/30">
-                    Active: <span className="font-bold text-white">{
-                      currencyChoice === 'all_one_by_one' ? 'All Prices (1 by 1)' :
-                      currencyChoice === 'dirham' ? 'Price D (AED)' :
-                      currencyChoice === 'costUsd' ? 'USD+ (Cost)' :
-                      currencyChoice === 'salesPrice' ? 'Sales $ (Retail)' :
-                      currencyChoice === 'yuan' ? 'Yuan ¥ (RMB)' : 'Mixed Currency'
-                    }</span>
-                  </div>
-                </div>
+          {/* STEP 2: QUIZ FORMAT / MODE - 600 SemiBold buttons */}
+          <div className="space-y-3">
+            <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
+              2. Quiz Mode:
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {[
+                { id: 'mcq', label: 'Multiple Choice', desc: '4 Options (Keys 1-4)' },
+                { id: 'type', label: 'Type Price', desc: 'Fast numerical input' },
+                { id: 'truefalse', label: 'True / False', desc: 'Flashcard speed quiz' },
+                { id: 'any', label: 'Any Quiz Mode', desc: 'Randomly mix all question types' },
+                { id: 'match', label: 'Match Pairs', desc: 'Connect part with price' }
+              ].map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => { sound.playTick(); setMode(m.id as QuizMode); }}
+                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                    mode === m.id
+                      ? 'bg-gradient-to-br from-cyan-600/30 to-indigo-600/30 border-cyan-400 text-white shadow-lg ring-1 ring-cyan-300'
+                      : 'bg-[#070c18] border-slate-700/80 text-slate-300 hover:border-slate-500'
+                  }`}
+                >
+                  <span className="font-semibold text-sm sm:text-base text-white block">{m.label}</span>
+                  <span className="text-xs text-slate-400 font-normal mt-1 block">{m.desc}</span>
+                </button>
+              ))}
+            </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1">
-                  {[
-                    { id: 'all_one_by_one', title: 'All (1 by 1)', desc: 'D ➔ USD+ ➔ Sale $', badge: 'Step by Step', color: 'border-cyan-500/60 text-cyan-300' },
-                    { id: 'dirham', title: 'Price D (AED)', desc: 'Supplier AED price', badge: 'AED', color: 'border-cyan-500/60 text-cyan-300' },
-                    { id: 'costUsd', title: 'USD+ (Cost)', desc: 'Price D / 3.67 + Exp', badge: 'USD', color: 'border-emerald-500/60 text-emerald-300' },
-                    { id: 'salesPrice', title: 'Sales $', desc: 'Customer Retail $', badge: 'Sale $', color: 'border-violet-500/60 text-violet-300' },
-                    { id: 'yuan', title: 'Yuan ¥', desc: 'Guangzhou RMB', badge: 'RMB', color: 'border-amber-500/60 text-amber-300' },
-                    { id: 'mixed', title: 'Mixed', desc: 'Random Currency', badge: 'Mix', color: 'border-indigo-500/60 text-indigo-300' },
-                  ].map(cOpt => {
-                    const isSelected = currencyChoice === cOpt.id;
-                    return (
-                      <button
-                        key={cOpt.id}
-                        type="button"
-                        onClick={() => {
-                          sound.playTick();
-                          setCurrencyChoice(cOpt.id as CurrencyChoice);
-                        }}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                          isSelected
-                            ? 'bg-cyan-500/20 border-cyan-400 shadow-lg ring-2 ring-cyan-500/40'
-                            : 'bg-slate-900/90 border-slate-800 hover:border-slate-600'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className={`text-xs font-bold ${isSelected ? 'text-white' : cOpt.color.split(' ')[1]}`}>
-                            {cOpt.title}
-                          </span>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-bold">
-                            {cOpt.badge}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-normal line-clamp-1">
-                          {cOpt.desc}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+            {/* Dedicated Div for Special Practice Modes (Series Products, Compatibility, Survival Mode, Price Tracker Quiz) */}
+            <div className="bg-[#070c18]/90 border border-slate-700/80 rounded-2xl p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+                  Special Practice Modes (Works with Step 1 Price &amp; Step 2 Quiz Mode):
+                </span>
+                <span className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-cyan-300">
+                  Active: {specialChallenge === 'catalog' ? 'Standard Catalog' : specialChallenge === 'series' ? 'Series Products' : specialChallenge === 'compat' ? 'Compatibility' : 'Price Tracker Quiz'}
+                  {isSurvivalMode ? ' + Survival (3 Lives ❤️)' : ''}
+                </span>
               </div>
-            )}
 
-            {/* Series Phone Model Selector (Feature 2B) */}
-            {pricePracticeTarget === 'series' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* 1. Series Products */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setSpecialChallenge(prev => prev === 'series' ? 'catalog' : 'series');
+                  }}
+                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                    specialChallenge === 'series'
+                      ? 'bg-gradient-to-br from-amber-600/30 to-orange-600/30 border-amber-400 text-white shadow-lg ring-1 ring-amber-300'
+                      : 'bg-slate-900/70 border-slate-700/80 text-slate-300 hover:border-slate-500'
+                  }`}
+                >
+                  <span className="font-semibold text-sm sm:text-base text-amber-300 block">Series Products</span>
+                  <span className="text-xs text-slate-400 font-normal mt-1 block">All spare parts for each phone model</span>
+                </button>
+
+                {/* 2. Compatibility */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setSpecialChallenge(prev => prev === 'compat' ? 'catalog' : 'compat');
+                  }}
+                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                    specialChallenge === 'compat'
+                      ? 'bg-gradient-to-br from-cyan-600/30 to-blue-600/30 border-cyan-400 text-white shadow-lg ring-1 ring-cyan-300'
+                      : 'bg-slate-900/70 border-slate-700/80 text-slate-300 hover:border-slate-500'
+                  }`}
+                >
+                  <span className="font-semibold text-sm sm:text-base text-cyan-300 block">Compatibility</span>
+                  <span className="text-xs text-slate-400 font-normal mt-1 block">Which LCD fits which phone</span>
+                </button>
+
+                {/* 3. Survival Mode */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setIsSurvivalMode(prev => !prev);
+                  }}
+                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                    isSurvivalMode
+                      ? 'bg-gradient-to-br from-rose-600/30 to-pink-600/30 border-rose-400 text-white shadow-lg ring-1 ring-rose-300'
+                      : 'bg-slate-900/70 border-slate-700/80 text-slate-300 hover:border-slate-500'
+                  }`}
+                >
+                  <span className="font-semibold text-sm sm:text-base text-rose-300 block">Survival Mode</span>
+                  <span className="text-xs text-slate-400 font-normal mt-1 block">3 Lives · Beat high score</span>
+                </button>
+
+                {/* 4. Price Tracker Quiz */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setSpecialChallenge(prev => prev === 'pricetracker' ? 'catalog' : 'pricetracker');
+                  }}
+                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                    specialChallenge === 'pricetracker'
+                      ? 'bg-gradient-to-br from-emerald-600/30 to-teal-600/30 border-emerald-400 text-white shadow-lg ring-1 ring-emerald-300'
+                      : 'bg-slate-900/70 border-slate-700/80 text-slate-300 hover:border-slate-500'
+                  }`}
+                >
+                  <span className="font-semibold text-sm sm:text-base text-emerald-300 block">Price Tracker Quiz</span>
+                  <span className="text-xs text-slate-400 font-normal mt-1 block">New, Up 📈 &amp; Down 📉</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Series Phone Model Selector */}
+            {specialChallenge === 'series' && (
               <div className="bg-[#070c18] border border-cyan-500/40 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xl animate-in slide-in-from-top-2 duration-150">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -1240,42 +1301,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 </div>
               </div>
             )}
-          </div>
-
-          {/* STEP 2: QUIZ FORMAT / MODE - 600 SemiBold buttons */}
-          <div className="space-y-3">
-            <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
-              2. Quiz Mode:
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-              {[
-                { id: 'mcq', label: 'Multiple Choice', desc: '4 Options (Keys 1-4)' },
-                { id: 'type', label: 'Type Price', desc: 'Fast numerical input' },
-                { id: 'truefalse', label: 'True / False', desc: 'Flashcard speed quiz' },
-                { id: 'any', label: 'Any Quiz Mode', desc: 'Randomly mix all question types' },
-                { id: 'match', label: 'Match Pairs', desc: 'Connect part with price' },
-                { id: 'compat', label: 'Compatibility', desc: 'Which LCD fits which phone' },
-                { id: 'survival', label: 'Survival Mode', desc: '3 Lives · Beat high score' },
-                { id: 'pricetracker', label: 'Price Tracker Quiz', desc: 'New, Up 📈 & Down 📉' }
-              ].map(m => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => { sound.playTick(); setMode(m.id as QuizMode); }}
-                  className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
-                    mode === m.id
-                      ? 'bg-gradient-to-br from-cyan-600/30 to-indigo-600/30 border-cyan-400 text-white shadow-lg ring-1 ring-cyan-300'
-                      : 'bg-[#070c18] border-slate-700/80 text-slate-300 hover:border-slate-500'
-                  }`}
-                >
-                  <span className="font-semibold text-sm sm:text-base text-white block">{m.label}</span>
-                  <span className="text-xs text-slate-400 font-normal mt-1 block">{m.desc}</span>
-                </button>
-              ))}
-            </div>
 
             {/* Price Tracker Quiz Filter & History Drawer (Feature 1 & 2C) */}
-            {mode === 'pricetracker' && (
+            {specialChallenge === 'pricetracker' && (
               <div className="bg-[#070c18] border border-cyan-500/40 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl animate-in slide-in-from-top-2 duration-150">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
                   <div className="flex items-center gap-2.5">
@@ -1984,7 +2012,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   </div>
                 )}
 
-                {mode === 'survival' && (
+                {isSurvivalMode && (
                   <div className="flex items-center gap-1">
                     {[...Array(3)].map((_, i) => (
                       <Heart
@@ -2258,8 +2286,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </form>
           )}
 
-          {/* 2. Multiple Choice Mode (MCQ) - Supports allThree and standard price targets */}
-          {(activeQuestionMode === 'mcq' || activeQuestionMode === 'survival' || activeQuestionMode === 'pricetracker' || (activeQuestionMode === 'compat' && compatSubMode === 'mcq')) && (
+          {/* 2. Multiple Choice Mode (MCQ) */}
+          {activeQuestionMode === 'mcq' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto">
               {currentMcqOptions.map((opt, idx) => {
                 const isSelected = selectedOption === opt;
@@ -2299,7 +2327,75 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </div>
           )}
 
-          {/* 3. Single Price Type Mode (for dirham, costUsd, salesPrice) */}
+          {/* 2B. Match Pairs Mode */}
+          {activeQuestionMode === 'match' && (
+            <div className="max-w-4xl mx-auto space-y-4">
+              <div className="text-center text-xs text-cyan-300 font-semibold uppercase tracking-wider">
+                Click a Product on the left, then match its correct answer on the right ({matchedPairs.size}/{matchBatchQuestions.length})
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2.5">
+                  {matchBatchQuestions.map((q) => {
+                    const isMatched = matchedPairs.has(q.id);
+                    const isLeftSelected = matchSelectedLeft === q.id;
+                    return (
+                      <button
+                        key={`left-${q.id}`}
+                        type="button"
+                        disabled={isMatched}
+                        onClick={() => {
+                          sound.playTick();
+                          setMatchSelectedLeft(q.id);
+                        }}
+                        className={`w-full p-4 rounded-2xl border-2 text-left font-semibold text-sm sm:text-base transition-all cursor-pointer ${
+                          isMatched
+                            ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300 opacity-60'
+                            : isLeftSelected
+                            ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-lg ring-2 ring-cyan-400/40'
+                            : 'bg-[#070c18] border-slate-700 hover:border-cyan-400 text-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span>{q.title}</span>
+                          {isMatched && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />}
+                        </div>
+                        {q.companyName && (
+                          <span className="text-[11px] font-mono text-indigo-300 block mt-1">{q.companyName}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="space-y-2.5">
+                  {matchShuffledRight.map((q) => {
+                    const isMatched = matchedPairs.has(q.id);
+                    const isWrongFlash = matchFlashKey && matchFlashKey.endsWith(`-${q.id}`);
+                    return (
+                      <button
+                        key={`right-${q.id}`}
+                        type="button"
+                        disabled={isMatched || !matchSelectedLeft}
+                        onClick={() => handleMatchRightClick(q)}
+                        className={`w-full p-4 rounded-2xl border-2 text-center font-mono font-bold text-base sm:text-lg transition-all cursor-pointer ${
+                          isMatched
+                            ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300 opacity-60'
+                            : isWrongFlash
+                            ? 'bg-rose-600/30 border-rose-500 text-rose-200 animate-pulse'
+                            : matchSelectedLeft
+                            ? 'bg-[#070c18] border-cyan-500/60 hover:bg-cyan-500/15 hover:border-cyan-400 text-cyan-300'
+                            : 'bg-[#070c18] border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {q.correctVal}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 3. Single Price Type Mode (for dirham, costUsd, salesPrice, compat) */}
           {activeQuestionMode === 'type' && currentQuestions[currentIndex].priceKind !== 'allThree' && (
             <form onSubmit={handleTypeSubmit} className="max-w-xl mx-auto space-y-4">
               <div className="relative">
@@ -2309,7 +2405,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   disabled={isAnswered}
                   value={typeInputValue}
                   onChange={(e) => setTypeInputValue(e.target.value)}
-                  placeholder="Type number (e.g. 115 or 32.02)..."
+                  placeholder={specialChallenge === 'compat' ? 'Type compatible phone models...' : 'Type number (e.g. 115 or 32.02)...'}
                   className="w-full bg-[#070c18] border-2 border-slate-700 focus:border-cyan-400 rounded-2xl px-6 py-5 text-2xl sm:text-3xl text-center text-white font-mono font-medium outline-none placeholder-slate-600 shadow-inner"
                 />
               </div>

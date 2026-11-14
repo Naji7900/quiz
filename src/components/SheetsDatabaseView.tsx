@@ -99,7 +99,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan geli link-ga Google Apps Script Web App ee kore si aad u backup garayso Complete Suite.'
+        text: 'Please enter the Google Apps Script Web App URL above to back up the Complete Suite.'
       });
       return;
     }
@@ -111,7 +111,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Backup-ka tooska ah ee Complete Suite wuxuu u baahan yahay Google Apps Script Web App URL (oo ku dhamaanaya /exec).'
+        text: 'Direct Complete Suite backup requires a Google Apps Script Web App URL (ending with /exec).'
       });
       return;
     }
@@ -119,7 +119,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     setIsBackingUpSuite(true);
     setStatusMessage({
       type: 'success',
-      text: `Waxaa si buuxda Google Sheet-ka loogu dirayaa Complete Suite: ${parts.length} Spare Parts, ${companies.length} Shirkadood, ${priceChanges.length} Price Tracker records, ${photosList.length} Sawirro, & ${compatList.length} LCD sets...`
+      text: `Uploading Complete Suite to Google Sheet: ${parts.length} Spare Parts, ${companies.length} Companies, ${priceChanges.length} Price Tracker records, ${photosList.length} Photos, & ${compatList.length} LCD sets...`
     });
 
     try {
@@ -135,7 +135,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
         sound.playVictory();
         setStatusMessage({
           type: 'success',
-          text: `Guul! Dhammaan Complete Suite (585+ Parts, Shirkadaha, Price Tracker, Sawirrada, & LCD-yada) si buuxda ayaa loogu kaydiyay Google Sheet-kaaga!`
+          text: `Success! The Complete Suite (Parts, Companies, Price Tracker, Photos, & Compatible LCDs) has been saved to your Google Sheet!`
         });
       } else {
         throw new Error(res.message);
@@ -144,7 +144,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Khalad ayaa dhacay xilligii kaydinta Complete Suite: ' + (err as Error).message
+        text: 'Error backing up Complete Suite: ' + (err as Error).message
       });
     } finally {
       setIsBackingUpSuite(false);
@@ -157,7 +157,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan marka hore geli Google Apps Script Web App URL-kaaga (link-ga ku dhamaanaya /exec).'
+        text: 'Please enter your Google Apps Script Web App URL first (link ending with /exec).'
       });
       return;
     }
@@ -169,7 +169,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Soo celinta tooska ah waxay u baahan tahay Google Apps Script Web App URL (oo ku dhamaanaya /exec).'
+        text: 'Direct restore requires a Google Apps Script Web App URL (ending with /exec).'
       });
       return;
     }
@@ -177,7 +177,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     setIsRestoringSuite(true);
     setStatusMessage({
       type: 'success',
-      text: 'Waxaa Google Sheet-kaaga laga soo aqrinayaa dhammaan 5-ta tab...'
+      text: 'Reading all 5 sheets from your Google Sheet...'
     });
 
     try {
@@ -186,13 +186,13 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       setRestorePreview(result);
       setStatusMessage({
         type: 'success',
-        text: `Waxaa Google Sheet-ka laga helay: ${result.partsCount} Spare Parts, ${result.companiesCount} Shirkadood, ${result.priceChangesCount} Price Tracker records, ${result.photosCount} Sawirro, iyo ${result.compatCount} Compatible LCD sets. Guji "Confirm Restore" si aad app-ka ugu shubto!`
+        text: `Found in Google Sheet: ${result.partsCount} Spare Parts, ${result.companiesCount} Companies, ${result.priceChangesCount} Price Tracker records, ${result.photosCount} Photos, and ${result.compatCount} Compatible LCD sets. Click "Confirm Restore" to load into the app!`
       });
     } catch (err) {
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Khalad ayaa dhacay xilligii xogta laga soo aqrinayay Google Sheet: ' + (err as Error).message
+        text: 'Error reading data from Google Sheet: ' + (err as Error).message
       });
     } finally {
       setIsRestoringSuite(false);
@@ -209,7 +209,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     }
     setStatusMessage({
       type: 'success',
-      text: `Guul! Dhammaan xogtii Complete Suite ee Google Sheet-ka si guul leh ayaa loogu soo celiyay app-kaaga!`
+      text: `Success! All Complete Suite data from Google Sheet has been restored into your app!`
     });
     setRestorePreview(null);
   };
@@ -220,7 +220,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan marka hore gali Google Apps Script Web App URL (/exec) si aad u tijaabiso xiriirka!'
+        text: 'Please enter a Google Apps Script Web App URL (/exec) first to test the connection!'
       });
       return;
     }
@@ -234,14 +234,14 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
         setConnectionResult({ verified: true, sheetName: res.sheetName });
         setStatusMessage({
           type: 'success',
-          text: `🟢 Xiriirka wuu guuleystay! Connected to Google Sheet "${res.sheetName || 'NAJI HASSAN'}" (Spreadsheet is active & responding)!`
+          text: `🟢 Connection successful! Connected to Google Sheet "${res.sheetName || 'NAJI HASSAN'}" (Spreadsheet is active & responding)!`
         });
       } else {
         sound.playWrong();
         setConnectionResult({ verified: false, error: res.message });
         setStatusMessage({
           type: 'error',
-          text: `❌ Xiriirka Google Sheet wuu fashilmay: ${res.message || 'Deployment error'}. Hubi in Apps Script deployment-kaagu yahay "Execute as: Me" iyo "Who has access: Anyone".`
+          text: `❌ Google Sheet connection failed: ${res.message || 'Deployment error'}. Check that your Apps Script deployment has "Execute as: Me" and "Who has access: Anyone".`
         });
       }
     } catch (err: any) {
@@ -249,7 +249,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       setConnectionResult({ verified: false, error: err?.message || 'Connection failed' });
       setStatusMessage({
         type: 'error',
-        text: `❌ Xiriirka Google Sheet wuu fashilmay: ${err?.message || 'Connection error'}`
+        text: `❌ Google Sheet connection failed: ${err?.message || 'Connection error'}`
       });
     } finally {
       setIsTestingConnection(false);
@@ -265,7 +265,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     const catCount = Array.from(new Set(catalog.map(p => p.cat))).length;
     setStatusMessage({
       type: 'success',
-      text: `Guul! Dhammaan 584 alaabood iyo ${catCount} category pages (SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, iwm.) ee NAJI HASSAN si buuxda ayaa loo soo roray!`
+      text: `Success! Loaded all 584 products and ${catCount} category pages (SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, etc.) for NAJI HASSAN!`
     });
   };
 
@@ -275,7 +275,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Your catalog currently has 0 products. Please add products or click "Soo Ror 584 Alaabood" before creating a backup.'
+        text: 'Your catalog currently has 0 products. Please add products or click "Load 584 Products" before creating a backup.'
       });
       return;
     }
@@ -286,7 +286,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan geli link-ga Google Sheets ama Google Apps Script Web App ee kore si aad ugu backup garayso.'
+        text: 'Please enter a Google Sheets link or Google Apps Script Web App URL above to back up your data.'
       });
       return;
     }
@@ -304,25 +304,25 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       setStatusMessage({
         type: 'success',
         text: mode === 'multi_tab' 
-          ? `Waxaa toos loogu dirayaa Google Sheet-kaaga: ${parts.length} alaabood oo loo kala saarayo ${categories.length} category spreadsheet tabs (pages: SAMSUNG - LCD, IPhone - LCD, TECNO - LCD, iwm.)...`
-          : `Waxaa toos loogu dirayaa Google Sheet-kaaga: ${parts.length} alaabood tab-ka 'ALL PRODUCT'...`
+          ? `Uploading directly to your Google Sheet: ${parts.length} products organized into ${categories.length} category spreadsheet tabs (SAMSUNG - LCD, IPhone - LCD, TECNO - LCD, etc.)...`
+          : `Uploading directly to your Google Sheet: ${parts.length} products to 'ALL PRODUCT'...`
       });
 
       try {
         await GoogleSheetsService.backupAllToGoogleSheet(targetEndpoint, parts, photosList, compatList, mode, companies);
         sound.playVictory();
         const modeDesc = mode === 'multi_tab' 
-          ? `Dhammaan ${parts.length} alaabood waxaa si toos ah loogu dhex sameeyay ${categories.length} category spreadsheet tabs + Photos, Compatible LCDs & REGISTERED COMPANIES ee Google Sheet-kaaga NAJI HASSAN!` 
-          : `Dhammaan ${parts.length} alaabood waxaa toos loogu backup gareeyay tab-ka 'ALL PRODUCT' iyo tab-ka 'REGISTERED COMPANIES' ee Google Sheet-kaaga NAJI HASSAN!`;
+          ? `All ${parts.length} products have been written directly into ${categories.length} category spreadsheet tabs + Photos, Compatible LCDs & REGISTERED COMPANIES in your NAJI HASSAN Google Sheet!` 
+          : `All ${parts.length} products have been backed up directly to 'ALL PRODUCT' and 'REGISTERED COMPANIES' in your NAJI HASSAN Google Sheet!`;
         setStatusMessage({
           type: 'success',
-          text: `Guul! ${modeDesc}`
+          text: `Success! ${modeDesc}`
         });
       } catch (err) {
         sound.playWrong();
         setStatusMessage({
           type: 'error',
-          text: `Khalad ayaa dhacay xilligii loo dirayay Google Sheets: ${(err as Error).message || 'Hubi xiriirka internet-kaaga ama Web App-ka.'}`
+          text: `Error sending data to Google Sheets: ${(err as Error).message || 'Please check your internet connection or Web App URL.'}`
         });
       } finally {
         setIsBackingUp(false);
@@ -337,7 +337,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     setShowAppsScriptCard(true);
     setStatusMessage({
       type: 'success',
-      text: `Link-ga Google Sheet-ka NAJI HASSAN waa la helay (Sheet ID: ${sheetId || 'link-gaaga'}). Si uu toos ugu dhex abuuro dhammaan category tabs iyo REGISTERED COMPANIES Google Sheet-kaaga: nuqul ka qaado script-ka hoose (oo leh Sheet ID-gaaga), ku dar Google Sheet-kaaga (Extensions > Apps Script > Deploy > Web App: Anyone), kadibna Web App URL-ka ku dar sanduuqa kore!`
+      text: `NAJI HASSAN Google Sheet link detected (Sheet ID: ${sheetId || 'your link'}). To create all category tabs and REGISTERED COMPANIES directly inside your Google Sheet: copy the script below (pre-configured with your Sheet ID), paste it into Extensions > Apps Script > Deploy > Web App (Anyone), then paste the Web App URL above!`
     });
   };
 
@@ -354,7 +354,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
       setShowAppsScriptCard(true);
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan ku dar Web App URL-kaaga sanduuqa kore si toos ah loogu abuuro tab-ka REGISTERED COMPANIES ee Google Sheet-kaaga NAJI HASSAN.'
+        text: 'Please enter your Web App URL above to automatically create the REGISTERED COMPANIES tab in your NAJI HASSAN Google Sheet.'
       });
       return;
     }
@@ -362,7 +362,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     setIsBackingUp(true);
     setStatusMessage({
       type: 'success',
-      text: `Waxaa toos loogu abuurayaa tab-ka "REGISTERED COMPANIES" Google Sheet-kaaga NAJI HASSAN...`
+      text: `Creating the "REGISTERED COMPANIES" tab directly in your NAJI HASSAN Google Sheet...`
     });
 
     try {
@@ -371,7 +371,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
         sound.playVictory();
         setStatusMessage({
           type: 'success',
-          text: `Guul! Waxaa si toos ah Google Sheet-kaaga NAJI HASSAN loogu abuuray tab-ka cusub ee "REGISTERED COMPANIES" oo leh dhammaan tiirarka (Company Name, Phone No, WhatsApp, Location, Note, iwm.)!`
+          text: `Success! The "REGISTERED COMPANIES" tab has been created in your NAJI HASSAN Google Sheet with all columns (Company Name, Phone No, WhatsApp, Location, Note, etc.)!`
         });
       } else {
         sound.playWrong();
@@ -390,7 +390,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     GoogleSheetsService.downloadRegisteredCompaniesCsv(companies);
     setStatusMessage({
       type: 'success',
-      text: `Faylka CSV ee "REGISTERED COMPANIES" waa laguu soo dejiyay. Google Sheet-kaaga ka fur: File > Import > Upload > Dooro "Insert new sheet(s)" si uu 5 ilbiriqsi ugu dhex noqdo tab-ka 4-aad!`
+      text: `Downloaded "REGISTERED COMPANIES" CSV file. In your Google Sheet open: File > Import > Upload > Select "Insert new sheet(s)" to add it as a sheet tab in seconds!`
     });
   };
 
@@ -399,7 +399,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
     GoogleSheetsService.exportToMultiTabWorkbook(parts, photosList, compatList);
     setStatusMessage({
       type: 'success',
-      text: `Faylka offline-ka ah (.xls) ee dhammaan ${categories.length} category tabs ayaa laguu soo dejiyay kumbuyuutarkaaga.`
+      text: `Downloaded offline workbook (.xls) containing all ${categories.length} category tabs to your computer.`
     });
   };
 
@@ -635,10 +635,10 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
               </div>
               <div>
                 <span className="font-bold text-white text-sm block">
-                  Katalog-ga Buuxa ee NAJI HASSAN (584 Alaabood &amp; 38 Qaybood)
+                  Full NAJI HASSAN Catalog (584 Products &amp; 38 Categories)
                 </span>
                 <span className="text-xs text-slate-400">
-                  Dhammaan category pages: SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, iwm.
+                  All category pages: SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, etc.
                 </span>
               </div>
             </div>
@@ -648,14 +648,14 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
               className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all cursor-pointer whitespace-nowrap flex items-center gap-2"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Soo Ror 584 Alaabood (NAJI HASSAN Pages)</span>
+              <span>Load 584 Products (NAJI HASSAN Pages)</span>
             </button>
           </div>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-medium uppercase tracking-wider text-cyan-400">
-                Live Google Sheet Link ama Apps Script Web App URL:
+                Live Google Sheet Link or Apps Script Web App URL:
               </label>
               <span className="text-xs text-cyan-400 font-mono">
                 {parts.length} Products Active
@@ -671,7 +671,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
                   GoogleSheetsService.saveConfig({ sheetUrl: val.trim() });
                 }}
                 onBlur={() => GoogleSheetsService.saveConfig({ sheetUrl: sheetUrl.trim() })}
-                placeholder="https://script.google.com/macros/s/AKfy.../exec ama https://docs.google.com/spreadsheets/d/..."
+                placeholder="https://script.google.com/macros/s/AKfy.../exec or https://docs.google.com/spreadsheets/d/..."
                 className="flex-1 px-4 py-3 text-xs sm:text-sm bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono"
               />
               <div className="flex flex-wrap items-center gap-2">
@@ -702,10 +702,10 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
                   disabled={isLoading || isBackingUp}
                   onClick={() => handleBackupToSheet('multi_tab')}
                   className="px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-blue-950/60 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                  title="Toos ugu dhex samee category kasta (38 qaybood) Google Sheet-kaaga NAJI HASSAN adigoon waxba soo dejisan"
+                  title="Create each category (38 categories) directly in your NAJI HASSAN Google Sheet without downloading any files"
                 >
                   <FileSpreadsheet className={`w-4 h-4 ${isBackingUp ? 'animate-spin text-amber-300' : 'text-blue-200'}`} />
-                  <span>{isBackingUp ? 'Ku qoraya Google Sheet...' : '📂 Multi-Tab Backup (Toos ugu qor Google Sheet)'}</span>
+                  <span>{isBackingUp ? 'Writing to Google Sheet...' : '📂 Multi-Tab Backup (Write Direct to Google Sheet)'}</span>
                 </button>
               </div>
             </div>
@@ -737,7 +737,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
                     className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1 font-semibold"
                   >
                     <Copy className="w-3 h-3" />
-                    <span>{copiedScript ? 'Copied Pre-Configured Script!' : 'Nuqul Script (Pre-configured ID)'}</span>
+                    <span>{copiedScript ? 'Copied Pre-Configured Script!' : 'Copy Script (Pre-configured ID)'}</span>
                   </button>
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1 border-t border-slate-800">
@@ -801,7 +801,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
               <div className="p-3 rounded-xl bg-blue-950/30 border border-blue-500/30 text-blue-200 flex items-start gap-2">
                 <FileSpreadsheet className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                 <span>
-                  <strong>📂 Multi-Tab Backup:</strong> Waxay <strong>category kasta ka dhigaysaa spreadsheet tab u gaar ah</strong> ({categories.length} tabs) + REGISTERED COMPANIES oo toos loogu dhex abuuro Google Sheet-kaaga NAJI HASSAN.
+                  <strong>📂 Multi-Tab Backup:</strong> Turns <strong>each category into its own spreadsheet tab</strong> ({categories.length} tabs) + REGISTERED COMPANIES directly inside your NAJI HASSAN Google Sheet.
                 </span>
               </div>
             </div>
@@ -940,10 +940,10 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
                 type="button"
                 onClick={handleDownloadOfflineWorkbook}
                 className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer border border-slate-700 shadow-md shrink-0"
-                title="Haddii aad rabto inaad fayl offline ah (.xls) ku keydiso kumbuyuutarkaaga"
+                title="Download an offline Excel (.xls) workbook to your computer"
               >
                 <Download className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Soo Dajiso Faylka Offline (.xls)</span>
+                <span>Download Offline Workbook (.xls)</span>
               </button>
             </div>
 
@@ -1605,7 +1605,7 @@ export const SheetsDatabaseView: React.FC<SheetsDatabaseViewProps> = ({
               </div>
 
               <p className="text-xs text-slate-400 leading-relaxed">
-                Tracks newly added items, price increases (Price Up / Kor u kacay), and price drops (Price Down / Hoos u dhacay) with delta calculations.
+                Tracks newly added items, price increases (Price Up), and price drops (Price Down) with delta calculations.
               </p>
 
               <div className="overflow-x-auto">

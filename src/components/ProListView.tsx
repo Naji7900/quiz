@@ -46,7 +46,8 @@ import {
   RegisteredCompany,
   generateSmartPartId,
   AUTHENTIC_GOOGLE_SHEET_CATEGORIES,
-  getNextSequentialDxId
+  getNextSequentialDxId,
+  detectOriginFromCompany
 } from '../data/initialData';
 import { sound } from '../services/soundService';
 
@@ -56,10 +57,13 @@ interface ProListViewProps {
   priceChanges?: PriceChangeRecord[];
   companies?: RegisteredCompany[];
   rejectedCompanies?: RegisteredCompany[];
+  deletedCompanyNames?: string[];
   companyFilter?: string;
   onClearCompanyFilter?: () => void;
   onSetCompanyFilter?: (company: string) => void;
   onRegisterNewCompany?: (companyName: string) => void;
+  onDeleteCompanyName?: (companyName: string) => void;
+  onBulkAssignCompany?: (companyName: string, partIds: string[]) => void;
   onAddPart: (part: SparePartItem | (Omit<SparePartItem, 'id'> & { id?: string })) => void;
   onUpdatePart?: (id: string, updatedFields: Partial<SparePartItem>) => void;
   onDeletePart?: (id: string) => void;
@@ -73,6 +77,10 @@ interface ProListViewProps {
   onUpdateYuanRate?: (rate: number) => void;
   expenseRate?: number;
   onUpdateExpenseRate?: (rate: number, applyToAll?: boolean) => void;
+  airCargoRate?: number;
+  onUpdateAirCargoRate?: (rate: number) => void;
+  seaCargoRate?: number;
+  onUpdateSeaCargoRate?: (rate: number) => void;
   onOpenUpload11Modal?: () => void;
   onOpenFormatAllModal?: () => void;
   onBackupCompleteSuite?: () => void;
@@ -85,10 +93,13 @@ export const ProListView: React.FC<ProListViewProps> = ({
   priceChanges = [],
   companies = [],
   rejectedCompanies = [],
+  deletedCompanyNames = [],
   companyFilter = '__all__',
   onClearCompanyFilter,
   onSetCompanyFilter,
   onRegisterNewCompany,
+  onDeleteCompanyName,
+  onBulkAssignCompany,
   onAddPart,
   onUpdatePart,
   onDeletePart,
@@ -105,9 +116,14 @@ export const ProListView: React.FC<ProListViewProps> = ({
   yuanRate = 7.23,
   onUpdateYuanRate,
   expenseRate = 0,
-  onUpdateExpenseRate
+  onUpdateExpenseRate,
+  airCargoRate = 0.65,
+  onUpdateAirCargoRate,
+  seaCargoRate = 0.2,
+  onUpdateSeaCargoRate
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [tableSearchTerm, setTableSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showFormulaBar, setShowFormulaBar] = useState(false);
   const [showAllCatalog, setShowAllCatalog] = useState(false);
@@ -122,6 +138,12 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const currentExpenseRate = typeof expenseRate === 'number' && !isNaN(expenseRate) && expenseRate >= 0 ? expenseRate : 0;
   const [tempExpenseRate, setTempExpenseRate] = useState<string>(() => String(currentExpenseRate));
 
+  // Saved Default Cargo & Shipping Rates (By Air = $0.65, By Sea = $0.20)
+  const currentAirRate = typeof airCargoRate === 'number' && !isNaN(airCargoRate) && airCargoRate >= 0 ? airCargoRate : 0.65;
+  const currentSeaRate = typeof seaCargoRate === 'number' && !isNaN(seaCargoRate) && seaCargoRate >= 0 ? seaCargoRate : 0.2;
+  const [tempAirCargoRate, setTempAirCargoRate] = useState<string>(() => String(currentAirRate));
+  const [tempSeaCargoRate, setTempSeaCargoRate] = useState<string>(() => String(currentSeaRate));
+
   // Keep tempYuanRate synchronized if external yuanRate changes
   React.useEffect(() => {
     setTempYuanRate(String(currentYuanRate));
@@ -131,6 +153,14 @@ export const ProListView: React.FC<ProListViewProps> = ({
   React.useEffect(() => {
     setTempExpenseRate(String(currentExpenseRate));
   }, [currentExpenseRate]);
+
+  React.useEffect(() => {
+    setTempAirCargoRate(String(currentAirRate));
+  }, [currentAirRate]);
+
+  React.useEffect(() => {
+    setTempSeaCargoRate(String(currentSeaRate));
+  }, [currentSeaRate]);
 
   // New Part Form State
   const [newPartId, setNewPartId] = useState('');
@@ -144,9 +174,10 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const [newPartYuan, setNewPartYuan] = useState('');
   const [newPartUsd, setNewPartUsd] = useState('');
   const [newPartSalesPrice, setNewPartSalesPrice] = useState('');
-  const [newPartExpense, setNewPartExpense] = useState('');
+  const [newPartExpense, setNewPartExpense] = useState(() => String(currentAirRate));
   const [newPartShippingMethod, setNewPartShippingMethod] = useState<'air' | 'sea'>('air');
   const [newPartOrigin, setNewPartOrigin] = useState<'Dubai' | 'China'>('Dubai');
+  const [idError, setIdError] = useState<string | null>(null);
 
   // Multi-select state for bulk actions
   const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
@@ -177,6 +208,15 @@ export const ProListView: React.FC<ProListViewProps> = ({
   // Delete Confirmation Modal State (single or bulk)
   const [deletingPart, setDeletingPart] = useState<SparePartItem | null>(null);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+
+  // Quick Bulk Company Assignment Modal State
+  const [isBulkCompanyOpen, setIsBulkCompanyOpen] = useState(false);
+  const [bulkCompanyScope, setBulkCompanyScope] = useState<'selected' | 'filtered'>('filtered');
+  const [bulkCompanyInput, setBulkCompanyInput] = useState('');
+  const [showManageCompaniesAdd, setShowManageCompaniesAdd] = useState(false);
+  const [showManageCompaniesEdit, setShowManageCompaniesEdit] = useState(false);
+  const [pendingDeleteCompany, setPendingDeleteCompany] = useState<{ name: string; context?: 'add' | 'edit' } | null>(null);
+  const [pendingOpenDeleteListAdd, setPendingOpenDeleteListAdd] = useState(false);
 
   // Quick Action Notification Toast
   const [notification, setNotification] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -213,18 +253,32 @@ export const ProListView: React.FC<ProListViewProps> = ({
     return rounded === 0 && val !== 0 ? val.toFixed(2) : rounded.toFixed(1);
   };
 
-  // Available Company / Vendor options (Combined from Register Company, Catalog parts, and presets)
+  // Registered company pool (from Company Register)
+  const registeredCompanyPool = useMemo(() => {
+    return (companies && companies.length > 0) ? companies : (rejectedCompanies || []);
+  }, [companies, rejectedCompanies]);
+
+  const findRegisteredCompany = (companyName?: string) => {
+    const clean = String(companyName || '').trim().toLowerCase();
+    if (!clean || clean === '__custom__') return undefined;
+    return registeredCompanyPool.find(c => c.name.trim().toLowerCase() === clean);
+  };
+
+  // Available Company / Vendor options (Combined from Register Company, Catalog parts, and presets, excluding deleted names)
   const availableCompanies = useMemo(() => {
-    const set = new Set<string>(PRESET_COMPANY_NAMES);
-    const compList = (companies && companies.length > 0) ? companies : (rejectedCompanies || []);
-    compList.forEach(rc => {
-      if (rc.name && rc.name.trim()) set.add(rc.name.trim());
-    });
-    parts.forEach(p => {
-      if (p.companyName && p.companyName.trim()) set.add(p.companyName.trim());
-    });
+    const deletedSet = new Set((deletedCompanyNames || []).map(c => c.trim().toLowerCase()));
+    const set = new Set<string>();
+    const addIfAllowed = (val?: string) => {
+      const cleaned = String(val || '').trim();
+      if (!cleaned) return;
+      if (deletedSet.has(cleaned.toLowerCase())) return;
+      set.add(cleaned);
+    };
+    PRESET_COMPANY_NAMES.forEach(addIfAllowed);
+    registeredCompanyPool.forEach(rc => addIfAllowed(rc.name));
+    parts.forEach(p => addIfAllowed(p.companyName));
     return Array.from(set).sort();
-  }, [parts, companies, rejectedCompanies]);
+  }, [parts, registeredCompanyPool, deletedCompanyNames]);
 
   const isProfileMode = searchTerm.trim().length >= 2;
 
@@ -304,27 +358,277 @@ export const ProListView: React.FC<ProListViewProps> = ({
       );
     }
 
+    if (tableSearchTerm.trim()) {
+      const q2 = tableSearchTerm.trim().toLowerCase();
+      result = result.filter(p =>
+        p.name.toLowerCase().includes(q2) ||
+        p.id.toLowerCase().includes(q2) ||
+        p.cat.toLowerCase().includes(q2) ||
+        (p.companyName && p.companyName.toLowerCase().includes(q2))
+      );
+    }
+
     return result;
-  }, [parts, searchTerm, selectedCategoryFilter, activeCompanyFilter]);
+  }, [parts, searchTerm, tableSearchTerm, selectedCategoryFilter, activeCompanyFilter]);
+
+  const getDefaultCargoForMethod = (method: 'air' | 'sea') => {
+    return method === 'sea' ? currentSeaRate : currentAirRate;
+  };
+
+  const recalculateAddUsdWithCargo = (nextExp: number, prevExp: number) => {
+    const d = parseFloat(newPartD);
+    const y = parseFloat(newPartYuan);
+    const u = parseFloat(newPartUsd);
+    if (!isNaN(d) && d > 0) {
+      const costUsd = Number(((d / 3.67) + nextExp).toFixed(2));
+      setNewPartUsd(String(costUsd));
+      setNewPartSalesPrice(String(costUsd));
+    } else if (!isNaN(y) && y > 0) {
+      const baseUsd = y / currentYuanRate;
+      const costUsd = Number((baseUsd + nextExp).toFixed(2));
+      setNewPartUsd(String(costUsd));
+      setNewPartSalesPrice(String(costUsd));
+    } else if (!isNaN(u) && u > 0) {
+      const adjusted = Number(Math.max(0, (u - prevExp) + nextExp).toFixed(2));
+      setNewPartUsd(String(adjusted));
+      setNewPartSalesPrice(String(adjusted));
+    }
+  };
+
+  const hasCurrencyInput = (val: string) => {
+    const t = val.trim();
+    if (!t) return false;
+    const n = parseFloat(t);
+    return (!isNaN(n) && n > 0) || t === '0.';
+  };
+
+  const activeAddCompanyName = newPartCompany === '__custom__' ? customCompanyInput : newPartCompany;
+  const addCompanyOrigin = detectOriginFromCompany(registeredCompanyPool, activeAddCompanyName);
+  const addHasD = hasCurrencyInput(newPartD);
+  const addHasY = hasCurrencyInput(newPartYuan);
+  const isAddDirhamDisabled =
+    addCompanyOrigin === 'China' ||
+    (addCompanyOrigin !== 'Dubai' && (newPartOrigin === 'China' || (addHasY && !addHasD)));
+  const isAddYuanDisabled =
+    addCompanyOrigin === 'Dubai' ||
+    (addCompanyOrigin !== 'China' && (newPartOrigin === 'Dubai' || (addHasD && !addHasY)));
+
+  const activeEditCompanyName = editCompany === '__custom__' ? customEditCompany : editCompany;
+  const editCompanyOrigin = detectOriginFromCompany(registeredCompanyPool, activeEditCompanyName);
+  const editHasD = hasCurrencyInput(editD);
+  const editHasY = hasCurrencyInput(editYuan);
+  const isEditDirhamDisabled =
+    editCompanyOrigin === 'China' ||
+    (editCompanyOrigin !== 'Dubai' && (editOrigin === 'China' || (editHasY && !editHasD)));
+  const isEditYuanDisabled =
+    editCompanyOrigin === 'Dubai' ||
+    (editCompanyOrigin !== 'China' && (editOrigin === 'Dubai' || (editHasD && !editHasY)));
+
+  const handleSelectNewOrigin = (origin: 'Dubai' | 'China') => {
+    sound.playTick();
+    setNewPartOrigin(origin);
+    const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
+    if (origin === 'China') {
+      setNewPartD('');
+      const y = parseFloat(newPartYuan);
+      if (!isNaN(y) && y > 0) {
+        const costUsd = Number(((y / currentYuanRate) + exp).toFixed(2));
+        setNewPartUsd(String(costUsd));
+        setNewPartSalesPrice(String(costUsd));
+      } else if (hasCurrencyInput(newPartD)) {
+        setNewPartUsd('');
+        setNewPartSalesPrice('');
+      }
+    } else {
+      setNewPartYuan('');
+      const d = parseFloat(newPartD);
+      if (!isNaN(d) && d > 0) {
+        const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+        setNewPartUsd(String(costUsd));
+        setNewPartSalesPrice(String(costUsd));
+      } else if (hasCurrencyInput(newPartYuan)) {
+        setNewPartUsd('');
+        setNewPartSalesPrice('');
+      }
+    }
+  };
+
+  const handleSelectEditOrigin = (origin: 'Dubai' | 'China') => {
+    sound.playTick();
+    setEditOrigin(origin);
+    const exp = parseFloat(editExpense) || 0;
+    if (origin === 'China') {
+      setEditD('');
+      const y = parseFloat(editYuan);
+      if (!isNaN(y) && y > 0) {
+        setEditUsd(String(Number(((y / currentYuanRate) + exp).toFixed(2))));
+      } else if (hasCurrencyInput(editD)) {
+        setEditUsd('');
+      }
+    } else {
+      setEditYuan('');
+      const d = parseFloat(editD);
+      if (!isNaN(d) && d > 0) {
+        setEditUsd(String(Number(((d / 3.67) + exp).toFixed(2))));
+      } else if (hasCurrencyInput(editYuan)) {
+        setEditUsd('');
+      }
+    }
+  };
+
+  const applyAddCompanyAutoOrigin = (companyName: string) => {
+    const autoOrigin = detectOriginFromCompany(registeredCompanyPool, companyName);
+    if (autoOrigin === 'China') {
+      setNewPartOrigin('China');
+      setNewPartD('');
+      const y = parseFloat(newPartYuan);
+      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
+      if (!isNaN(y) && y > 0) {
+        const costUsd = Number(((y / currentYuanRate) + exp).toFixed(2));
+        setNewPartUsd(String(costUsd));
+        setNewPartSalesPrice(String(costUsd));
+      } else if (hasCurrencyInput(newPartD)) {
+        setNewPartUsd('');
+        setNewPartSalesPrice('');
+      }
+    } else if (autoOrigin === 'Dubai') {
+      setNewPartOrigin('Dubai');
+      setNewPartYuan('');
+      const d = parseFloat(newPartD);
+      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
+      if (!isNaN(d) && d > 0) {
+        const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+        setNewPartUsd(String(costUsd));
+        setNewPartSalesPrice(String(costUsd));
+      } else if (hasCurrencyInput(newPartYuan)) {
+        setNewPartUsd('');
+        setNewPartSalesPrice('');
+      }
+    }
+  };
+
+  const applyEditCompanyAutoOrigin = (companyName: string) => {
+    const autoOrigin = detectOriginFromCompany(registeredCompanyPool, companyName);
+    if (autoOrigin === 'China') {
+      setEditOrigin('China');
+      setEditD('');
+      const y = parseFloat(editYuan);
+      const exp = parseFloat(editExpense) || 0;
+      if (!isNaN(y) && y > 0) {
+        setEditUsd(String(Number(((y / currentYuanRate) + exp).toFixed(2))));
+      } else if (hasCurrencyInput(editD)) {
+        setEditUsd('');
+      }
+    } else if (autoOrigin === 'Dubai') {
+      setEditOrigin('Dubai');
+      setEditYuan('');
+      const d = parseFloat(editD);
+      const exp = parseFloat(editExpense) || 0;
+      if (!isNaN(d) && d > 0) {
+        setEditUsd(String(Number(((d / 3.67) + exp).toFixed(2))));
+      } else if (hasCurrencyInput(editYuan)) {
+        setEditUsd('');
+      }
+    }
+  };
+
+  const handleOpenAddPartModal = () => {
+    const method: 'air' | 'sea' = newPartShippingMethod || 'air';
+    const defaultExp = getDefaultCargoForMethod(method);
+    setNewPartShippingMethod(method);
+    setNewPartExpense(String(defaultExp));
+    const activeCompName = newPartCompany === '__custom__' ? customCompanyInput : newPartCompany;
+    applyAddCompanyAutoOrigin(activeCompName);
+    setIdError(null);
+    setShowAddModal(true);
+  };
+
+  const handleNewPartCompanyChange = (val: string) => {
+    setNewPartCompany(val);
+    if (val && val !== '__custom__') {
+      applyAddCompanyAutoOrigin(val);
+    } else if (val === '__custom__' && customCompanyInput.trim()) {
+      applyAddCompanyAutoOrigin(customCompanyInput);
+    }
+  };
+
+  const handleCustomNewCompanyChange = (val: string) => {
+    setCustomCompanyInput(val);
+    applyAddCompanyAutoOrigin(val);
+  };
+
+  const handleEditCompanyChange = (val: string) => {
+    setEditCompany(val);
+    if (val && val !== '__custom__') {
+      applyEditCompanyAutoOrigin(val);
+    } else if (val === '__custom__' && customEditCompany.trim()) {
+      applyEditCompanyAutoOrigin(customEditCompany);
+    }
+  };
+
+  const handleCustomEditCompanyChange = (val: string) => {
+    setCustomEditCompany(val);
+    applyEditCompanyAutoOrigin(val);
+  };
+
+  const handleSelectNewShippingMethod = (method: 'air' | 'sea') => {
+    sound.playTick();
+    const prevExp = newPartExpense.trim() !== ''
+      ? (parseFloat(newPartExpense) || 0)
+      : getDefaultCargoForMethod(newPartShippingMethod);
+    const nextExp = getDefaultCargoForMethod(method);
+    setNewPartShippingMethod(method);
+    setNewPartExpense(String(nextExp));
+    recalculateAddUsdWithCargo(nextExp, prevExp);
+  };
+
+  const handleDefaultAirRateChange = (val: string) => {
+    setTempAirCargoRate(val);
+    const parsed = parseFloat(val);
+    if (!isNaN(parsed) && parsed >= 0) {
+      onUpdateAirCargoRate?.(parsed);
+      if (newPartShippingMethod === 'air') {
+        const prevExp = parseFloat(newPartExpense) || 0;
+        setNewPartExpense(val);
+        recalculateAddUsdWithCargo(parsed, prevExp);
+      }
+    }
+  };
+
+  const handleDefaultSeaRateChange = (val: string) => {
+    setTempSeaCargoRate(val);
+    const parsed = parseFloat(val);
+    if (!isNaN(parsed) && parsed >= 0) {
+      onUpdateSeaCargoRate?.(parsed);
+      if (newPartShippingMethod === 'sea') {
+        const prevExp = parseFloat(newPartExpense) || 0;
+        setNewPartExpense(val);
+        recalculateAddUsdWithCargo(parsed, prevExp);
+      }
+    }
+  };
 
   // Convert Dirham to USD only (1 / 3.67 = 0.27 USD). DO NOT convert Dirham to Yuan!
   const handleDirhamChange = (val: string) => {
     setNewPartD(val);
     const d = parseFloat(val);
-    if (!isNaN(d) && d >= 0) {
-      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : currentExpenseRate;
+    if (!isNaN(d) && d > 0) {
+      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
       const costUsd = Number(((d / 3.67) + exp).toFixed(2));
-      const calcYuan = Number(((d / 3.67) * currentYuanRate).toFixed(2));
       setNewPartUsd(String(costUsd));
       setNewPartSalesPrice(String(costUsd));
-      // Auto-fill Yuan if not manually typed yet
-      if (!newPartYuan || newPartYuan === '0') {
-        setNewPartYuan(String(calcYuan));
+      // Do NOT touch newPartYuan - keep Dirham and Yuan completely independent!
+    } else if (!val.trim() || (!isNaN(d) && d === 0)) {
+      const y = parseFloat(newPartYuan);
+      if (!isNaN(y) && y > 0) {
+        const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
+        const costUsd = Number(((y / currentYuanRate) + exp).toFixed(2));
+        setNewPartUsd(String(costUsd));
+        setNewPartSalesPrice(String(costUsd));
+      } else {
+        setNewPartUsd('');
+        setNewPartSalesPrice('');
       }
-    } else if (!val && !newPartYuan) {
-      setNewPartUsd('');
-      setNewPartSalesPrice('');
-      setNewPartYuan('');
     }
   };
 
@@ -332,16 +636,24 @@ export const ProListView: React.FC<ProListViewProps> = ({
   const handleYuanChange = (val: string) => {
     setNewPartYuan(val);
     const y = parseFloat(val);
-    if (!isNaN(y) && y >= 0) {
+    if (!isNaN(y) && y > 0) {
       const baseUsd = y / currentYuanRate;
-      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : currentExpenseRate;
+      const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
       const costUsd = Number((baseUsd + exp).toFixed(2));
       setNewPartUsd(String(costUsd));
       setNewPartSalesPrice(String(costUsd));
       // Do NOT touch newPartD - keep Dirham and Yuan completely independent!
-    } else if (!val && !newPartD) {
-      setNewPartUsd('');
-      setNewPartSalesPrice('');
+    } else if (!val.trim() || (!isNaN(y) && y === 0)) {
+      const d = parseFloat(newPartD);
+      if (!isNaN(d) && d > 0) {
+        const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
+        const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+        setNewPartUsd(String(costUsd));
+        setNewPartSalesPrice(String(costUsd));
+      } else {
+        setNewPartUsd('');
+        setNewPartSalesPrice('');
+      }
     }
   };
 
@@ -360,20 +672,10 @@ export const ProListView: React.FC<ProListViewProps> = ({
   };
 
   const handleExpenseChange = (expVal: string) => {
+    const prevExp = parseFloat(newPartExpense) || 0;
     setNewPartExpense(expVal);
-    const exp = expVal.trim() !== '' ? (parseFloat(expVal) || 0) : currentExpenseRate;
-    const d = parseFloat(newPartD);
-    const y = parseFloat(newPartYuan);
-    if (!isNaN(d) && d > 0) {
-      const costUsd = Number(((d / 3.67) + exp).toFixed(2));
-      setNewPartUsd(String(costUsd));
-      setNewPartSalesPrice(String(costUsd));
-    } else if (!isNaN(y) && y > 0) {
-      const baseUsd = y / currentYuanRate;
-      const costUsd = Number((baseUsd + exp).toFixed(2));
-      setNewPartUsd(String(costUsd));
-      setNewPartSalesPrice(String(costUsd));
-    }
+    const exp = expVal.trim() !== '' ? (parseFloat(expVal) || 0) : 0;
+    recalculateAddUsdWithCargo(exp, prevExp);
   };
 
   const handleCreatePart = (e: React.FormEvent) => {
@@ -386,7 +688,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
     const dirham = newPartD.trim() ? (parseFloat(newPartD) || 0) : 0;
     const yuan = newPartYuan.trim() ? (parseFloat(newPartYuan) || 0) : 0;
-    const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : currentExpenseRate;
+    const exp = newPartExpense.trim() !== '' ? (parseFloat(newPartExpense) || 0) : getDefaultCargoForMethod(newPartShippingMethod);
 
     let computedUsd = 0;
     if (newPartUsd.trim()) {
@@ -403,30 +705,71 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
     const finalCompany = newPartCompany === '__custom__' && customCompanyInput.trim()
       ? customCompanyInput.trim()
-      : (newPartCompany.trim() || undefined);
+      : (newPartCompany.trim() || 'NAJI HASSAN');
 
     if (finalCompany) {
       onRegisterNewCompany?.(finalCompany);
     }
 
-    const partId = newPartId.trim() || getNextSequentialDxId(parts, 'DX-000001');
+    const normKey = (v?: string) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const normShip = (v?: string) => (String(v || '').trim().toLowerCase().includes('sea') ? 'by sea' : 'by air');
+    const finalShip = newPartShippingMethod || 'air';
+    const targetProdKey = normKey(newPartName);
+    const targetCompKey = normKey(finalCompany);
+    const targetShipKey = normShip(finalShip);
+    const smartMatches = parts.filter(
+      p =>
+        normKey(p.name) === targetProdKey &&
+        normKey(p.companyName) === targetCompKey &&
+        normShip(p.shippingMethod) === targetShipKey
+    );
+
+    let partId = newPartId.trim() || getNextSequentialDxId(parts, 'DX-000001');
+    if (smartMatches.length >= 1) {
+      // Same Product + Same Company + Same Cargo/Shipping -> ONLY UPDATE existing ID (never duplicate)
+      partId = smartMatches[0].id;
+    } else {
+      const existingWithSameId = parts.find(p => p.id.trim().toLowerCase() === partId.trim().toLowerCase());
+      if (existingWithSameId) {
+        if (normKey(existingWithSameId.name) === targetProdKey) {
+          // Same Product + Different Company OR Different Cargo/Shipping -> generate guaranteed unique ID for new row
+          partId = getNextSequentialDxId(parts, 'DX-000001');
+        } else if (newPartId.trim()) {
+          sound.playWrong();
+          setIdError(`⚠️ You already Have it: ID "${partId}" is already used by "${existingWithSameId.name}"!`);
+          return;
+        } else {
+          partId = getNextSequentialDxId(parts, 'DX-000001');
+        }
+      }
+    }
+    setIdError(null);
+
+    // Keep Dirham and Yuan independent (do not exchange Dirham to Yuan or Yuan to Dirham)
+    const finalDirham = dirham;
+    const finalYuan = yuan;
+    const finalSalesPrice = salesPrice > 0 ? salesPrice : computedUsd;
+    const finalOrigin = newPartOrigin || (finalCat.includes('LCD') ? 'China' : 'Dubai');
+    const todayStr = smartMatches.length >= 1 && smartMatches[0].purchaseDate
+      ? smartMatches[0].purchaseDate
+      : new Date().toISOString().split('T')[0];
 
     const createdPart: SparePartItem = {
       id: partId,
       name: newPartName.trim(),
       cat: finalCat,
-      d: dirham,
+      d: finalDirham,
       usd: computedUsd,
-      yuan: yuan,
-      salesPrice,
-      salesPriceD: dirham > 0 ? dirham : Number((salesPrice * 3.67).toFixed(1)),
+      yuan: finalYuan,
+      salesPrice: finalSalesPrice,
+      salesPriceD: finalDirham > 0 ? finalDirham : Number((finalSalesPrice * 3.67).toFixed(1)),
       expense: exp,
       isCustom: true,
       changeType: newPartChangeType,
       companyName: finalCompany,
-      shippingMethod: newPartShippingMethod,
-      origin: newPartOrigin,
-      purchaseDate: new Date().toISOString().split('T')[0]
+      shippingMethod: finalShip,
+      origin: finalOrigin,
+      purchaseDate: todayStr
     };
 
     onAddPart(createdPart);
@@ -445,6 +788,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setNewPartYuan('');
     setNewPartUsd('');
     setNewPartSalesPrice('');
+    setNewPartExpense(String(currentAirRate));
     setCustomCatInput('');
     setNewPartChangeType('New Product');
     setShowAddModal(false);
@@ -495,29 +839,47 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setEditSalesPrice(String(part.salesPrice));
     setEditExpense(String(part.expense ?? 0));
     setEditShippingMethod((part.shippingMethod as any) || 'air');
-    setEditOrigin((part.origin as any) || (part.cat && part.cat.includes('LCD') ? 'China' : 'Dubai'));
+    setEditOrigin((part.origin as any) || detectOriginFromCompany(registeredCompanyPool, part.companyName) || (part.cat && part.cat.includes('LCD') ? 'China' : 'Dubai'));
   };
 
   const handleEditDirhamChange = (val: string) => {
     setEditD(val);
     const d = parseFloat(val);
-    if (!isNaN(d) && d >= 0) {
+    if (!isNaN(d) && d > 0) {
       const exp = parseFloat(editExpense) || 0;
       const costUsd = Number(((d / 3.67) + exp).toFixed(2));
       setEditUsd(String(costUsd));
       // Do NOT touch editYuan - keep Dirham and Yuan completely independent!
+    } else if (!val.trim() || (!isNaN(d) && d === 0)) {
+      const y = parseFloat(editYuan);
+      if (!isNaN(y) && y > 0) {
+        const exp = parseFloat(editExpense) || 0;
+        const costUsd = Number(((y / currentYuanRate) + exp).toFixed(2));
+        setEditUsd(String(costUsd));
+      } else if (!val.trim()) {
+        setEditUsd('');
+      }
     }
   };
 
   const handleEditYuanChange = (val: string) => {
     setEditYuan(val);
     const y = parseFloat(val);
-    if (!isNaN(y) && y >= 0) {
+    if (!isNaN(y) && y > 0) {
       const baseUsd = y / currentYuanRate;
       const exp = parseFloat(editExpense) || 0;
       const costUsd = Number((baseUsd + exp).toFixed(2));
       setEditUsd(String(costUsd));
       // Do NOT touch editD - keep Dirham and Yuan completely independent!
+    } else if (!val.trim() || (!isNaN(y) && y === 0)) {
+      const d = parseFloat(editD);
+      if (!isNaN(d) && d > 0) {
+        const exp = parseFloat(editExpense) || 0;
+        const costUsd = Number(((d / 3.67) + exp).toFixed(2));
+        setEditUsd(String(costUsd));
+      } else if (!val.trim()) {
+        setEditUsd('');
+      }
     }
   };
 
@@ -656,6 +1018,74 @@ export const ProListView: React.FC<ProListViewProps> = ({
     setIsBulkDeleteOpen(false);
   };
 
+  // Ask for confirmation before deleting a Company Name from the Company dropdown options
+  const handleDeleteCompanyOption = (targetName: string, context?: 'add' | 'edit') => {
+    const trimmed = targetName.trim();
+    if (!trimmed || trimmed === '__custom__') return;
+    sound.playTick();
+    setPendingDeleteCompany({ name: trimmed, context });
+  };
+
+  // Execute Company Name deletion after user confirms warning dialog
+  const handleConfirmDeleteCompanyOption = () => {
+    if (!pendingDeleteCompany) return;
+    const { name: trimmed, context } = pendingDeleteCompany;
+    onDeleteCompanyName?.(trimmed);
+    if (context === 'add' && newPartCompany.trim().toLowerCase() === trimmed.toLowerCase()) {
+      setNewPartCompany('');
+    }
+    if (context === 'edit' && editCompany.trim().toLowerCase() === trimmed.toLowerCase()) {
+      setEditCompany('');
+    }
+    if (bulkCompanyInput.trim().toLowerCase() === trimmed.toLowerCase()) {
+      setBulkCompanyInput('');
+    }
+    sound.playTick();
+    showToast(`🗑️ Deleted company "${trimmed}" from dropdown list.`, 'info');
+    setPendingDeleteCompany(null);
+  };
+
+  // Open Quick Bulk Company modal
+  const handleOpenBulkCompany = (defaultScope?: 'selected' | 'filtered') => {
+    sound.playTick();
+    const scope = defaultScope || (selectedPartIds.size > 0 ? 'selected' : 'filtered');
+    setBulkCompanyScope(scope);
+    setBulkCompanyInput(availableCompanies[0] || '');
+    setIsBulkCompanyOpen(true);
+  };
+
+  // Apply Company Name to selected or all filtered products at once
+  const handleConfirmBulkCompany = (companyOverride?: string) => {
+    const targetCompany = (companyOverride !== undefined ? companyOverride : bulkCompanyInput).trim();
+    if (!targetCompany) return;
+
+    const targetIds = bulkCompanyScope === 'selected' && selectedPartIds.size > 0
+      ? Array.from(selectedPartIds)
+      : filteredParts.map(p => p.id);
+
+    if (targetIds.length === 0) return;
+
+    const detectedOrigin = detectOriginFromCompany(registeredCompanyPool, targetCompany);
+
+    if (onBulkAssignCompany) {
+      onBulkAssignCompany(targetCompany, targetIds);
+    } else if (onUpdatePart) {
+      onRegisterNewCompany?.(targetCompany);
+      targetIds.forEach(id => {
+        onUpdatePart(id, {
+          companyName: targetCompany,
+          ...(detectedOrigin ? { origin: detectedOrigin } : {})
+        });
+      });
+    }
+
+    sound.playVictory();
+    const originInfo = detectedOrigin ? ` (Origin: ${detectedOrigin === 'China' ? '🇨🇳 China' : '🇦🇪 Dubai'})` : '';
+    showToast(`🏢 Assigned "${targetCompany}"${originInfo} to ${targetIds.length} product${targetIds.length === 1 ? '' : 's'}!`);
+    setSelectedPartIds(new Set());
+    setIsBulkCompanyOpen(false);
+  };
+
   const getIconForGroup = (iconKey: string) => {
     switch (iconKey) {
       case 'screen': return <Smartphone className="w-5 h-5 text-cyan-400" />;
@@ -739,7 +1169,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
               type="button"
               onClick={() => {
                 sound.playTick();
-                setShowAddModal(true);
+                handleOpenAddPartModal();
               }}
               className="px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/50 transition-all"
             >
@@ -813,69 +1243,47 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 </span>
               </div>
 
-              {/* Optional Expense $ (Shipping / Customs) Rate Card (User Requirement 1) */}
+              {/* Default Cargo & Shipping Rates (By Air & By Sea) */}
               <div className="p-3 bg-slate-900/90 rounded-xl border border-cyan-500/40 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-cyan-300 font-sans font-bold">
-                    Optional Expense $ (Shipping / Customs):
+                    Default Cargo &amp; Shipping ($):
                   </span>
                   <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold">
-                    Saved Rate
+                    Air &amp; Sea
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-slate-300">+ $</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={tempExpenseRate}
-                    onChange={(e) => setTempExpenseRate(e.target.value)}
-                    onBlur={() => {
-                      const val = parseFloat(tempExpenseRate);
-                      if (!isNaN(val) && val >= 0 && onUpdateExpenseRate) {
-                        onUpdateExpenseRate(val, false);
-                      }
-                    }}
-                    placeholder="0.00"
-                    className="w-20 bg-slate-950 border border-cyan-500/60 focus:border-cyan-400 rounded-lg px-2 py-1 text-sm font-mono font-bold text-cyan-300 focus:outline-none"
-                  />
-                  <span className="text-xs font-mono text-cyan-400 font-bold">USD</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const val = parseFloat(tempExpenseRate);
-                      if (!isNaN(val) && val >= 0 && onUpdateExpenseRate) {
-                        onUpdateExpenseRate(val, false);
-                        sound.playVictory();
-                        showToast(`✅ Saved Expense Rate: +$${val.toFixed(2)} USD! Always added to USD+.`);
-                      }
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-slate-950 text-xs font-bold transition-all cursor-pointer"
-                  >
-                    Save Rate
-                  </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-emerald-300 font-sans font-semibold mb-1">
+                      ✈️ Default By Air ($)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={tempAirCargoRate}
+                      onChange={(e) => handleDefaultAirRateChange(e.target.value)}
+                      placeholder="0.65"
+                      className="w-full bg-slate-950 border border-emerald-500/60 focus:border-emerald-400 rounded-lg px-2 py-1 text-sm font-mono font-bold text-emerald-300 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-blue-300 font-sans font-semibold mb-1">
+                      🚢 Default By Sea ($)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={tempSeaCargoRate}
+                      onChange={(e) => handleDefaultSeaRateChange(e.target.value)}
+                      placeholder="0.20"
+                      className="w-full bg-slate-950 border border-blue-500/60 focus:border-blue-400 rounded-lg px-2 py-1 text-sm font-mono font-bold text-blue-300 focus:outline-none"
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center justify-between pt-1 border-t border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-sans">
-                    Always added to USD+
-                  </span>
-                  {onUpdateExpenseRate && parts.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const val = parseFloat(tempExpenseRate);
-                        if (!isNaN(val) && val >= 0) {
-                          onUpdateExpenseRate(val, true);
-                          sound.playVictory();
-                          showToast(`✅ Applied +$${val.toFixed(2)} expense to all ${parts.length} products!`);
-                        }
-                      }}
-                      className="text-[10px] text-cyan-300 hover:text-white underline font-semibold cursor-pointer"
-                    >
-                      Apply to All Products
-                    </button>
-                  )}
-                </div>
+                <span className="text-[10px] text-slate-400 block font-sans pt-1 border-t border-slate-800">
+                  Added automatically to USD+ when selecting By Air (+${currentAirRate.toFixed(2)}) or By Sea (+${currentSeaRate.toFixed(2)})
+                </span>
               </div>
 
               <div className="p-3 bg-slate-900/90 rounded-xl border border-amber-500/40 space-y-2">
@@ -1038,10 +1446,20 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 Showing all compatible replacement parts for this phone model.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-cyan-400 font-bold text-sm bg-cyan-950/60 px-3 py-1.5 rounded-xl border border-cyan-800/60">
                 {profileData.totalFound} Parts Found
               </span>
+              {filteredParts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenBulkCompany('filtered')}
+                  className="px-3.5 py-1.5 rounded-xl bg-cyan-600/25 hover:bg-cyan-600/40 border border-cyan-500/60 text-xs text-cyan-200 font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Give Company ({filteredParts.length})</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSearchTerm('')}
@@ -1078,6 +1496,23 @@ export const ProListView: React.FC<ProListViewProps> = ({
                         <div key={item.id} className="py-3 flex items-start justify-between text-xs sm:text-sm gap-3 group">
                           <div className="flex-1">
                             <span className="text-white font-semibold leading-snug block">{item.name}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                              <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800/60 px-1.5 py-0.5 rounded">
+                                {item.id}
+                              </span>
+                              {item.companyName && (
+                                <span className="text-[10px] font-semibold text-teal-300 bg-teal-950/60 border border-teal-800/60 px-1.5 py-0.5 rounded">
+                                  {item.companyName}
+                                </span>
+                              )}
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                                item.shippingMethod === 'sea'
+                                  ? 'text-indigo-300 bg-indigo-950/60 border-indigo-800/60'
+                                  : 'text-sky-300 bg-sky-950/60 border-sky-800/60'
+                              }`}>
+                                {item.shippingMethod === 'sea' ? 'By Sea' : 'By Air'}
+                              </span>
+                            </div>
                             <div className="flex items-center gap-2 mt-1.5">
                               <button
                                 type="button"
@@ -1195,7 +1630,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
       )}
 
       {/* QUICK ACTIONS HUB DIV - PRICE INCREASE, PRICE DECREASE & ADD NEW PRODUCT (Directly connected to Price Tracker) */}
-      {!isProfileMode && !searchTerm.trim() && !showAllCatalog && parts.length > 0 && (
+      {!isProfileMode && !searchTerm.trim() && !showAllCatalog && selectedCategoryFilter === '__all__' && (!activeCompanyFilter || activeCompanyFilter === '__all__') && parts.length > 0 && (
         <div className="space-y-5 animate-in fade-in duration-150">
           {/* Catalog Search & Browse Box */}
           <div className="bg-[#0b111e] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl text-center space-y-4">
@@ -1229,8 +1664,8 @@ export const ProListView: React.FC<ProListViewProps> = ({
         </div>
       )}
 
-      {/* FULL-PAGE CATALOG BROWSER TABLE (Active when user types in search or chooses to browse all) */}
-      {!isProfileMode && (searchTerm.trim() !== '' || showAllCatalog) && (
+      {/* FULL-PAGE CATALOG BROWSER TABLE (Active when user types in search, picks a category/company, or chooses to browse all) */}
+      {!isProfileMode && (searchTerm.trim() !== '' || showAllCatalog || selectedCategoryFilter !== '__all__' || (activeCompanyFilter && activeCompanyFilter !== '__all__')) && (
         <div className="space-y-4 w-full animate-in fade-in duration-150">
 
           {/* Quick Price Tracker & New Product Link Bar */}
@@ -1270,7 +1705,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 type="button"
                 onClick={() => {
                   sound.playTick();
-                  setShowAddModal(true);
+                  handleOpenAddPartModal();
                 }}
                 className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
               >
@@ -1318,6 +1753,20 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                {filteredParts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenBulkCompany(selectedPartIds.size > 0 ? 'selected' : 'filtered')}
+                    className="px-3.5 py-1.5 rounded-xl bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/60 text-cyan-200 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>
+                      {selectedPartIds.size > 0
+                        ? `Give Company (${selectedPartIds.size} Selected)`
+                        : `Give Company (${filteredParts.length})`}
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -1355,17 +1804,74 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
           {/* Full Page Width Product Table */}
           <div className="bg-[#0b111e] border border-slate-800 rounded-3xl overflow-hidden shadow-2xl w-full">
-            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-3 text-xs sm:text-sm text-slate-300">
+            <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm text-slate-300">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-bold text-white font-mono text-base">{filteredParts.length}</span>
                 <span className="font-medium text-slate-300">items found</span>
+                {selectedCategoryFilter !== '__all__' && (
+                  <span className="text-xs px-2 py-0.5 rounded-lg bg-cyan-950/80 border border-cyan-700/60 text-cyan-300 font-semibold">
+                    {selectedCategoryFilter}
+                  </span>
+                )}
                 {searchTerm && (
                   <span className="text-xs text-cyan-400 font-medium ml-1">
                     matching "{searchTerm}"
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+
+              {/* Inline Table Search Box */}
+              <div className="relative flex-1 min-w-[200px] max-w-md">
+                <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={tableSearchTerm}
+                  onChange={(e) => setTableSearchTerm(e.target.value)}
+                  placeholder="Search inside list (model, ID, company)..."
+                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl pl-9 pr-8 py-2 text-xs sm:text-sm text-white placeholder-slate-400 outline-none transition-colors"
+                />
+                {tableSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setTableSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                    title="Clear table search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                {filteredParts.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sound.playTick();
+                        toggleSelectAll();
+                      }}
+                      className="text-xs font-semibold text-slate-200 hover:text-white px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-cyan-500/60 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>
+                        {selectedPartIds.size === filteredParts.length ? 'Unselect All' : `Select All (${filteredParts.length})`}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenBulkCompany(selectedPartIds.size > 0 ? 'selected' : 'filtered')}
+                      className="text-xs font-bold text-cyan-200 hover:text-white px-3.5 py-1.5 rounded-xl bg-cyan-600/25 hover:bg-cyan-600/45 border border-cyan-500/60 flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                    >
+                      <Building2 className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>
+                        {selectedPartIds.size > 0
+                          ? `Give Company (${selectedPartIds.size})`
+                          : `Give Company (${filteredParts.length})`}
+                      </span>
+                    </button>
+                  </>
+                )}
                 {searchTerm && (
                   <button
                     type="button"
@@ -1726,8 +2232,8 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
       {/* Add New Product Modal - 500 Medium labels/inputs, 600 SemiBold buttons, 700 Bold headings */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0b111e] border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[#0b111e] border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
               <div>
                 <h3 className="text-lg font-bold text-white">Add New Spare Part</h3>
@@ -1746,6 +2252,26 @@ export const ProListView: React.FC<ProListViewProps> = ({
             </div>
 
             <form onSubmit={handleCreatePart} className="space-y-4">
+              {idError && (
+                <div className="p-3 bg-amber-500/15 border-2 border-amber-500/80 rounded-2xl flex items-center justify-between gap-2.5 text-xs text-amber-200 animate-in fade-in shadow-lg">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">⚠️</span>
+                    <span className="font-bold">{idError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setNewPartId(getNextSequentialDxId(parts, 'DX-000001'));
+                      setIdError(null);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[11px] shrink-0 cursor-pointer shadow"
+                  >
+                    Generate Next ID
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
                   Product Name *
@@ -1772,6 +2298,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
                     onClick={() => {
                       sound.playTick();
                       setNewPartId(getNextSequentialDxId(parts, 'DX-000001'));
+                      setIdError(null);
                     }}
                     className="text-[11px] font-mono font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-800/80 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-colors shadow-sm"
                   >
@@ -1782,7 +2309,10 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 <input
                   type="text"
                   value={newPartId}
-                  onChange={(e) => setNewPartId(e.target.value)}
+                  onChange={(e) => {
+                    setNewPartId(e.target.value);
+                    setIdError(null);
+                  }}
                   placeholder={`e.g. ${getNextSequentialDxId(parts, 'DX-000001')} (Row 3 format)`}
                   className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-cyan-300 font-mono font-bold outline-none transition-colors"
                 />
@@ -1811,10 +2341,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      sound.playTick();
                       const slug = newPartName ? newPartName.replace(/\s+/g, '-').toUpperCase() : 'ITEM';
                       setNewPartId(`DX-AIR-${slug}`);
-                      setNewPartShippingMethod('air');
+                      handleSelectNewShippingMethod('air');
                     }}
                     className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/80 cursor-pointer transition-colors"
                   >
@@ -1823,10 +2352,9 @@ export const ProListView: React.FC<ProListViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      sound.playTick();
                       const slug = newPartName ? newPartName.replace(/\s+/g, '-').toUpperCase() : 'ITEM';
                       setNewPartId(`DX-SEA-${slug}`);
-                      setNewPartShippingMethod('sea');
+                      handleSelectNewShippingMethod('sea');
                     }}
                     className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-800/80 cursor-pointer transition-colors"
                   >
@@ -1890,15 +2418,26 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
                 {/* Column 2: Select Company Name (Linked with Register Company) */}
                 <div>
-                  <label className="block text-xs font-semibold text-cyan-300 uppercase mb-1 tracking-wider flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-cyan-300 uppercase mb-1 tracking-wider flex items-center justify-between gap-1">
                     <span>Select Company Name</span>
-                    <span className="text-[10px] text-cyan-400 font-mono font-medium">
-                      AUTO-LINKED
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (showManageCompaniesAdd) {
+                          setShowManageCompaniesAdd(false);
+                        } else {
+                          sound.playTick();
+                          setPendingOpenDeleteListAdd(true);
+                        }
+                      }}
+                      className="text-[10px] text-rose-300 hover:text-rose-200 font-mono font-bold underline cursor-pointer"
+                    >
+                      {showManageCompaniesAdd ? 'Hide Delete' : `Delete List (${availableCompanies.length})`}
+                    </button>
                   </label>
                   <select
                     value={newPartCompany}
-                    onChange={(e) => setNewPartCompany(e.target.value)}
+                    onChange={(e) => handleNewPartCompanyChange(e.target.value)}
                     className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-3 text-xs text-white font-medium outline-none transition-colors"
                   >
                     <option value="">
@@ -1910,13 +2449,51 @@ export const ProListView: React.FC<ProListViewProps> = ({
                     <option value="__custom__">+ Register New Company...</option>
                   </select>
 
+                  {newPartCompany && newPartCompany !== '__custom__' && (
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-slate-400 truncate">
+                        Selected: <strong className="text-cyan-300">{newPartCompany}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCompanyOption(newPartCompany, 'add')}
+                        className="px-2 py-0.5 rounded-lg bg-rose-950/70 hover:bg-rose-900/90 border border-rose-700/60 text-rose-300 hover:text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                        title={`Delete "${newPartCompany}" from Company Name options`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Delete "{newPartCompany}"</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {showManageCompaniesAdd && availableCompanies.length > 0 && (
+                    <div className="mt-2 p-2.5 rounded-xl bg-[#070c18] border border-rose-500/40 space-y-1.5 animate-in fade-in">
+                      <span className="block text-[10px] font-bold text-rose-300 uppercase">
+                        Click a company name to delete it:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        {availableCompanies.map(c => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => handleDeleteCompanyOption(c, 'add')}
+                            className="px-2 py-1 rounded-lg bg-rose-950/60 hover:bg-rose-800/80 border border-rose-700/50 text-rose-200 text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <span>{c}</span>
+                            <X className="w-3 h-3 text-rose-400" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {newPartCompany === '__custom__' && (
                     <div className="mt-2 space-y-1 animate-in fade-in">
                       <input
                         type="text"
                         required
                         value={customCompanyInput}
-                        onChange={(e) => setCustomCompanyInput(e.target.value)}
+                        onChange={(e) => handleCustomNewCompanyChange(e.target.value)}
                         placeholder="Type company name to register..."
                         className="w-full bg-[#070c18] border border-cyan-500/70 focus:border-cyan-400 rounded-xl px-3 py-2.5 text-xs text-white font-medium outline-none"
                       />
@@ -1946,59 +2523,71 @@ export const ProListView: React.FC<ProListViewProps> = ({
                     <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center gap-1">
                       <span>Cargo / Shipping:</span>
                       <span className="text-[10px] text-emerald-400 font-bold font-mono">
-                        {newPartShippingMethod === 'air' ? '✈️ BY AIR' : '🚢 BY SEA'}
+                        {newPartShippingMethod === 'air'
+                          ? `✈️ BY AIR (+$${currentAirRate.toFixed(2)})`
+                          : `🚢 BY SEA (+$${currentSeaRate.toFixed(2)})`}
                       </span>
                     </span>
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          sound.playTick();
-                          setNewPartShippingMethod('air');
-                        }}
-                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        onClick={() => handleSelectNewShippingMethod('air')}
+                        className={`py-2 px-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
                           newPartShippingMethod === 'air'
                             ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 font-bold ring-2 ring-emerald-400/60 shadow-lg scale-[1.02]'
                             : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
                         }`}
                       >
-                        <Plane className={`w-4 h-4 ${newPartShippingMethod === 'air' ? 'text-emerald-400' : 'text-slate-400'}`} />
-                        <span className="text-xs">✈️ By Air</span>
+                        <div className="flex items-center gap-1.5">
+                          <Plane className={`w-3.5 h-3.5 ${newPartShippingMethod === 'air' ? 'text-emerald-400' : 'text-slate-400'}`} />
+                          <span className="text-xs">✈️ By Air</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-emerald-400 font-bold">+${currentAirRate.toFixed(2)} USD</span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => {
-                          sound.playTick();
-                          setNewPartShippingMethod('sea');
-                        }}
-                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        onClick={() => handleSelectNewShippingMethod('sea')}
+                        className={`py-2 px-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
                           newPartShippingMethod === 'sea'
                             ? 'bg-blue-950/80 border-blue-500 text-blue-300 font-bold ring-2 ring-blue-400/60 shadow-lg scale-[1.02]'
                             : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
                         }`}
                       >
-                        <Ship className={`w-4 h-4 ${newPartShippingMethod === 'sea' ? 'text-blue-400' : 'text-slate-400'}`} />
-                        <span className="text-xs">🚢 By Sea</span>
+                        <div className="flex items-center gap-1.5">
+                          <Ship className={`w-3.5 h-3.5 ${newPartShippingMethod === 'sea' ? 'text-blue-400' : 'text-slate-400'}`} />
+                          <span className="text-xs">🚢 By Sea</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-blue-300 font-bold">+${currentSeaRate.toFixed(2)} USD</span>
                       </button>
                     </div>
                   </div>
 
                   {/* Dubai / China Sourced Origin Toggle */}
                   <div>
-                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center gap-1">
-                      <span>Sourced From (Origin):</span>
-                      <span className="text-[10px] text-cyan-400 font-bold font-mono">
-                        {newPartOrigin === 'Dubai' ? '🇦🇪 DUBAI' : '🇨🇳 CHINA'}
+                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center justify-between gap-1">
+                      <span className="flex items-center gap-1">
+                        <span>Sourced From (Origin):</span>
+                        <span className="text-[10px] text-cyan-400 font-bold font-mono">
+                          {newPartOrigin === 'Dubai' ? '🇦🇪 DUBAI' : '🇨🇳 CHINA'}
+                        </span>
                       </span>
+                      {(() => {
+                        const activeComp = newPartCompany === '__custom__' ? customCompanyInput : newPartCompany;
+                        const matchedComp = findRegisteredCompany(activeComp);
+                        const autoOrig = detectOriginFromCompany(registeredCompanyPool, activeComp);
+                        if (!autoOrig) return null;
+                        return (
+                          <span className="text-[10px] text-emerald-300 font-mono bg-emerald-950/70 border border-emerald-700/60 px-1.5 py-0.5 rounded-md truncate max-w-[160px]" title={matchedComp?.location || autoOrig}>
+                            Auto: {matchedComp?.location || autoOrig}
+                          </span>
+                        );
+                      })()}
                     </span>
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          sound.playTick();
-                          setNewPartOrigin('Dubai');
-                        }}
+                        onClick={() => handleSelectNewOrigin('Dubai')}
                         className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                           newPartOrigin === 'Dubai'
                             ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 font-bold ring-2 ring-cyan-400/60 shadow-lg scale-[1.02]'
@@ -2010,10 +2599,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          sound.playTick();
-                          setNewPartOrigin('China');
-                        }}
+                        onClick={() => handleSelectNewOrigin('China')}
                         className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                           newPartOrigin === 'China'
                             ? 'bg-amber-950/80 border-amber-500 text-amber-300 font-bold ring-2 ring-amber-400/60 shadow-lg scale-[1.02]'
@@ -2022,6 +2608,46 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       >
                         <span className="text-xs font-semibold">🇨🇳 China</span>
                       </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Default Cargo & Shipping Inputs (By Air & By Sea) */}
+                <div className="pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 uppercase mb-1">
+                      Default Cargo By Air ($)
+                    </label>
+                    <div className="relative flex items-center">
+                      <span className="absolute left-2.5 text-xs font-mono font-bold text-emerald-400 pointer-events-none">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={tempAirCargoRate}
+                        onChange={(e) => handleDefaultAirRateChange(e.target.value)}
+                        placeholder="0.65"
+                        className="w-full bg-slate-900 border border-emerald-500/50 focus:border-emerald-400 rounded-xl pl-6 pr-10 py-1.5 text-xs text-emerald-200 font-mono font-bold outline-none"
+                      />
+                      <span className="absolute right-2.5 text-[10px] font-mono text-slate-400 pointer-events-none">AIR</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-blue-300 uppercase mb-1">
+                      Default Cargo By Sea ($)
+                    </label>
+                    <div className="relative flex items-center">
+                      <span className="absolute left-2.5 text-xs font-mono font-bold text-blue-400 pointer-events-none">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={tempSeaCargoRate}
+                        onChange={(e) => handleDefaultSeaRateChange(e.target.value)}
+                        placeholder="0.20"
+                        className="w-full bg-slate-900 border border-blue-500/50 focus:border-blue-400 rounded-xl pl-6 pr-10 py-1.5 text-xs text-blue-200 font-mono font-bold outline-none"
+                      />
+                      <span className="absolute right-2.5 text-[10px] font-mono text-slate-400 pointer-events-none">SEA</span>
                     </div>
                   </div>
                 </div>
@@ -2062,42 +2688,60 @@ export const ProListView: React.FC<ProListViewProps> = ({
               {/* 4 Currency Options: Dirham, Yuan, USD+, Sales Price MUST */}
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div>
-                  <label className="block text-xs font-semibold text-cyan-400 uppercase mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-cyan-400 uppercase mb-1 flex items-center justify-between gap-1">
                     <span>Dirham Option (Price D)</span>
-                    <span className="text-[10px] text-cyan-300/80 font-normal lowercase tracking-normal">→ converts to USD</span>
+                    <span className={`text-[10px] font-normal lowercase tracking-normal ${isAddDirhamDisabled ? 'text-rose-400 font-semibold' : 'text-cyan-300/80'}`}>
+                      {isAddDirhamDisabled
+                        ? (addCompanyOrigin === 'China' ? 'disabled (china company)' : newPartOrigin === 'China' ? 'disabled (origin china)' : 'disabled (yuan active)')
+                        : '→ converts to USD'}
+                    </span>
                   </label>
                   <div className="relative flex items-center">
                     <input
                       type="number"
                       step="any"
                       inputMode="decimal"
+                      disabled={isAddDirhamDisabled}
                       value={newPartD}
                       onChange={(e) => handleDirhamChange(e.target.value)}
-                      placeholder="e.g. 1.0"
-                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder={isAddDirhamDisabled ? 'Disabled' : 'e.g. 1.0'}
+                      className={`w-full h-11 sm:h-12 border rounded-xl pl-3.5 pr-14 text-sm sm:text-base font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors ${
+                        isAddDirhamDisabled
+                          ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                          : 'bg-[#070c18] border-slate-700 focus:border-cyan-400 text-white'
+                      }`}
                     />
-                    <span className="absolute right-3.5 text-xs font-bold text-cyan-400 font-mono pointer-events-none">
+                    <span className={`absolute right-3.5 text-xs font-bold font-mono pointer-events-none ${isAddDirhamDisabled ? 'text-slate-600' : 'text-cyan-400'}`}>
                       AED
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 flex items-center justify-between gap-1">
                     <span>Yuan Option (¥)</span>
-                    <span className="text-[10px] text-amber-300/80 font-normal lowercase tracking-normal">→ converts to USD</span>
+                    <span className={`text-[10px] font-normal lowercase tracking-normal ${isAddYuanDisabled ? 'text-rose-400 font-semibold' : 'text-amber-300/80'}`}>
+                      {isAddYuanDisabled
+                        ? (addCompanyOrigin === 'Dubai' ? 'disabled (dubai company)' : newPartOrigin === 'Dubai' ? 'disabled (origin dubai)' : 'disabled (dirham active)')
+                        : '→ converts to USD'}
+                    </span>
                   </label>
                   <div className="relative flex items-center">
                     <input
                       type="number"
                       step="any"
                       inputMode="decimal"
+                      disabled={isAddYuanDisabled}
                       value={newPartYuan}
                       onChange={(e) => handleYuanChange(e.target.value)}
-                      placeholder="e.g. 1.97"
-                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder={isAddYuanDisabled ? 'Disabled' : 'e.g. 1.97'}
+                      className={`w-full h-11 sm:h-12 border rounded-xl pl-3.5 pr-14 text-sm sm:text-base font-mono font-bold outline-none leading-normal [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors ${
+                        isAddYuanDisabled
+                          ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                          : 'bg-[#070c18] border-slate-700 focus:border-amber-400 text-white'
+                      }`}
                     />
-                    <span className="absolute right-3.5 text-xs font-bold text-amber-400 font-mono pointer-events-none">
+                    <span className={`absolute right-3.5 text-xs font-bold font-mono pointer-events-none ${isAddYuanDisabled ? 'text-slate-600' : 'text-amber-400'}`}>
                       RMB
                     </span>
                   </div>
@@ -2150,13 +2794,15 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 </div>
               </div>
 
-              {/* Expense Option (Optional) - User Requirement 1: Rate save/edit and always added to USD+ */}
+              {/* Cargo & Shipping Expense $ - Always added to USD+ (By Air default $0.65, By Sea default $0.20) */}
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <span className="font-semibold text-slate-200 block">Optional Expense $ (Shipping / Customs):</span>
+                    <span className="font-semibold text-slate-200 block">
+                      Cargo &amp; Shipping Expense $ ({newPartShippingMethod === 'air' ? '✈️ By Air' : '🚢 By Sea'}):
+                    </span>
                     <span className="text-[11px] text-slate-400 font-normal">
-                      Always added to USD+: USD+ = (D / 3.67) + Expense
+                      Always added to USD+: USD+ = (D / 3.67) + Cargo (${newPartExpense || (newPartShippingMethod === 'sea' ? currentSeaRate : currentAirRate)})
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -2166,31 +2812,36 @@ export const ProListView: React.FC<ProListViewProps> = ({
                       step="0.01"
                       value={newPartExpense}
                       onChange={(e) => handleExpenseChange(e.target.value)}
-                      placeholder={currentExpenseRate > 0 ? String(currentExpenseRate) : "0.0"}
+                      placeholder={String(getDefaultCargoForMethod(newPartShippingMethod))}
                       className="w-24 bg-[#070c18] border border-cyan-500/60 focus:border-cyan-400 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-mono font-bold text-right outline-none"
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 flex-wrap gap-2">
                   <span className="text-[11px] text-slate-400">
-                    Saved Default Rate: <span className="text-cyan-400 font-bold font-mono">+${currentExpenseRate.toFixed(2)} USD</span>
+                    Defaults — Air: <span className="text-emerald-400 font-bold font-mono">+${currentAirRate.toFixed(2)}</span> · Sea: <span className="text-blue-400 font-bold font-mono">+${currentSeaRate.toFixed(2)}</span>
                   </span>
-                  {onUpdateExpenseRate && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const val = parseFloat(newPartExpense);
-                        const rateToSave = !isNaN(val) && val >= 0 ? val : 0;
-                        onUpdateExpenseRate(rateToSave, false);
-                        sound.playVictory();
-                        showToast(`Saved +$${rateToSave.toFixed(2)} as your default expense rate!`);
-                      }}
-                      className="text-[11px] text-cyan-300 hover:text-white font-semibold underline cursor-pointer"
-                    >
-                      Save as Default Rate
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = parseFloat(newPartExpense);
+                      const rateToSave = !isNaN(val) && val >= 0 ? val : 0;
+                      if (newPartShippingMethod === 'sea') {
+                        onUpdateSeaCargoRate?.(rateToSave);
+                        setTempSeaCargoRate(String(rateToSave));
+                        showToast(`Saved +$${rateToSave.toFixed(2)} as default By Sea cargo rate!`);
+                      } else {
+                        onUpdateAirCargoRate?.(rateToSave);
+                        setTempAirCargoRate(String(rateToSave));
+                        showToast(`Saved +$${rateToSave.toFixed(2)} as default By Air cargo rate!`);
+                      }
+                      sound.playVictory();
+                    }}
+                    className="text-[11px] text-cyan-300 hover:text-white font-semibold underline cursor-pointer"
+                  >
+                    Save as Default {newPartShippingMethod === 'sea' ? 'By Sea' : 'By Air'} Rate
+                  </button>
                 </div>
               </div>
 
@@ -2336,15 +2987,19 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 tracking-wider flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 tracking-wider flex items-center justify-between gap-1">
                     <span>Company Name</span>
-                    <span className="text-[10px] text-cyan-400 font-mono font-medium">
-                      AUTO-LINKED
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowManageCompaniesEdit(prev => !prev)}
+                      className="text-[10px] text-rose-300 hover:text-rose-200 font-mono font-bold underline cursor-pointer"
+                    >
+                      {showManageCompaniesEdit ? 'Hide Delete' : `Delete List (${availableCompanies.length})`}
+                    </button>
                   </label>
                   <select
                     value={editCompany}
-                    onChange={(e) => setEditCompany(e.target.value)}
+                    onChange={(e) => handleEditCompanyChange(e.target.value)}
                     className="w-full bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-medium outline-none"
                   >
                     <option value="">-- No Company Specified --</option>
@@ -2354,13 +3009,51 @@ export const ProListView: React.FC<ProListViewProps> = ({
                     <option value="__custom__">+ Register New Company...</option>
                   </select>
 
+                  {editCompany && editCompany !== '__custom__' && (
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-slate-400 truncate">
+                        Selected: <strong className="text-amber-300">{editCompany}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCompanyOption(editCompany, 'edit')}
+                        className="px-2 py-0.5 rounded-lg bg-rose-950/70 hover:bg-rose-900/90 border border-rose-700/60 text-rose-300 hover:text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                        title={`Delete "${editCompany}" from Company Name options`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Delete "{editCompany}"</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {showManageCompaniesEdit && availableCompanies.length > 0 && (
+                    <div className="mt-2 p-2.5 rounded-xl bg-[#070c18] border border-rose-500/40 space-y-1.5 animate-in fade-in">
+                      <span className="block text-[10px] font-bold text-rose-300 uppercase">
+                        Click a company name to delete it:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        {availableCompanies.map(c => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => handleDeleteCompanyOption(c, 'edit')}
+                            className="px-2 py-1 rounded-lg bg-rose-950/60 hover:bg-rose-800/80 border border-rose-700/50 text-rose-200 text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <span>{c}</span>
+                            <X className="w-3 h-3 text-rose-400" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {editCompany === '__custom__' && (
                     <div className="mt-2 space-y-1 animate-in fade-in duration-100">
                       <input
                         type="text"
                         required
                         value={customEditCompany}
-                        onChange={(e) => setCustomEditCompany(e.target.value)}
+                        onChange={(e) => handleCustomEditCompanyChange(e.target.value)}
                         placeholder="Type company name to register..."
                         className="w-full bg-[#070c18] border-2 border-amber-500 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white font-medium outline-none placeholder-slate-500"
                       />
@@ -2399,15 +3092,27 @@ export const ProListView: React.FC<ProListViewProps> = ({
                         onClick={() => {
                           sound.playTick();
                           setEditShippingMethod('air');
+                          const nextExp = currentAirRate;
+                          setEditExpense(String(nextExp));
+                          const d = parseFloat(editD);
+                          const y = parseFloat(editYuan);
+                          if (!isNaN(d) && d > 0) {
+                            setEditUsd(String(Number(((d / 3.67) + nextExp).toFixed(2))));
+                          } else if (!isNaN(y) && y > 0) {
+                            setEditUsd(String(Number(((y / currentYuanRate) + nextExp).toFixed(2))));
+                          }
                         }}
-                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        className={`py-2 px-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
                           editShippingMethod === 'air'
                             ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 font-bold ring-2 ring-emerald-400/60 shadow-lg scale-[1.02]'
                             : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
                         }`}
                       >
-                        <Plane className={`w-4 h-4 ${editShippingMethod === 'air' ? 'text-emerald-400' : 'text-slate-400'}`} />
-                        <span className="text-xs">✈️ By Air</span>
+                        <div className="flex items-center gap-1.5">
+                          <Plane className={`w-3.5 h-3.5 ${editShippingMethod === 'air' ? 'text-emerald-400' : 'text-slate-400'}`} />
+                          <span className="text-xs">✈️ By Air</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-emerald-400 font-bold">+${currentAirRate.toFixed(2)}</span>
                       </button>
 
                       <button
@@ -2415,34 +3120,56 @@ export const ProListView: React.FC<ProListViewProps> = ({
                         onClick={() => {
                           sound.playTick();
                           setEditShippingMethod('sea');
+                          const nextExp = currentSeaRate;
+                          setEditExpense(String(nextExp));
+                          const d = parseFloat(editD);
+                          const y = parseFloat(editYuan);
+                          if (!isNaN(d) && d > 0) {
+                            setEditUsd(String(Number(((d / 3.67) + nextExp).toFixed(2))));
+                          } else if (!isNaN(y) && y > 0) {
+                            setEditUsd(String(Number(((y / currentYuanRate) + nextExp).toFixed(2))));
+                          }
                         }}
-                        className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        className={`py-2 px-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
                           editShippingMethod === 'sea'
                             ? 'bg-blue-950/80 border-blue-500 text-blue-300 font-bold ring-2 ring-blue-400/60 shadow-lg scale-[1.02]'
                             : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
                         }`}
                       >
-                        <Ship className={`w-4 h-4 ${editShippingMethod === 'sea' ? 'text-blue-400' : 'text-slate-400'}`} />
-                        <span className="text-xs">🚢 By Sea</span>
+                        <div className="flex items-center gap-1.5">
+                          <Ship className={`w-3.5 h-3.5 ${editShippingMethod === 'sea' ? 'text-blue-400' : 'text-slate-400'}`} />
+                          <span className="text-xs">🚢 By Sea</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-blue-300 font-bold">+${currentSeaRate.toFixed(2)}</span>
                       </button>
                     </div>
                   </div>
 
                   {/* Dubai / China Sourced Origin Toggle */}
                   <div>
-                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center gap-1">
-                      <span>Sourced From (Origin):</span>
-                      <span className="text-[10px] text-amber-400 font-bold font-mono">
-                        {editOrigin === 'Dubai' ? '🇦🇪 DUBAI' : '🇨🇳 CHINA'}
+                    <span className="block text-[11px] font-medium text-slate-300 mb-1.5 flex items-center justify-between gap-1">
+                      <span className="flex items-center gap-1">
+                        <span>Sourced From (Origin):</span>
+                        <span className="text-[10px] text-amber-400 font-bold font-mono">
+                          {editOrigin === 'Dubai' ? '🇦🇪 DUBAI' : '🇨🇳 CHINA'}
+                        </span>
                       </span>
+                      {(() => {
+                        const activeComp = editCompany === '__custom__' ? customEditCompany : editCompany;
+                        const matchedComp = findRegisteredCompany(activeComp);
+                        const autoOrig = detectOriginFromCompany(registeredCompanyPool, activeComp);
+                        if (!autoOrig) return null;
+                        return (
+                          <span className="text-[10px] text-emerald-300 font-mono bg-emerald-950/70 border border-emerald-700/60 px-1.5 py-0.5 rounded-md truncate max-w-[160px]" title={matchedComp?.location || autoOrig}>
+                            Auto: {matchedComp?.location || autoOrig}
+                          </span>
+                        );
+                      })()}
                     </span>
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          sound.playTick();
-                          setEditOrigin('Dubai');
-                        }}
+                        onClick={() => handleSelectEditOrigin('Dubai')}
                         className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                           editOrigin === 'Dubai'
                             ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 font-bold ring-2 ring-cyan-400/60 shadow-lg scale-[1.02]'
@@ -2454,10 +3181,7 @@ export const ProListView: React.FC<ProListViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          sound.playTick();
-                          setEditOrigin('China');
-                        }}
+                        onClick={() => handleSelectEditOrigin('China')}
                         className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                           editOrigin === 'China'
                             ? 'bg-amber-950/80 border-amber-500 text-amber-300 font-bold ring-2 ring-amber-400/60 shadow-lg scale-[1.02]'
@@ -2506,40 +3230,60 @@ export const ProListView: React.FC<ProListViewProps> = ({
               {/* Price Options: Dirham, Yuan, USD+, Sales Price */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>
-                  <label className="block text-xs font-semibold text-cyan-400 uppercase mb-1">
-                    Dirham Option (Price D)
+                  <label className="block text-xs font-semibold text-cyan-400 uppercase mb-1 flex items-center justify-between gap-1">
+                    <span>Dirham Option (Price D)</span>
+                    {isEditDirhamDisabled && (
+                      <span className="text-[10px] text-rose-400 font-semibold lowercase tracking-normal">
+                        {editCompanyOrigin === 'China' ? 'disabled (china company)' : editOrigin === 'China' ? 'disabled (origin china)' : 'disabled (yuan active)'}
+                      </span>
+                    )}
                   </label>
                   <div className="relative flex items-center">
                     <input
                       type="number"
                       step="any"
                       inputMode="decimal"
+                      disabled={isEditDirhamDisabled}
                       value={editD}
                       onChange={(e) => handleEditDirhamChange(e.target.value)}
-                      placeholder="0.0"
-                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none"
+                      placeholder={isEditDirhamDisabled ? 'Disabled' : '0.0'}
+                      className={`w-full h-11 sm:h-12 border rounded-xl pl-3.5 pr-14 text-sm sm:text-base font-mono font-bold outline-none transition-colors ${
+                        isEditDirhamDisabled
+                          ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                          : 'bg-[#070c18] border-slate-700 focus:border-cyan-400 text-white'
+                      }`}
                     />
-                    <span className="absolute right-3.5 text-xs font-bold text-cyan-400 font-mono pointer-events-none">
+                    <span className={`absolute right-3.5 text-xs font-bold font-mono pointer-events-none ${isEditDirhamDisabled ? 'text-slate-600' : 'text-cyan-400'}`}>
                       AED
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1">
-                    Yuan Option (¥)
+                  <label className="block text-xs font-semibold text-amber-300 uppercase mb-1 flex items-center justify-between gap-1">
+                    <span>Yuan Option (¥)</span>
+                    {isEditYuanDisabled && (
+                      <span className="text-[10px] text-rose-400 font-semibold lowercase tracking-normal">
+                        {editCompanyOrigin === 'Dubai' ? 'disabled (dubai company)' : editOrigin === 'Dubai' ? 'disabled (origin dubai)' : 'disabled (dirham active)'}
+                      </span>
+                    )}
                   </label>
                   <div className="relative flex items-center">
                     <input
                       type="number"
                       step="any"
                       inputMode="decimal"
+                      disabled={isEditYuanDisabled}
                       value={editYuan}
                       onChange={(e) => handleEditYuanChange(e.target.value)}
-                      placeholder="0.0"
-                      className="w-full h-11 sm:h-12 bg-[#070c18] border border-slate-700 focus:border-amber-400 rounded-xl pl-3.5 pr-14 text-sm sm:text-base text-white font-mono font-bold outline-none"
+                      placeholder={isEditYuanDisabled ? 'Disabled' : '0.0'}
+                      className={`w-full h-11 sm:h-12 border rounded-xl pl-3.5 pr-14 text-sm sm:text-base font-mono font-bold outline-none transition-colors ${
+                        isEditYuanDisabled
+                          ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                          : 'bg-[#070c18] border-slate-700 focus:border-amber-400 text-white'
+                      }`}
                     />
-                    <span className="absolute right-3.5 text-xs font-bold text-amber-400 font-mono pointer-events-none">
+                    <span className={`absolute right-3.5 text-xs font-bold font-mono pointer-events-none ${isEditYuanDisabled ? 'text-slate-600' : 'text-amber-400'}`}>
                       RMB
                     </span>
                   </div>
@@ -2826,6 +3570,244 @@ export const ProListView: React.FC<ProListViewProps> = ({
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>{isBulkDeleteOpen ? `Delete ${selectedPartIds.size} Products` : 'Yes, Delete'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Bulk Assign Company Name Modal */}
+      {isBulkCompanyOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b111e] border-2 border-cyan-500/50 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Give Company Name (Quick Bulk)</h3>
+                  <p className="text-xs text-slate-400">
+                    Assign one company to multiple products at once
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkCompanyOpen(false)}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Target Scope Selector */}
+              {selectedPartIds.size > 0 && filteredParts.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setBulkCompanyScope('selected');
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      bulkCompanyScope === 'selected'
+                        ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 ring-1 ring-cyan-400'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Checked Items ({selectedPartIds.size})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTick();
+                      setBulkCompanyScope('filtered');
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      bulkCompanyScope === 'filtered'
+                        ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 ring-1 ring-cyan-400'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    All Filtered Items ({filteredParts.length})
+                  </button>
+                </div>
+              )}
+
+              <div className="p-3 rounded-xl bg-[#070c18] border border-slate-800 text-xs flex items-center justify-between">
+                <span className="text-slate-400">Products to update:</span>
+                <span className="font-mono font-bold text-cyan-300">
+                  {bulkCompanyScope === 'selected' && selectedPartIds.size > 0
+                    ? `${selectedPartIds.size} selected products`
+                    : `${filteredParts.length} filtered products`}
+                </span>
+              </div>
+
+              {/* Quick 1-Click Supplier Chips */}
+              {availableCompanies.length > 0 && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-cyan-300 uppercase tracking-wider">
+                    1-Click Pick Existing Company:
+                  </label>
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1">
+                    {availableCompanies.map((comp) => (
+                      <button
+                        key={comp}
+                        type="button"
+                        onClick={() => {
+                          sound.playTick();
+                          setBulkCompanyInput(comp);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          bulkCompanyInput.trim().toLowerCase() === comp.toLowerCase()
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow-md'
+                            : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-cyan-500/60 hover:text-white'
+                        }`}
+                      >
+                        <Building2 className="w-3.5 h-3.5" />
+                        <span>{comp}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Or Type Any Company Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1 tracking-wider">
+                  Or Type Company Name *
+                </label>
+                <input
+                  type="text"
+                  value={bulkCompanyInput}
+                  onChange={(e) => setBulkCompanyInput(e.target.value)}
+                  placeholder="e.g. Samsung Direct, Dubai VX, NAJI HASSAN..."
+                  className="w-full bg-[#070c18] border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-sm text-white font-medium outline-none"
+                />
+                {(() => {
+                  const matchedComp = findRegisteredCompany(bulkCompanyInput);
+                  const autoOrig = detectOriginFromCompany(registeredCompanyPool, bulkCompanyInput);
+                  if (!autoOrig) return null;
+                  return (
+                    <div className="mt-2 px-3 py-1.5 rounded-xl bg-emerald-950/50 border border-emerald-700/50 text-[11px] text-emerald-300 flex items-center justify-between gap-2">
+                      <span>
+                        Origin from Company Register: <strong>{autoOrig === 'China' ? '🇨🇳 China' : '🇦🇪 Dubai'}</strong>
+                      </span>
+                      {matchedComp?.location && (
+                        <span className="text-[10px] text-slate-400 font-mono truncate max-w-[180px]">
+                          {matchedComp.location}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkCompanyOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!bulkCompanyInput.trim()}
+                  onClick={() => handleConfirmBulkCompany()}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 disabled:opacity-50 text-white font-bold text-xs shadow-lg shadow-cyan-950/50 cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>
+                    Apply to {bulkCompanyScope === 'selected' && selectedPartIds.size > 0 ? selectedPartIds.size : filteredParts.length} Products
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Warning Confirmation Dialog for Company Delete Buttons */}
+      {(pendingDeleteCompany || pendingOpenDeleteListAdd) && (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b111e] border-2 border-rose-500/60 rounded-3xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">
+                    {pendingDeleteCompany ? 'Warning: Delete Company' : 'Warning: Delete Company List'}
+                  </h3>
+                  <p className="text-xs text-rose-400/90 font-medium">Confirmation required</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingDeleteCompany(null);
+                  setPendingOpenDeleteListAdd(false);
+                }}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-slate-300 leading-relaxed">
+                {pendingDeleteCompany ? (
+                  <>
+                    Are you sure you want to delete <strong className="text-white font-bold">"{pendingDeleteCompany.name}"</strong>?
+                  </>
+                ) : (
+                  <>
+                    Are you sure you want to open the <strong className="text-white font-bold">Delete Company List</strong>?
+                  </>
+                )}
+              </p>
+
+              <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-900/50 text-xs text-rose-300">
+                {pendingDeleteCompany
+                  ? `⚠️ Deleting "${pendingDeleteCompany.name}" will remove it from your Company Name dropdown and clear it from products assigned to this company.`
+                  : '⚠️ Opening this list lets you delete company names from your dropdown list.'}
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingDeleteCompany(null);
+                    setPendingOpenDeleteListAdd(false);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pendingDeleteCompany) {
+                      handleConfirmDeleteCompanyOption();
+                    } else {
+                      sound.playTick();
+                      setPendingOpenDeleteListAdd(false);
+                      setShowManageCompaniesAdd(true);
+                    }
+                  }}
+                  className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-950/50 cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>
+                    {pendingDeleteCompany
+                      ? `Yes, Delete "${pendingDeleteCompany.name}"`
+                      : 'Yes, Open Delete List'}
+                  </span>
                 </button>
               </div>
             </div>

@@ -228,7 +228,7 @@ export const Upload11Modal: React.FC<Upload11ModalProps> = ({
                 </span>
               </div>
               <p className="text-slate-300 leading-relaxed">
-                App-ku wuxuu si toos ah 11-ka column uga soo aqrinayaa xaashida <span className="text-white font-mono font-bold">"ALL PRODUCT"</span> ee ku xiran Google Sheet-kaaga.
+                The app will automatically read all 11 columns from the <span className="text-white font-mono font-bold">"ALL PRODUCT"</span> tab connected to your Google Sheet.
               </p>
             </div>
 
@@ -274,7 +274,7 @@ export const Upload11Modal: React.FC<Upload11ModalProps> = ({
                 <Upload className="w-6 h-6" />
               </div>
               <div className="text-sm font-bold text-white">
-                {fileName ? fileName : 'Guji si aad u doorato faylka CSV (Click to select CSV file)'}
+                {fileName ? fileName : 'Click to select a CSV file'}
               </div>
               <p className="text-xs text-slate-400">
                 Requires the 11 columns: ID, Product Name, Category, Price D, Yuan ¥, USD+, Sales $, Company, Shipment, Origin, Date Added
@@ -367,7 +367,7 @@ export const Upload11Modal: React.FC<Upload11ModalProps> = ({
             {/* Merge Strategy (Selected by user: Update matching IDs & append new products) */}
             <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
               <span className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                Upload Strategy (Sida loo shubo):
+                Upload Strategy:
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button

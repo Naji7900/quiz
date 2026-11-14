@@ -18,6 +18,9 @@ export interface SparePartItem {
   purchaseDate?: string;
   brand?: string;
   model?: string;
+  archived?: boolean;
+  archivedAt?: string;
+  updatedAt?: string;
 }
 
 export interface CompatItem {
@@ -1351,7 +1354,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
     deltaD: 154.0,
     percentage: 100,
     date: "2026-10-23",
-    note: "New product sent from Google Sheet (Cusub)"
+    note: "New product sent from Google Sheet"
   },
   {
     id: "pc-20",
@@ -1365,7 +1368,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
     deltaD: 127.0,
     percentage: 100,
     date: "2026-10-23",
-    note: "New product sent from Google Sheet (Cusub)"
+    note: "New product sent from Google Sheet"
   },
   {
     id: "pc-21",
@@ -1379,7 +1382,7 @@ export const INITIAL_PRICE_CHANGES: PriceChangeRecord[] = [
     deltaD: 0.3,
     percentage: 100,
     date: "2026-10-22",
-    note: "New switch component added (Cusub)"
+    note: "New switch component added"
   }
 ];
 
@@ -1390,6 +1393,7 @@ export interface RegisteredCompany {
   phoneNo: string;
   whatsappNo?: string;
   location: string;
+  origin?: 'Dubai' | 'China';
   note: string;
   createdAt: string;
   status?: 'active' | 'preferred' | 'verified';
@@ -1407,6 +1411,7 @@ export const INITIAL_REGISTERED_COMPANIES: RegisteredCompany[] = [
     phoneNo: "+971 50 123 4567",
     whatsappNo: "+971 50 123 4567",
     location: "Deira, Dubai, UAE",
+    origin: "Dubai",
     category: "iPhone & Samsung Screens",
     contactPerson: "Ali Royal",
     status: "active",
@@ -1419,6 +1424,7 @@ export const INITIAL_REGISTERED_COMPANIES: RegisteredCompany[] = [
     phoneNo: "+971 55 987 6543",
     whatsappNo: "+971 55 987 6543",
     location: "Naif, Dubai, UAE",
+    origin: "Dubai",
     category: "Flex Chargers & Batteries",
     contactPerson: "Hassan VX",
     status: "active",
@@ -1431,6 +1437,7 @@ export const INITIAL_REGISTERED_COMPANIES: RegisteredCompany[] = [
     phoneNo: "+971 52 444 8899",
     whatsappNo: "+971 52 444 8899",
     location: "Sabkha, Dubai, UAE",
+    origin: "Dubai",
     category: "Original Disassembled Parts",
     contactPerson: "Tariq",
     status: "active",
@@ -1443,6 +1450,7 @@ export const INITIAL_REGISTERED_COMPANIES: RegisteredCompany[] = [
     phoneNo: "+86 138 0000 1111",
     whatsappNo: "+86 138 0000 1111",
     location: "Guangzhou, China",
+    origin: "China",
     category: "Incell & OLED Direct Factory",
     contactPerson: "Mr. Chen",
     status: "active",
@@ -1460,3 +1468,92 @@ export const PRESET_COMPANY_NAMES: string[] = [
   "King Phone Guangzhou"
 ];
 
+/**
+ * Detect product Origin ('Dubai' | 'China' | null) automatically by reading
+ * a matching company's details from the Company Register (location, phone/WhatsApp, name, note).
+ */
+export function detectOriginFromCompany(
+  companies: RegisteredCompany[],
+  companyName?: string
+): 'Dubai' | 'China' | null {
+  const cleanName = String(companyName || '').trim();
+  if (!cleanName || cleanName === '__custom__') return null;
+
+  const norm = (v?: string) => String(v || '').trim().toLowerCase();
+  const targetLower = norm(cleanName);
+  const comp = (companies || []).find(c => norm(c.name) === targetLower);
+
+  const checkText = (txt: string): 'Dubai' | 'China' | null => {
+    const cleaned = String(txt || '').trim();
+    if (!cleaned || cleaned.toLowerCase() === 'dubai / china market') return null;
+    const hasChina = /\b(china|chn|chinese|guangzhou|shenzhen|hong\s*kong|hongkong|yiwu|foshan|dongguan|beijing|shanghai|zhuhai|huaqiangbei)\b/i.test(cleaned);
+    const hasDubai = /\b(dubai|dubia|dubiaa|dxb|uae|emirates|deira|naif|sabkha|sharjah|abu\s*dhabi|ajman)\b/i.test(cleaned);
+    if (hasChina && !hasDubai) return 'China';
+    if (hasDubai && !hasChina) return 'Dubai';
+    if (hasChina && hasDubai) {
+      const cIdx = cleaned.search(/\b(china|chn|chinese|guangzhou|shenzhen|hong\s*kong|hongkong|yiwu)\b/i);
+      const dIdx = cleaned.search(/\b(dubai|dubia|dubiaa|dxb|uae|deira|naif|sabkha)\b/i);
+      if (cIdx !== -1 && dIdx !== -1) return cIdx < dIdx ? 'China' : 'Dubai';
+    }
+    return null;
+  };
+
+  if (comp) {
+    // 0. Explicit origin chosen in Company Register ('Dubai' | 'China')
+    if (comp.origin === 'China' || comp.origin === 'Dubai') {
+      return comp.origin;
+    }
+
+    // 1. Primary: Check Company Register location/address
+    const fromLocation = checkText(comp.location || '');
+    if (fromLocation) return fromLocation;
+
+    // 2. Secondary: Check Phone / WhatsApp country calling code (+86 China, +971 UAE/Dubai)
+    const phones = `${comp.phoneNo || ''} ${comp.whatsappNo || ''}`.replace(/[\s\-()]/g, '');
+    if (/(\+86|0086)/.test(phones)) return 'China';
+    if (/(\+971|00971)/.test(phones)) return 'Dubai';
+
+    // 3. Tertiary: Check registered company name & notes
+    const fromName = checkText(comp.name || '');
+    if (fromName) return fromName;
+
+    const fromNote = checkText(comp.note || '');
+    if (fromNote) return fromNote;
+  }
+
+  // Fallback: check company name directly
+  return checkText(cleanName);
+}
+
+/**
+ * Shared 3-Field Key Normalization (Product Name + Company Name + Cargo / Shipping)
+ * - Same Product Name + Same Company Name + Same Cargo/Shipping => SAME record (update only, never duplicate)
+ * - Same Product Name + Different Company Name OR Different Cargo/Shipping => NEW separate record
+ */
+export function normalizeProductKey(str?: string): string {
+  return String(str || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+export function normalizeCargoKey(str?: string): 'by sea' | 'by air' {
+  return String(str || '').trim().toLowerCase().includes('sea') ? 'by sea' : 'by air';
+}
+
+export function getPartCompositeKey(
+  part: Pick<SparePartItem, 'name' | 'companyName' | 'shippingMethod'>
+): string {
+  return `${normalizeProductKey(part.name)}||${normalizeProductKey(part.companyName)}||${normalizeCargoKey(part.shippingMethod)}`;
+}
+
+export function dedupeSpareParts(items: SparePartItem[]): SparePartItem[] {
+  const seen = new Map<string, number>();
+  const result: SparePartItem[] = [];
+  for (const item of items) {
+    if (!item || !String(item.name || '').trim()) continue;
+    const key = getPartCompositeKey(item);
+    if (!seen.has(key)) {
+      seen.set(key, result.length);
+      result.push(item);
+    }
+  }
+  return result;
+}

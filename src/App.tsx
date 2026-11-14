@@ -34,7 +34,11 @@ import {
   ChangeItem,
   RegisteredCompany,
   INITIAL_REGISTERED_COMPANIES,
-  getNextSequentialDxId
+  getNextSequentialDxId,
+  detectOriginFromCompany,
+  dedupeSpareParts,
+  normalizeProductKey,
+  normalizeCargoKey
 } from './data/initialData';
 import { getNajiHassanCatalog } from './data/najiHassanCatalog';
 import { GoogleSheetsService, CompleteSuiteRestoreResult, DEFAULT_WEB_APP_URL } from './services/googleSheetsService';
@@ -46,8 +50,11 @@ const STORAGE_KEY_COMPAT = 'spareparts_compat_v2';
 const STORAGE_KEY_PRICE_CHANGES = 'spareparts_price_changes_v2';
 const STORAGE_KEY_REGISTERED_COMPANIES = 'spareparts_registered_companies_v4';
 const STORAGE_KEY_REJECTED_COMPANIES = 'spareparts_rejected_companies_v1';
+const STORAGE_KEY_DELETED_COMPANIES = 'spareparts_deleted_companies_v1';
 const STORAGE_KEY_YUAN_RATE = 'spareparts_yuan_rate_v2';
 const STORAGE_KEY_EXPENSE_RATE = 'spareparts_saved_expense_rate_v1';
+const STORAGE_KEY_AIR_CARGO_RATE = 'spareparts_air_cargo_rate_v1';
+const STORAGE_KEY_SEA_CARGO_RATE = 'spareparts_sea_cargo_rate_v1';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('prolist');
@@ -61,6 +68,54 @@ export default function App() {
 
   const isOnline = useOnlineStatus();
 
+  // User configurable Google Apps Script Web App URL ("MEEL AAN GALIYO")
+  const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => {
+    return GoogleSheetsService.getSavedConfig().webAppUrl || DEFAULT_WEB_APP_URL;
+  });
+  const [isUrlSaved, setIsUrlSaved] = useState(false);
+
+  const handleUpdateAppsScriptUrl = (newUrl: string) => {
+    setAppsScriptUrl(newUrl);
+    const trimmed = newUrl.trim();
+    if (trimmed) {
+      GoogleSheetsService.saveConfig({ webAppUrl: trimmed });
+    }
+    setIsUrlSaved(true);
+    setTimeout(() => setIsUrlSaved(false), 2500);
+  };
+
+  const [isTestingUrl, setIsTestingUrl] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleTestConnection = async () => {
+    const url = appsScriptUrl.trim();
+    if (!url) {
+      sound.playWrong();
+      setTestResult({ ok: false, message: 'Please enter the Apps Script Web App URL (/exec)' });
+      setTimeout(() => setTestResult(null), 4000);
+      return;
+    }
+    setIsTestingUrl(true);
+    setTestResult(null);
+    sound.playTick();
+    try {
+      const res = await GoogleSheetsService.testConnection(url);
+      if (res.success) {
+        sound.playVictory();
+        setTestResult({ ok: true, message: `100% OK: Connected to "${res.sheetName || 'Google Sheet'}"!` });
+      } else {
+        sound.playWrong();
+        setTestResult({ ok: false, message: res.message });
+      }
+    } catch (e: any) {
+      sound.playWrong();
+      setTestResult({ ok: false, message: e.message || 'Connection failed' });
+    } finally {
+      setIsTestingUrl(false);
+      setTimeout(() => setTestResult(null), 6000);
+    }
+  };
+
   // Saved Optional Expense $ (Shipping / Customs) Rate (Requirement 1: User editable & always added to USD+)
   const [expenseRate, setExpenseRate] = useState<number>(() => {
     try {
@@ -72,6 +127,47 @@ export default function App() {
     } catch {}
     return 0;
   });
+
+  // Saved Default Cargo & Shipping Rates (By Air = $0.65, By Sea = $0.20)
+  const [airCargoRate, setAirCargoRate] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_AIR_CARGO_RATE);
+      if (stored !== null) {
+        const parsed = parseFloat(stored);
+        if (!isNaN(parsed) && parsed >= 0) return parsed;
+      }
+    } catch {}
+    return 0.65;
+  });
+
+  const [seaCargoRate, setSeaCargoRate] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_SEA_CARGO_RATE);
+      if (stored !== null) {
+        const parsed = parseFloat(stored);
+        if (!isNaN(parsed) && parsed >= 0) return parsed;
+      }
+    } catch {}
+    return 0.2;
+  });
+
+  const handleUpdateAirCargoRate = (newRate: number) => {
+    if (isNaN(newRate) || newRate < 0) return;
+    const cleanRate = Number(newRate.toFixed(2));
+    setAirCargoRate(cleanRate);
+    try {
+      localStorage.setItem(STORAGE_KEY_AIR_CARGO_RATE, String(cleanRate));
+    } catch {}
+  };
+
+  const handleUpdateSeaCargoRate = (newRate: number) => {
+    if (isNaN(newRate) || newRate < 0) return;
+    const cleanRate = Number(newRate.toFixed(2));
+    setSeaCargoRate(cleanRate);
+    try {
+      localStorage.setItem(STORAGE_KEY_SEA_CARGO_RATE, String(cleanRate));
+    } catch {}
+  };
 
   const handleUpdateExpenseRate = (newRate: number, applyToAll: boolean = false) => {
     if (isNaN(newRate) || newRate < 0) return;
@@ -139,7 +235,7 @@ export default function App() {
     }
     const custom = GoogleSheetsService.getCustomParts();
     const sourceParts = custom.length >= 300 ? custom : getNajiHassanCatalog();
-    return sourceParts.map((p, idx) => {
+    const mapped = sourceParts.map((p, idx) => {
       const isOld13 = p.salesPrice && p.usd && Math.abs(p.salesPrice - Number((p.usd * 1.3).toFixed(2))) < 0.05;
       const salesPrice = isOld13 || !p.salesPrice ? p.usd : p.salesPrice;
 
@@ -152,6 +248,11 @@ export default function App() {
         purchaseDate: p.purchaseDate || (idx % 4 === 0 ? "2026-11-04" : idx % 3 === 0 ? "2026-11-02" : idx % 2 === 0 ? "2026-10-28" : "2026-10-15")
       };
     });
+    const deduped = dedupeSpareParts(mapped);
+    if (custom.length > 0 && deduped.length !== mapped.length) {
+      GoogleSheetsService.saveCustomParts(deduped);
+    }
+    return deduped;
   });
 
   // 2. Compatible LCDs State
@@ -195,29 +296,61 @@ export default function App() {
     return INITIAL_REGISTERED_COMPANIES;
   });
 
+  const [deletedCompanies, setDeletedCompanies] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_DELETED_COMPANIES);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
   const [catalogCompanyFilter, setCatalogCompanyFilter] = useState<string>('__all__');
 
+  const unmarkCompanyDeleted = (name: string) => {
+    const cleanLower = name.trim().toLowerCase();
+    if (!cleanLower) return;
+    setDeletedCompanies(prev => {
+      if (!prev.includes(cleanLower)) return prev;
+      const next = prev.filter(n => n !== cleanLower);
+      try {
+        localStorage.setItem(STORAGE_KEY_DELETED_COMPANIES, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const handleAddRegisteredCompany = (comp: Omit<RegisteredCompany, 'id'>) => {
+    unmarkCompanyDeleted(comp.name);
     const newComp: RegisteredCompany = {
       ...comp,
       id: `comp-${Date.now()}`
     };
     setRegisteredCompanies(prev => {
-      if (prev.some(c => c.name.toLowerCase() === comp.name.toLowerCase())) {
-        return prev;
-      }
-      const next = [newComp, ...prev];
+      const exists = prev.some(c => c.name.toLowerCase() === comp.name.toLowerCase());
+      const next = exists
+        ? prev.map(c => c.name.toLowerCase() === comp.name.toLowerCase() ? { ...c, ...comp } : c)
+        : [newComp, ...prev];
       try {
         localStorage.setItem(STORAGE_KEY_REGISTERED_COMPANIES, JSON.stringify(next));
       } catch {}
       return next;
     });
+
+    // Auto-sync to Google Sheet tab "REGISTERED COMPANIES"
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl) {
+      GoogleSheetsService.syncCompanyToGoogleSheet(config.sheetUrl, newComp, 'add');
+    }
   };
 
   // Automatic company registration when a new company is entered in Add Part or catalog
   const handleRegisterCompanyName = (companyName: string) => {
     if (!companyName.trim()) return;
     const cleanName = companyName.trim();
+    unmarkCompanyDeleted(cleanName);
     const newComp: RegisteredCompany = {
       id: `comp-${Date.now()}`,
       name: cleanName,
@@ -238,6 +371,55 @@ export default function App() {
       } catch {}
       return next;
     });
+  };
+
+  // Delete a company name everywhere (Registered directory, preset dropdown list, and part references)
+  const handleDeleteCompanyName = (companyName: string) => {
+    const clean = companyName.trim();
+    const cleanLower = clean.toLowerCase();
+    if (!cleanLower) return;
+
+    setDeletedCompanies(prev => {
+      if (prev.includes(cleanLower)) return prev;
+      const next = [...prev, cleanLower];
+      try {
+        localStorage.setItem(STORAGE_KEY_DELETED_COMPANIES, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    const matchingComp = registeredCompanies.find(c => c.name.trim().toLowerCase() === cleanLower);
+    setRegisteredCompanies(prev => {
+      const next = prev.filter(c => c.name.trim().toLowerCase() !== cleanLower);
+      try {
+        localStorage.setItem(STORAGE_KEY_REGISTERED_COMPANIES, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    setParts(prev => {
+      let changed = false;
+      const next = prev.map(p => {
+        if (p.companyName && p.companyName.trim().toLowerCase() === cleanLower) {
+          changed = true;
+          return { ...p, companyName: undefined };
+        }
+        return p;
+      });
+      if (changed) {
+        GoogleSheetsService.saveCustomParts(next);
+      }
+      return next;
+    });
+
+    if (catalogCompanyFilter.trim().toLowerCase() === cleanLower) {
+      setCatalogCompanyFilter('__all__');
+    }
+
+    const config = GoogleSheetsService.getSavedConfig();
+    if (config.sheetUrl && matchingComp) {
+      GoogleSheetsService.syncCompanyToGoogleSheet(config.sheetUrl, matchingComp, 'delete');
+    }
   };
 
   const handleUpdateRegisteredCompany = (id: string, updated: Partial<RegisteredCompany>) => {
@@ -301,13 +483,31 @@ export default function App() {
   };
 
   const handleAssignCompanyToParts = (companyName: string, partIds: string[]) => {
-    if (!partIds.length) return;
+    if (!partIds.length || !companyName.trim()) return;
+    const cleanComp = companyName.trim();
+    handleRegisterCompanyName(cleanComp);
+    const detectedOrigin = detectOriginFromCompany(registeredCompanies, cleanComp);
     const idSet = new Set(partIds);
+    const updatedParts: SparePartItem[] = [];
     setParts(prev => {
-      const next = prev.map(p => idSet.has(p.id) ? { ...p, companyName } : p);
+      const next = dedupeSpareParts(prev.map(p => {
+        if (idSet.has(p.id)) {
+          const item: SparePartItem = {
+            ...p,
+            companyName: cleanComp,
+            ...(detectedOrigin ? { origin: detectedOrigin } : {})
+          };
+          updatedParts.push(item);
+          return item;
+        }
+        return p;
+      }));
       GoogleSheetsService.saveCustomParts(next);
       return next;
     });
+    const originTag = detectedOrigin ? ` (${detectedOrigin === 'China' ? '🇨🇳 China' : '🇦🇪 Dubai'})` : '';
+    setBackupSuccessToast(`✅ Company "${cleanComp}"${originTag} assigned to ${partIds.length} product(s)!`);
+    setTimeout(() => setBackupSuccessToast(null), 4000);
   };
 
   // Price Tracker deep link filter & modal triggers
@@ -386,7 +586,7 @@ export default function App() {
   // Easy 1-click backup of everything in the app to Google Sheet
   const handleBackupCompleteSuiteNow = async () => {
     const config = GoogleSheetsService.getSavedConfig();
-    const targetUrl = config.webAppUrl || config.sheetUrl || DEFAULT_WEB_APP_URL;
+    const targetUrl = appsScriptUrl.trim() || config.webAppUrl || config.sheetUrl || DEFAULT_WEB_APP_URL;
     if (!targetUrl) {
       setIsDbModalOpen(true);
       return;
@@ -405,8 +605,8 @@ export default function App() {
         sound.playVictory();
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setLastSyncedAt(timeStr);
-        setBackupSuccessToast(`🚀 Dhammaan ${parts.length} alaabood & shirkadaha si guul leh ayaa loogu wada diray Google Sheet!`);
-        setTimeout(() => setBackupSuccessToast(null), 5000);
+        setBackupSuccessToast(`✅ 100% WORKING: All 5 Nav collections (${parts.length} Parts 11-Columns, ${registeredCompanies.length} Companies, ${priceChanges.length} Price Movements, ${photosList.length} Photos, ${compatList.length} Compatible LCDs) have been backed up to Google Sheet!`);
+        setTimeout(() => setBackupSuccessToast(null), 7000);
       } else {
         sound.playWrong();
         setBackupSuccessToast(`⚠️ Sync notice: ${res.message || 'Google Sheet update completed'}`);
@@ -439,7 +639,9 @@ export default function App() {
 
   // Handle Upload 11 Columns Completion
   const handleUploadComplete = (updatedParts: SparePartItem[], message: string) => {
-    setParts(updatedParts);
+    const cleanParts = dedupeSpareParts(updatedParts);
+    setParts(cleanParts);
+    GoogleSheetsService.saveCustomParts(cleanParts);
     sound.playVictory();
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setLastSyncedAt(timeStr);
@@ -463,7 +665,7 @@ export default function App() {
         if (result && result.success && result.parts && result.parts.length > 0) {
           handleRestoreCompleteSuite(result);
           sound.playVictory();
-          setBackupSuccessToast(`✅ Google Sheet-ka ayaa si toos ah looga soo akhriyay ${result.parts.length} alaabood!`);
+          setBackupSuccessToast(`✅ Loaded ${result.parts.length} products directly from Google Sheet!`);
           setTimeout(() => setBackupSuccessToast(null), 4000);
         }
       } else {
@@ -471,7 +673,7 @@ export default function App() {
         if (syncedParts.length > 0) {
           handleDataSynced(syncedParts, syncedCompare, syncedPhotos, syncedCompat);
           sound.playVictory();
-          setBackupSuccessToast(`✅ Google Sheet-ka ayaa laga soo akhriyay ${syncedParts.length} alaabood!`);
+          setBackupSuccessToast(`✅ Loaded ${syncedParts.length} products from Google Sheet!`);
           setTimeout(() => setBackupSuccessToast(null), 4000);
         }
       }
@@ -489,12 +691,92 @@ export default function App() {
     setSoundMuted(next);
   };
 
-  // Add new catalog part & auto-send to Google Sheets if connected
-  const handleAddPart = (newPartData: Omit<SparePartItem, 'id'> & { id?: string }) => {
+  const normMatchKey = normalizeProductKey;
+  const normShipKey = normalizeCargoKey;
+
+  // Add new catalog part (Smart Product Matching: Name + Company + Cargo/Shipping) & auto-sync to Google Sheets
+  const handleAddPart = (newPartData: Omit<SparePartItem, 'id'> & { id?: string }, skipPriceTracker: boolean = false) => {
+    const targetProdKey = normMatchKey(newPartData.name);
+    const targetCompKey = normMatchKey(newPartData.companyName);
+    const targetShipKey = normShipKey(newPartData.shippingMethod);
+
+    // Search using normalized (Product Name + Company Name + Cargo/Shipping) as the 3-field matching key
+    const smartMatches = parts.filter(
+      p =>
+        normMatchKey(p.name) === targetProdKey &&
+        normMatchKey(p.companyName) === targetCompKey &&
+        normShipKey(p.shippingMethod) === targetShipKey
+    );
+
+    const config = GoogleSheetsService.getSavedConfig();
+    const endpoint = config.webAppUrl || config.sheetUrl || DEFAULT_WEB_APP_URL;
+
+    // SAME PRODUCT + SAME COMPANY + SAME CARGO/SHIPPING -> ONLY UPDATE existing row (never duplicate!)
+    if (smartMatches.length >= 1) {
+      const existing = smartMatches[0];
+      const duplicateIdsToPrune = new Set(smartMatches.slice(1).map(m => m.id));
+      const updatedPart: SparePartItem = {
+        ...existing,
+        ...newPartData,
+        id: existing.id,
+        purchaseDate: existing.purchaseDate || (newPartData as any).purchaseDate || new Date().toISOString().split('T')[0]
+      };
+      const updatedList = parts
+        .filter(p => !duplicateIdsToPrune.has(p.id))
+        .map(p => (p.id === existing.id ? updatedPart : p));
+      setParts(updatedList);
+      GoogleSheetsService.saveCustomParts(updatedList);
+
+      if (updatedPart.companyName && updatedPart.companyName.trim()) {
+        handleRegisterCompanyName(updatedPart.companyName.trim());
+      }
+
+      if (!skipPriceTracker && updatedPart.d !== existing.d) {
+        const deltaD = Math.round((updatedPart.d - existing.d) * 100) / 100;
+        const percentage = existing.d > 0 ? Math.round(((updatedPart.d - existing.d) / existing.d) * 1000) / 10 : 0;
+        const recType: 'increase' | 'decrease' = updatedPart.d >= existing.d ? 'increase' : 'decrease';
+        const today = new Date().toISOString().split('T')[0];
+        const newRec: PriceChangeRecord = {
+          id: `pc-${Date.now()}`,
+          name: updatedPart.name,
+          cat: updatedPart.cat,
+          oldD: existing.d,
+          newD: updatedPart.d,
+          oldUsd: existing.usd || Number((existing.d / 3.67).toFixed(2)),
+          newUsd: updatedPart.usd || Number((updatedPart.d / 3.67).toFixed(2)),
+          type: recType,
+          deltaD,
+          percentage,
+          date: today,
+          note: `Smart Match In-Place Update (${updatedPart.companyName || 'Supplier'} · ${targetShipKey === 'by sea' ? 'By Sea' : 'By Air'})`
+        };
+        setPriceChanges(prev => {
+          const next = [newRec, ...prev];
+          localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+          return next;
+        });
+      }
+
+      if (endpoint) {
+        GoogleSheetsService.updateInGoogleSheet(endpoint, existing.name, updatedPart, existing.companyName, existing.shippingMethod).then(res => {
+          if (res.success) {
+            setBackupSuccessToast(`✅ Updated existing "${updatedPart.name}" (${updatedPart.companyName || 'Supplier'} · ${targetShipKey === 'by sea' ? 'By Sea' : 'By Air'}) [ID: ${existing.id}] in Google Sheet!`);
+            setTimeout(() => setBackupSuccessToast(null), 4000);
+          }
+        });
+      }
+      return;
+    }
+
+    // RULE 2: SAME PRODUCT + DIFFERENT COMPANY (or brand new product) = ADD NEW ROW with unique Product ID
     const nextDx = getNextSequentialDxId(parts, 'DX-000001');
-    const resolvedId = (newPartData as any).id && String((newPartData as any).id).trim()
+    const requestedId = (newPartData as any).id && String((newPartData as any).id).trim()
       ? String((newPartData as any).id).trim()
-      : nextDx;
+      : '';
+    const idAlreadyUsed = requestedId
+      ? parts.some(p => p.id.trim().toLowerCase() === requestedId.toLowerCase())
+      : false;
+    const resolvedId = requestedId && !idAlreadyUsed ? requestedId : nextDx;
 
     const newPart: SparePartItem = {
       ...newPartData,
@@ -511,48 +793,48 @@ export default function App() {
     }
 
     // Automatically record in Price Tracker based on user-selected Product Change Type
-    const today = new Date().toISOString().split('T')[0];
-    const changeType = newPart.changeType || 'New Product';
-    const recType: 'new' | 'increase' | 'decrease' = 
-      changeType === 'Price Decrease' ? 'decrease' :
-      changeType === 'Price Increase' ? 'increase' : 'new';
+    if (!skipPriceTracker) {
+      const today = new Date().toISOString().split('T')[0];
+      const changeType = newPart.changeType || 'New Product';
+      const recType: 'new' | 'increase' | 'decrease' = 
+        changeType === 'Price Decrease' ? 'decrease' :
+        changeType === 'Price Increase' ? 'increase' : 'new';
 
-    const oldD = recType === 'new' ? 0 : (newPart.oldPriceD !== undefined ? newPart.oldPriceD : (recType === 'decrease' ? Number((newPart.d * 1.15).toFixed(1)) : Number((newPart.d * 0.85).toFixed(1))));
-    const newD = newPart.d;
-    const deltaD = Math.round((newD - oldD) * 100) / 100;
-    const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : (recType === 'new' ? 100 : 0);
+      const oldD = recType === 'new' ? 0 : (newPart.oldPriceD !== undefined ? newPart.oldPriceD : (recType === 'decrease' ? Number((newPart.d * 1.15).toFixed(1)) : Number((newPart.d * 0.85).toFixed(1))));
+      const newD = newPart.d;
+      const deltaD = Math.round((newD - oldD) * 100) / 100;
+      const percentage = oldD > 0 ? Math.round(((newD - oldD) / oldD) * 1000) / 10 : (recType === 'new' ? 100 : 0);
 
-    const newRec: PriceChangeRecord = {
-      id: `pc-${Date.now()}`,
-      name: newPart.name,
-      cat: newPart.cat,
-      oldD,
-      newD,
-      oldUsd: Number((oldD / 3.67).toFixed(2)),
-      newUsd: newPart.usd || Number((newPart.d / 3.67).toFixed(2)),
-      type: recType,
-      deltaD,
-      percentage,
-      date: today,
-      note: changeType === 'Price Increase'
-        ? 'Price increase recorded (Price Up / Kor u kacay)'
-        : changeType === 'Price Decrease'
-        ? 'Price decrease recorded (Price Down / Hoos u dhacay)'
-        : 'New product registered in Catalog (Cusub)'
-    };
-    setPriceChanges(prev => {
-      const next = [newRec, ...prev];
-      localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
-      return next;
-    });
+      const newRec: PriceChangeRecord = {
+        id: `pc-${Date.now()}`,
+        name: newPart.name,
+        cat: newPart.cat,
+        oldD,
+        newD,
+        oldUsd: Number((oldD / 3.67).toFixed(2)),
+        newUsd: newPart.usd || Number((newPart.d / 3.67).toFixed(2)),
+        type: recType,
+        deltaD,
+        percentage,
+        date: today,
+        note: changeType === 'Price Increase'
+          ? 'Price increase recorded (Price Up)'
+          : changeType === 'Price Decrease'
+          ? 'Price decrease recorded (Price Down)'
+          : 'New product registered in Catalog'
+      };
+      setPriceChanges(prev => {
+        const next = [newRec, ...prev];
+        localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+        return next;
+      });
+    }
 
     // Auto-backup to Google Sheet instantly!
-    const config = GoogleSheetsService.getSavedConfig();
-    const endpoint = config.webAppUrl || config.sheetUrl || DEFAULT_WEB_APP_URL;
     if (endpoint) {
       GoogleSheetsService.appendToGoogleSheet(endpoint, newPart, 'ALL PRODUCT').then(res => {
         if (res.success) {
-          setBackupSuccessToast(`✅ "${newPart.name}" ayaa si toos ah loogu xareeyay Google Sheet!`);
+          setBackupSuccessToast(`✅ "${newPart.name}" (${newPart.companyName || 'Supplier'}) [${newPart.id}] was saved directly to Google Sheet!`);
           setTimeout(() => setBackupSuccessToast(null), 3500);
         }
       });
@@ -560,11 +842,35 @@ export default function App() {
   };
 
   // Update existing part (Edit Name, Cat, Prices, etc.) & auto-sync to Google Sheet & Price Tracker
-  const handleUpdatePart = (id: string, updatedFields: Partial<SparePartItem>) => {
+  const handleUpdatePart = (id: string, updatedFields: Partial<SparePartItem>, skipPriceTracker: boolean = false) => {
     const originalPart = parts.find(p => p.id === id);
+    const nextName = updatedFields.name ?? originalPart?.name ?? '';
+    const nextCompany = updatedFields.companyName !== undefined ? updatedFields.companyName : (originalPart?.companyName ?? '');
+    const nextShipping = updatedFields.shippingMethod !== undefined ? updatedFields.shippingMethod : (originalPart?.shippingMethod ?? 'air');
+    const conflictingRows = parts.filter(
+      p =>
+        p.id !== id &&
+        normMatchKey(p.name) === normMatchKey(nextName) &&
+        normMatchKey(p.companyName) === normMatchKey(nextCompany) &&
+        normShipKey(p.shippingMethod) === normShipKey(nextShipping)
+    );
+    if (conflictingRows.length > 0) {
+      sound.playWrong();
+      setBackupSuccessToast(
+        `⚠️ Duplicate Guard: "${nextName}" (${nextCompany || 'Default'} · ${normShipKey(nextShipping) === 'by sea' ? 'By Sea' : 'By Air'}) already exists at ID ${conflictingRows.map(c => c.id).join(', ')}. Update cancelled to prevent duplicate.`
+      );
+      setTimeout(() => setBackupSuccessToast(null), 6000);
+      return;
+    }
+
     const updated = parts.map(p => {
       if (p.id === id) {
-        return { ...p, ...updatedFields };
+        return {
+          ...p,
+          ...updatedFields,
+          id: p.id, // RULE 1: Preserve existing Product ID
+          purchaseDate: p.purchaseDate || updatedFields.purchaseDate || new Date().toISOString().split('T')[0] // RULE 1: Preserve Date Added
+        };
       }
       return p;
     });
@@ -576,7 +882,7 @@ export default function App() {
     }
 
     // Automatically record Price Up (Increase), Price Down (Decrease), or New Product in Price Tracker!
-    if (originalPart) {
+    if (!skipPriceTracker && originalPart) {
       const changeType = updatedFields.changeType || (
         updatedFields.d !== undefined && updatedFields.d > originalPart.d ? 'Price Increase' :
         updatedFields.d !== undefined && updatedFields.d < originalPart.d ? 'Price Decrease' : undefined
@@ -609,10 +915,10 @@ export default function App() {
           percentage: type === 'new' ? 100 : percentage,
           date: today,
           note: type === 'increase' 
-            ? 'Price increase recorded (Price Up / Kor u kacay)' 
+            ? 'Price increase recorded (Price Up)' 
             : type === 'decrease'
-            ? 'Price decrease recorded (Price Down / Hoos u dhacay)'
-            : 'New product registered in Catalog (Cusub)'
+            ? 'Price decrease recorded (Price Down)'
+            : 'New product registered in Catalog'
         };
         setPriceChanges(prev => {
           const next = [newRec, ...prev];
@@ -627,9 +933,9 @@ export default function App() {
     const endpoint = config.webAppUrl || config.sheetUrl || DEFAULT_WEB_APP_URL;
     const finalPart = updated.find(p => p.id === id);
     if (endpoint && originalPart && finalPart) {
-      GoogleSheetsService.updateInGoogleSheet(endpoint, originalPart.name, finalPart).then(res => {
+      GoogleSheetsService.updateInGoogleSheet(endpoint, originalPart.name, finalPart, originalPart.companyName, originalPart.shippingMethod).then(res => {
         if (res.success) {
-          setBackupSuccessToast(`✅ "${finalPart.name}" Google Sheet-ka ayaa loo cusboonaysiiyay!`);
+          setBackupSuccessToast(`✅ "${finalPart.name}" has been updated in Google Sheet!`);
           setTimeout(() => setBackupSuccessToast(null), 3500);
         }
       });
@@ -647,9 +953,9 @@ export default function App() {
     const config = GoogleSheetsService.getSavedConfig();
     const endpoint = config.webAppUrl || config.sheetUrl || DEFAULT_WEB_APP_URL;
     if (endpoint && partToDelete) {
-      GoogleSheetsService.deleteFromGoogleSheet(endpoint, partToDelete.name, partToDelete.cat).then(res => {
+      GoogleSheetsService.deleteFromGoogleSheet(endpoint, partToDelete.name, partToDelete.cat, partToDelete.id).then(res => {
         if (res.success) {
-          setBackupSuccessToast(`🗑️ "${partToDelete.name}" Google Sheet-ka ayaa laga saaray!`);
+          setBackupSuccessToast(`🗑️ "${partToDelete.name}" (${partToDelete.id}) removed from Google Sheet!`);
           setTimeout(() => setBackupSuccessToast(null), 3500);
         }
       });
@@ -674,9 +980,10 @@ export default function App() {
     const endpoint = config.webAppUrl || config.sheetUrl || DEFAULT_WEB_APP_URL;
     if (endpoint && partsToDelete.length > 0) {
       const names = partsToDelete.map(p => p.name);
-      GoogleSheetsService.bulkDeleteFromGoogleSheet(endpoint, names).then(res => {
+      const idsToDelete = partsToDelete.map(p => p.id);
+      GoogleSheetsService.bulkDeleteFromGoogleSheet(endpoint, names, idsToDelete).then(res => {
         if (res.success) {
-          setBackupSuccessToast(`🗑️ ${names.length} alaabood Google Sheet-ka ayaa laga saaray!`);
+          setBackupSuccessToast(`🗑️ ${names.length} products removed from Google Sheet!`);
           setTimeout(() => setBackupSuccessToast(null), 3500);
         }
       });
@@ -787,9 +1094,21 @@ export default function App() {
   };
 
   const handleDeletePriceChange = (id: string) => {
-    const next = priceChanges.filter(p => p.id !== id);
-    setPriceChanges(next);
-    localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+    setPriceChanges(prev => {
+      const next = prev.filter(p => p.id !== id);
+      localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleBulkDeletePriceChanges = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    setPriceChanges(prev => {
+      const next = prev.filter(p => !idSet.has(p.id));
+      localStorage.setItem(STORAGE_KEY_PRICE_CHANGES, JSON.stringify(next));
+      return next;
+    });
   };
 
   // Handle Google Sheet live sync completion (parts, compare, photos, compat)
@@ -824,7 +1143,7 @@ export default function App() {
             deltaD: np.d,
             percentage: 100,
             date: today,
-            note: 'New product synced from Google Sheet (Cusub)'
+            note: 'New product synced from Google Sheet'
           });
         } else if (Math.abs(existing.d - np.d) >= 0.05) {
           // Price change from Sheet
@@ -846,8 +1165,8 @@ export default function App() {
             percentage,
             date: today,
             note: type === 'increase'
-              ? 'Price increase from Google Sheet (Price Up / Kor u kacay)'
-              : 'Price markdown from Google Sheet (Price Down / Hoos u dhacay)'
+              ? 'Price increase from Google Sheet (Price Up)'
+              : 'Price markdown from Google Sheet (Price Down)'
           });
         }
       });
@@ -861,7 +1180,8 @@ export default function App() {
       }
     }
 
-    setParts(newParts);
+    const cleanNewParts = dedupeSpareParts(newParts);
+    setParts(cleanNewParts);
     if (newCompare && newCompare.length) {
       setCompareItems(newCompare);
     }
@@ -875,7 +1195,7 @@ export default function App() {
     }
     const syncedTime = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
     setLastSyncedAt(syncedTime);
-    GoogleSheetsService.saveCustomParts(newParts);
+    GoogleSheetsService.saveCustomParts(cleanNewParts);
     GoogleSheetsService.saveConfig({
       lastSyncedAt: syncedTime,
       liveCompareItems: newCompare || [],
@@ -917,8 +1237,9 @@ export default function App() {
   const handleRestoreCompleteSuite = (data: CompleteSuiteRestoreResult) => {
     sound.playVictory();
     if (data.parts && data.parts.length > 0) {
-      setParts(data.parts);
-      GoogleSheetsService.saveCustomParts(data.parts);
+      const cleanParts = dedupeSpareParts(data.parts);
+      setParts(cleanParts);
+      GoogleSheetsService.saveCustomParts(cleanParts);
     }
     if (data.companies && data.companies.length > 0) {
       setRegisteredCompanies(data.companies);
@@ -960,73 +1281,144 @@ export default function App() {
         currentStreak={currentStreak}
       />
 
-      {/* Live Google Sheet "ALL PRODUCT" Sync & Easy 1-Click Backup Bar */}
-      <div className="bg-[#0b1324] border-b border-cyan-900/40 px-3 sm:px-6 lg:px-10 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-inner">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="flex h-2.5 w-2.5 relative shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-          </span>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-emerald-300 flex items-center gap-1 font-mono text-[11px] sm:text-xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span>Auto-Backup: Active</span>
-            </span>
-            <span className="text-slate-400 text-[11px] hidden md:inline">
-              (Everything you add or edit is automatically saved to Google Sheet)
-            </span>
-            <span className="px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-300 font-mono text-[11px] font-bold border border-cyan-800/80">
-              Tab: ALL PRODUCT ({parts.length})
-            </span>
+      {/* Dedicated 3-Button Action Bar & Apps Script Link Input */}
+      <div className="bg-[#0b1324] border-b border-cyan-900/50 px-3 sm:px-6 lg:px-10 py-3 shadow-xl">
+        <div className="max-w-[1920px] mx-auto flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3.5">
+          
+          {/* 4- APPS SCRIPT LINK */}
+          <div className="flex-1 flex flex-col gap-2 bg-[#060a14] border border-cyan-800/70 rounded-2xl p-2.5 sm:p-3 shadow-inner">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="flex h-2.5 w-2.5 relative shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span className="text-[11px] font-bold text-cyan-300 uppercase tracking-wider font-mono flex items-center gap-1.5 whitespace-nowrap">
+                  <Code2 className="w-4 h-4 text-cyan-400" />
+                  <span>Apps Script Link:</span>
+                </span>
+              </div>
+              
+              <div className="flex-1 flex items-center gap-1.5">
+                <input
+                  type="url"
+                  value={appsScriptUrl}
+                  onChange={(e) => handleUpdateAppsScriptUrl(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                  className="w-full bg-slate-900/90 border border-slate-700/80 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-cyan-200 font-mono outline-none transition-colors selection:bg-cyan-500/30"
+                  title="Google Apps Script Web App URL"
+                />
+                
+                {/* Save Link Button */}
+                <button
+                  type="button"
+                  onClick={() => handleUpdateAppsScriptUrl(appsScriptUrl)}
+                  className={`px-3 py-2 rounded-xl font-bold text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1 shadow-sm ${
+                    isUrlSaved 
+                      ? 'bg-emerald-600 text-white' 
+                      : 'bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/80 hover:border-cyan-500'
+                  }`}
+                  title="Save Google Apps Script Link"
+                >
+                  {isUrlSaved ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Saved!</span>
+                    </>
+                  ) : (
+                    <span>Save</span>
+                  )}
+                </button>
+
+                {/* 100% Test Connection Button */}
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={isTestingUrl}
+                  className="px-3 py-2 rounded-xl font-bold text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1 shadow-sm bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/80 hover:border-indigo-400 disabled:opacity-50"
+                  title="Test Connection 100% to Google Sheet"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingUrl ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">{isTestingUrl ? 'Testing...' : 'Test Link'}</span>
+                </button>
+
+                {/* Open Complete Apps Script Code Modal */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playTick();
+                    setIsAppsScriptModalOpen(true);
+                  }}
+                  className="px-3 py-2 rounded-xl font-bold text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1 shadow-sm bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 hover:border-cyan-500"
+                  title="View / Copy Full Google Apps Script Code (Ready for Google Sheets)"
+                >
+                  <Code2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="hidden md:inline">Full Script Code</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Test Connection Live Result */}
+            {testResult && (
+              <div className={`text-xs px-3 py-1.5 rounded-xl border flex items-center gap-2 animate-in fade-in ${
+                testResult.ok 
+                  ? 'bg-emerald-950/80 border-emerald-500/80 text-emerald-300 font-bold'
+                  : 'bg-rose-950/80 border-rose-500/80 text-rose-300 font-semibold'
+              }`}>
+                {testResult.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />}
+                <span>{testResult.message}</span>
+              </div>
+            )}
           </div>
-          {lastSyncedAt && (
-            <span className="text-emerald-400/90 font-mono text-[11px] flex items-center gap-1 hidden sm:flex">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-              <span>Synced {lastSyncedAt}</span>
-            </span>
-          )}
-        </div>
 
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          {/* Button 1: Backup to Google Sheet */}
-          <button
-            type="button"
-            onClick={handleBackupCompleteSuiteNow}
-            disabled={isBackingUpSuite}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50"
-            title="1. Backup all 11 columns of your catalog to Google Sheet 'ALL PRODUCT'"
-          >
-            <CloudUpload className={`w-3.5 h-3.5 ${isBackingUpSuite ? 'animate-bounce' : ''}`} />
-            <span>{isBackingUpSuite ? 'Backing up Suite...' : '🚀 Backup to Google Sheet'}</span>
-          </button>
+          {/* EXACTLY 3 BUTTONS IN REQUESTED ORDER */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap shrink-0">
+            {/* 1- FORMAT ALL APP DATA */}
+            <button
+              type="button"
+              onClick={() => {
+                sound.playTick();
+                setIsFormatModalOpen(true);
+              }}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-700 to-red-600 hover:from-rose-600 hover:to-red-500 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-lg shadow-rose-950/60 border border-rose-500/80 transition-all cursor-pointer"
+              title="1- FORMAT ALL APP DATA (Requires typing FORMAT to confirm)"
+            >
+              <Trash2 className="w-4 h-4 text-white" />
+              <span>1- FORMAT ALL APP DATA</span>
+            </button>
 
-          {/* Button 2: Upload 11 Columns */}
-          <button
-            type="button"
-            onClick={() => {
-              sound.playTick();
-              setIsUploadModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 active:scale-95 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
-            title="2. Upload / Import 11 columns via live Google Sheet sync or CSV file"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>📥 Upload 11 Columns</span>
-          </button>
+            {/* 2- UPLOAD DATA */}
+            <button
+              type="button"
+              onClick={() => {
+                sound.playTick();
+                setIsUploadModalOpen(true);
+              }}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-950/60 border border-cyan-400/50 transition-all cursor-pointer"
+              title="2- UPLOAD DATA (Upload 11 Columns from CSV or live Google Sheet)"
+            >
+              <Upload className="w-4 h-4 text-white" />
+              <span>2- UPLOAD DATA</span>
+            </button>
 
-          {/* Button 3: Format All */}
-          <button
-            type="button"
-            onClick={() => {
-              sound.playTick();
-              setIsFormatModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-950/70 hover:bg-red-900/80 border border-red-700/60 hover:border-red-500 text-red-300 hover:text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
-            title="3. Format all products from app (Requires typing FORMAT to confirm)"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-red-400" />
-            <span>⚠️ Format All</span>
-          </button>
+            {/* 3- DATA TO GOOGLE SHEET (ALL NAV DATA) */}
+            <button
+              type="button"
+              onClick={handleBackupCompleteSuiteNow}
+              disabled={isBackingUpSuite}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/60 border border-emerald-400/60 transition-all cursor-pointer disabled:opacity-50"
+              title="3- DATA TO GOOGLE SHEET (Dumps all 5 Nav collections: Catalog 11 Col, Registered Companies, Price Tracker, Photos, Compatible LCDs)"
+            >
+              <CloudUpload className={`w-4 h-4 text-white ${isBackingUpSuite ? 'animate-bounce' : ''}`} />
+              <div className="flex items-center gap-1.5">
+                <span>{isBackingUpSuite ? 'Uploading...' : '3- DATA TO GOOGLE SHEET'}</span>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/90 text-emerald-200 border border-emerald-400/40 font-bold hidden sm:inline">
+                  All Navs
+                </span>
+              </div>
+            </button>
+          </div>
+
         </div>
       </div>
 
@@ -1056,10 +1448,13 @@ export default function App() {
             compatList={compatList}
             priceChanges={priceChanges}
             companies={registeredCompanies}
+            deletedCompanyNames={deletedCompanies}
             companyFilter={catalogCompanyFilter}
             onClearCompanyFilter={() => setCatalogCompanyFilter('__all__')}
             onSetCompanyFilter={setCatalogCompanyFilter}
             onRegisterNewCompany={handleRegisterCompanyName}
+            onDeleteCompanyName={handleDeleteCompanyName}
+            onBulkAssignCompany={handleAssignCompanyToParts}
             onAddPart={handleAddPart}
             onUpdatePart={handleUpdatePart}
             onDeletePart={handleDeletePart}
@@ -1073,6 +1468,10 @@ export default function App() {
             onUpdateYuanRate={handleUpdateYuanRate}
             expenseRate={expenseRate}
             onUpdateExpenseRate={handleUpdateExpenseRate}
+            airCargoRate={airCargoRate}
+            onUpdateAirCargoRate={handleUpdateAirCargoRate}
+            seaCargoRate={seaCargoRate}
+            onUpdateSeaCargoRate={handleUpdateSeaCargoRate}
           />
         )}
 
@@ -1098,6 +1497,7 @@ export default function App() {
             parts={parts}
             onAddPriceChange={handleAddPriceChange}
             onDeletePriceChange={handleDeletePriceChange}
+            onBulkDeletePriceChanges={handleBulkDeletePriceChanges}
             onAddPart={handleAddPart}
             onUpdatePart={handleUpdatePart}
             initialFilter={priceTrackerFilter}
@@ -1175,10 +1575,11 @@ export default function App() {
         lastSyncedAt={lastSyncedAt}
       />
 
-      {/* Install Modal (Android & Windows) */}
+      {/* Install Modal (PC & Mobile QR Code) */}
       <InstallModal
         isOpen={isInstallModalOpen}
         onClose={() => setIsInstallModalOpen(false)}
+        parts={parts}
       />
 
       {/* Button 2: Upload 11 Columns Modal */}
@@ -1201,78 +1602,29 @@ export default function App() {
       <AppsScriptCodeModal
         isOpen={isAppsScriptModalOpen}
         onClose={() => setIsAppsScriptModalOpen(false)}
+        spreadsheetId={GoogleSheetsService.extractSpreadsheetId(appsScriptUrl) || undefined}
       />
 
       {/* Clean, quiet full-width footer */}
-      <footer className="border-t border-slate-900 bg-slate-950/70 py-6 text-center text-xs text-slate-500 w-full mt-auto">
+      <footer className="border-t border-slate-900 bg-slate-950/70 py-5 text-center text-xs text-slate-500 w-full mt-auto">
         <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-white tracking-wide uppercase">Do or Die</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-normal text-slate-400">Spare Parts Mastery Suite</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono text-cyan-400 font-medium">{parts.length} Spare Parts</span>
-            <span aria-hidden="true">·</span>
+          <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
+            <span className="font-bold text-white tracking-wide uppercase font-sans">Do or Die</span>
+            <span aria-hidden="true" className="text-slate-700">·</span>
+            <span className="font-normal text-slate-400">Spare Parts Inventory & Price Quiz Suite</span>
+            <span aria-hidden="true" className="text-slate-700">·</span>
+            <span className="font-mono text-cyan-400 font-semibold">{parts.length} Products</span>
+            <span aria-hidden="true" className="text-slate-700">·</span>
             <span className="font-mono text-emerald-400 font-medium">1 USD = 3.67 AED</span>
           </div>
 
-          <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap justify-center">
-            <button 
-              type="button" 
-              onClick={() => setIsInstallModalOpen(true)}
-              className="text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1 font-semibold cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download App (Mobile & Laptop)</span>
-            </button>
-            <span aria-hidden="true">·</span>
-            <button 
-              type="button" 
-              onClick={() => setIsDbModalOpen(true)}
-              className="hover:text-white transition-colors font-semibold cursor-pointer"
-            >
-              Google Sheet Hub & Backups
-            </button>
-            <span aria-hidden="true">·</span>
-            <button 
-              type="button" 
-              onClick={() => setActiveTab('quiz')}
-              className="hover:text-white transition-colors font-semibold cursor-pointer"
-            >
-              Quiz Practice
-            </button>
-            <span aria-hidden="true">·</span>
-            <button 
-              type="button" 
-              onClick={() => setActiveTab('photos')}
-              className="hover:text-white transition-colors font-semibold cursor-pointer"
-            >
-              Photos Hub
-            </button>
-            <span aria-hidden="true">·</span>
-            <button 
-              type="button" 
-              onClick={() => setActiveTab('compat')}
-              className="hover:text-white transition-colors font-semibold cursor-pointer"
-            >
-              Compatible LCDs
-            </button>
-            <span aria-hidden="true">·</span>
-            <button 
-              type="button" 
-              onClick={() => setActiveTab('pricetracker')}
-              className="hover:text-white transition-colors font-semibold cursor-pointer"
-            >
-              Price Tracker
-            </button>
-            <span aria-hidden="true">·</span>
-            <button 
-              type="button" 
-              onClick={() => setActiveTab('register_company')}
-              className="hover:text-cyan-300 text-cyan-400 transition-colors font-semibold cursor-pointer flex items-center gap-1"
-            >
-              <span>Register Company</span>
-            </button>
+          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono flex-wrap justify-center">
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-cyan-400 font-medium">
+              11 Columns Architecture
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-emerald-400 font-medium">
+              Google Sheets Live Sync
+            </span>
           </div>
         </div>
       </footer>

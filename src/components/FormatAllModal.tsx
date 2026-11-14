@@ -40,8 +40,8 @@ export const FormatAllModal: React.FC<FormatAllModalProps> = ({
               <ShieldAlert className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Format All Products</h3>
-              <p className="text-xs text-red-400 font-medium">Safe Clear Safeguard</p>
+              <h3 className="text-lg font-bold text-white">1. FORMAT ALL APP DATA</h3>
+              <p className="text-xs text-red-400 font-medium">Safe Clear Safeguard (0 Products)</p>
             </div>
           </div>
           <button
@@ -57,10 +57,10 @@ export const FormatAllModal: React.FC<FormatAllModalProps> = ({
         <div className="p-4 rounded-2xl bg-red-950/40 border border-red-850/60 space-y-2">
           <div className="flex items-center gap-2 text-red-400 text-xs font-bold uppercase tracking-wider">
             <AlertTriangle className="w-4 h-4" />
-            <span>Warning: Permanent Deletion</span>
+            <span>Format All Application Data</span>
           </div>
           <p className="text-xs text-slate-300 leading-relaxed">
-            This will wipe all <strong className="text-white font-mono">{productCount}</strong> products from your current catalog so you can start with a fresh slate or import a new Google Sheet.
+            This will clear all <strong className="text-white font-mono">{productCount}</strong> products currently stored in the app so you can upload fresh data cleanly.
           </p>
         </div>
 

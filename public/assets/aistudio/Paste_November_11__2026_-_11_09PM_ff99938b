@@ -1,0 +1,1436 @@
+// ========================================================
+// SPARE PARTS MASTERY - LIVE ALL-IN-ONE & 5-SHEET COMPLETE SUITE ENGINE
+// 1. ALL PRODUCT Tab (11 Columns: ID in Col A, Product Name, Category, Price D, Yuan ¥, USD+, Sales $, Company, Shipment, Origin, Date Added)
+// 2. REGISTERED COMPANIES Tab (9 Columns: Suppliers Directory)
+// 3. Price Tracker Tab (9 Columns: Price Movements & Deltas)
+// 4. Photos Tab (5 Columns: Image Hub)
+// 5. Compatible LCDs Tab (3 Columns: LCD Interchangeability)
+// ========================================================
+// SETUP INSTRUCTIONS:
+// 1. In your Google Sheet, click "Extensions" > "Apps Script".
+// 2. Delete ALL existing code, paste this entire script, and click "Save" (Disk icon).
+// 3. Click "Deploy" > "Manage deployments" (or "New deployment").
+// 4. Click the gear icon > select "Web app".
+// 5. Set:
+//    - Description: All In One Sync
+//    - Execute as: "Me"
+//    - Who has access: "Anyone"  <-- CRITICAL!
+// 6. Click "Deploy", authorize permissions, copy the Web App URL,
+//    and paste it into the app's Google Sheets Database tab!
+// ========================================================
+
+// Automatically linked to your Google Sheet:
+var TARGET_SPREADSHEET_ID = "1zNmNffLiaPrgWVzwLgn52pEV2HsagMVtGeQEthIpmow";
+
+function _getSpreadsheet() {
+  // 1. Active container sheet is 100% reliable when bound via Extensions > Apps Script
+  try {
+    var active = SpreadsheetApp.getActiveSpreadsheet();
+    if (active) return active;
+  } catch (err) {}
+
+  // 2. Open by explicit ID if provided and valid
+  if (TARGET_SPREADSHEET_ID && TARGET_SPREADSHEET_ID.length > 15 && TARGET_SPREADSHEET_ID.indexOf('http') === -1) {
+    try {
+      return SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+    } catch (e) {}
+  }
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+// Helper: Normalize product names for comparison
+function _normName(str) {
+  if (!str) return '';
+  return String(str).toLowerCase()
+    .replace(/^lcd\s+/i, '')
+    .replace(/^battery\s+/i, '')
+    .replace(/^flex charger\s+/i, '')
+    .replace(/\biphone\b/g, 'ip')
+    .replace(/\bsamsung\b/g, 'sam')
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _matchProd(a, b) {
+  if (!a || !b) return false;
+  var rawA = String(a).toLowerCase().trim();
+  var rawB = String(b).toLowerCase().trim();
+  if (rawA === rawB) return true;
+  var nA = _normName(rawA);
+  var nB = _normName(rawB);
+  return (nA.length > 0 && nA === nB);
+}
+
+function _updateSheetRow(sh, oldTarget, newTarget, rowData) {
+  var lastR = sh.getLastRow();
+  var lastC = Math.max(sh.getLastColumn(), 11);
+  if (lastR < 2) return false;
+  var values = sh.getRange(1, 1, lastR, lastC).getValues();
+  var headers = values[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+
+  var idIdx = -1, nameIdx = -1, catIdx = -1, dIdx = -1, yuanIdx = -1, usdIdx = -1, salesIdx = -1;
+  var compIdx = -1, shipIdx = -1, originIdx = -1;
+  for (var h = 0; h < headers.length; h++) {
+    var head = headers[h];
+    if (idIdx === -1 && (head === 'id' || head.indexOf('sku') !== -1 || head === 'product id')) idIdx = h;
+    if (nameIdx === -1 && (head.indexOf('name') !== -1 || head.indexOf('product') !== -1 || head.indexOf('model') !== -1) && head !== 'id' && head !== 'product id') nameIdx = h;
+    if (catIdx === -1 && (head.indexOf('category') !== -1 || head.indexOf('brand') !== -1)) catIdx = h;
+    if (dIdx === -1 && (head === 'price d' || head === 'd' || head.indexOf('dirham') !== -1 || (head.indexOf('price') !== -1 && head.indexOf('sale') === -1))) dIdx = h;
+    if (yuanIdx === -1 && (head.indexOf('yuan') !== -1 || head.indexOf('¥') !== -1 || head.indexOf('rmb') !== -1)) yuanIdx = h;
+    if (usdIdx === -1 && (head.indexOf('usd') !== -1 && head.indexOf('sale') === -1)) usdIdx = h;
+    if (salesIdx === -1 && (head.indexOf('sales') !== -1 || head.indexOf('sale') !== -1 || head.indexOf('retail') !== -1)) salesIdx = h;
+    if (compIdx === -1 && (head.indexOf('company') !== -1 || head.indexOf('supplier') !== -1 || head.indexOf('vendor') !== -1)) compIdx = h;
+    if (shipIdx === -1 && (head.indexOf('ship') !== -1 || head.indexOf('cargo') !== -1)) shipIdx = h;
+    if (originIdx === -1 && (head.indexOf('origin') !== -1 || head.indexOf('country') !== -1 || head.indexOf('from') !== -1)) originIdx = h;
+  }
+
+  if (idIdx === 0 && nameIdx === -1) nameIdx = 1;
+  else if (nameIdx === -1) nameIdx = 0;
+  if (catIdx === -1) catIdx = idIdx !== -1 ? 2 : 1;
+  if (dIdx === -1) dIdx = idIdx !== -1 ? 3 : 2;
+  if (yuanIdx === -1) yuanIdx = idIdx !== -1 ? 4 : 3;
+  if (usdIdx === -1) usdIdx = idIdx !== -1 ? 5 : 4;
+  if (salesIdx === -1) salesIdx = idIdx !== -1 ? 6 : 5;
+
+  for (var r = 2; r <= lastR; r++) {
+    var cellId = idIdx !== -1 ? String(values[r - 1][idIdx] || '').trim() : '';
+    var cellName = String(values[r - 1][nameIdx] || '').trim();
+
+    // 1. If matched by ID, exact row update
+    var matchById = (rowData.id && cellId && String(rowData.id).trim().toLowerCase() === cellId.toLowerCase());
+    var matchByName = (_matchProd(cellName, oldTarget) || _matchProd(cellName, newTarget));
+
+    if (matchById || matchByName) {
+      // RULE: If matched by name, but ID or company differs, DO NOT OVERWRITE!
+      if (!matchById && rowData.id && cellId && cellId.toLowerCase() !== String(rowData.id).trim().toLowerCase()) {
+        continue;
+      }
+      if (compIdx !== -1 && rowData.company) {
+        var cellComp = String(values[r - 1][compIdx] || '').trim();
+        if (cellComp && rowData.company && cellComp.toLowerCase() !== String(rowData.company).trim().toLowerCase()) {
+          continue;
+        }
+      }
+      if (idIdx !== -1 && rowData.id) sh.getRange(r, idIdx + 1).setValue(rowData.id);
+      if (rowData.name) sh.getRange(r, nameIdx + 1).setValue(rowData.name);
+      if (rowData.cat) sh.getRange(r, catIdx + 1).setValue(rowData.cat);
+      if (rowData.d !== undefined) sh.getRange(r, dIdx + 1).setValue(rowData.d);
+      if (rowData.yuan !== undefined) sh.getRange(r, yuanIdx + 1).setValue(rowData.yuan);
+      if (rowData.usd !== undefined) sh.getRange(r, usdIdx + 1).setValue(rowData.usd);
+      if (rowData.salesPrice !== undefined) sh.getRange(r, salesIdx + 1).setValue(rowData.salesPrice);
+      if (compIdx !== -1 && rowData.company) sh.getRange(r, compIdx + 1).setValue(rowData.company);
+      if (shipIdx !== -1 && rowData.shippingMethod) sh.getRange(r, shipIdx + 1).setValue(rowData.shippingMethod);
+      if (originIdx !== -1 && rowData.origin) sh.getRange(r, originIdx + 1).setValue(rowData.origin);
+      return true;
+    }
+  }
+  return false;
+}
+
+function doGet(e) {
+  var ss = _getSpreadsheet();
+  var params = (e && e.parameter) ? e.parameter : {};
+  var action = params ? params.action : null;
+
+  // 0. HEALTHCHECK / PING
+  if (action === 'ping' || action === 'test_connection') {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      status: 'connected',
+      spreadsheetName: ss ? ss.getName() : 'Google Sheet',
+      spreadsheetId: ss ? ss.getId() : '',
+      timestamp: new Date().toISOString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // DIRECT ACTION DISPATCH FOR GET
+  if (action === 'add_product' || action === 'create_sheet_and_add_row') {
+    var newRow = [
+      params.id || params.sku || ('p-' + Date.now()),
+      params.name || params.productName || '',
+      params.cat || params.category || 'General Spare Parts',
+      parseFloat(params.d || '0') || 0,
+      parseFloat(params.yuan || '0') || 0,
+      parseFloat(params.usd || '0') || 0,
+      parseFloat(params.salesPrice || params.sales || '0') || 0,
+      params.company || params.companyName || '',
+      params.shipping || params.shippingMethod || 'By Air',
+      params.origin || 'Dubai',
+      params.date || new Date().toISOString().split('T')[0]
+    ];
+    var targetSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+    if (!targetSheet) {
+      targetSheet = ss.insertSheet("ALL PRODUCT");
+      targetSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      targetSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      targetSheet.setFrozenRows(1);
+    }
+    if (newRow[1]) {
+      targetSheet.appendRow(newRow);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, added: true, action: 'add_product' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'format_all') {
+    var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+    if (allProdSheet) {
+      var lastR = allProdSheet.getLastRow();
+      if (lastR >= 2) {
+        allProdSheet.getRange(2, 1, lastR - 1, Math.max(allProdSheet.getLastColumn(), 11)).clearContent();
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'format_all', message: 'All products formatted in Google Sheets' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'update_product') {
+    var oldTarget = String(params.oldName || params.productName || params.name || '').trim();
+    var newTarget = String(params.name || params.productName || params.oldName || '').trim();
+    var rowData = {
+      id: params.id || params.sku || '',
+      name: newTarget,
+      cat: params.cat || params.category || 'General Spare Parts',
+      d: parseFloat(params.d || '0') || 0,
+      yuan: parseFloat(params.yuan || '0') || 0,
+      usd: parseFloat(params.usd || '0') || 0,
+      salesPrice: parseFloat(params.salesPrice || params.sales || '0') || 0,
+      company: params.company || params.companyName || '',
+      shippingMethod: params.shipping || params.shippingMethod || '',
+      origin: params.origin || ''
+    };
+    var updated = false;
+
+    // 1. Primary target: "ALL PRODUCT" tab (11 Columns)
+    var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+    if (!allProdSheet) {
+      allProdSheet = ss.insertSheet("ALL PRODUCT");
+      allProdSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      allProdSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      allProdSheet.setFrozenRows(1);
+    }
+
+    updated = _updateSheetRow(allProdSheet, oldTarget, newTarget, rowData);
+
+    // Also update any matching category tabs if they exist
+    var allSheets = ss.getSheets();
+    for (var s = 0; s < allSheets.length; s++) {
+      var sh = allSheets[s];
+      if (sh.getName() !== allProdSheet.getName()) {
+        _updateSheetRow(sh, oldTarget, newTarget, rowData);
+      }
+    }
+
+    // If product wasn't found in any row, append directly to "ALL PRODUCT"
+    if (!updated && rowData.name) {
+      allProdSheet.appendRow([
+        rowData.id || ('p-' + Date.now()),
+        rowData.name,
+        rowData.cat,
+        rowData.d,
+        rowData.yuan,
+        rowData.usd,
+        rowData.salesPrice,
+        rowData.company || '',
+        rowData.shippingMethod || 'By Air',
+        rowData.origin || 'Dubai',
+        new Date().toISOString().split('T')[0]
+      ]);
+      updated = true;
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      updated: updated,
+      action: 'update_product',
+      productName: rowData.name,
+      d: rowData.d,
+      salesPrice: rowData.salesPrice
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'delete_product') {
+    var targetName = String(params.productName || params.name || '').trim().toLowerCase();
+    var deleted = false;
+    var allSheets = ss.getSheets();
+    for (var s = 0; s < allSheets.length; s++) {
+      var sh = allSheets[s];
+      var lastR = sh.getLastRow();
+      if (lastR < 2) continue;
+      var colA = sh.getRange(1, 1, lastR, 1).getValues();
+      for (var r = lastR; r >= 2; r--) {
+        var val = String(colA[r - 1][0] || '').trim().toLowerCase();
+        if (val === targetName) {
+          sh.deleteRow(r);
+          deleted = true;
+        }
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, deleted: deleted, action: 'delete_product' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // PHOTOS ACTIONS (add_photo, update_photo, delete_photo)
+  if (action === 'add_photo' || action === 'update_photo') {
+    var pSheet = ss.getSheetByName("Photos") || ss.getSheetByName("Photo") || ss.getSheetByName("Sawiro");
+    if (!pSheet) {
+      pSheet = ss.insertSheet("Photos");
+      pSheet.appendRow(["Photo Name", "Image URL / Link", "Description", "Brand / Category", "Date Added"]);
+      pSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0b1324").setFontColor("#34d399");
+      pSheet.setFrozenRows(1);
+    }
+    var oldPName = String(params.oldName || params.name || '').trim();
+    var pName = String(params.name || params.photoName || '').trim();
+    var pUrl = String(params.url || params.link || '').trim();
+    var pDesc = String(params.description || params.desc || '').trim();
+    var pBrand = String(params.brand || params.cat || '').trim();
+    var pDate = String(params.createdAt || params.date || new Date().toISOString().split('T')[0]).trim();
+    var pRow = [pName, pUrl, pDesc, pBrand, pDate];
+
+    var pFound = false;
+    var pLastR = pSheet.getLastRow();
+    if (pLastR >= 2) {
+      var pColA = pSheet.getRange(1, 1, pLastR, 1).getValues();
+      for (var pr = 2; pr <= pLastR; pr++) {
+        var existingPName = String(pColA[pr - 1][0] || '').trim();
+        if (_matchProd(existingPName, oldPName) || _matchProd(existingPName, pName)) {
+          pSheet.getRange(pr, 1, 1, 5).setValues([pRow]);
+          pFound = true;
+          break;
+        }
+      }
+    }
+    if (!pFound && pName) {
+      pSheet.appendRow(pRow);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, name: pName }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'delete_photo') {
+    var pSheet = ss.getSheetByName("Photos") || ss.getSheetByName("Photo") || ss.getSheetByName("Sawiro");
+    if (pSheet && pSheet.getLastRow() >= 2) {
+      var delPName = String(params.name || params.photoName || '').trim();
+      var pLastR = pSheet.getLastRow();
+      var pColA = pSheet.getRange(1, 1, pLastR, 1).getValues();
+      for (var pr = pLastR; pr >= 2; pr--) {
+        if (_matchProd(String(pColA[pr - 1][0] || '').trim(), delPName)) {
+          pSheet.deleteRow(pr);
+        }
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'delete_photo' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // COMPATIBLE LCDS ACTIONS (add_compat, update_compat, delete_compat)
+  if (action === 'add_compat' || action === 'update_compat') {
+    var cSheet = ss.getSheetByName("Compatible LCDs") || ss.getSheetByName("Compatibility") || ss.getSheetByName("Fits");
+    if (!cSheet) {
+      cSheet = ss.insertSheet("Compatible LCDs");
+      cSheet.appendRow(["Main Model (LCD)", "Compatible Models (Fits)", "Notes"]);
+      cSheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#0b1324").setFontColor("#f59e0b");
+      cSheet.setFrozenRows(1);
+    }
+    var oldLcd = String(params.oldLcd || params.lcd || '').trim();
+    var cLcd = String(params.lcd || params.mainModel || '').trim();
+    var cFits = String(params.fits || params.compatibleModels || '').trim();
+    var cNote = String(params.note || '').trim();
+    var cRow = [cLcd, cFits, cNote];
+
+    var cFound = false;
+    var cLastR = cSheet.getLastRow();
+    if (cLastR >= 2) {
+      var cColA = cSheet.getRange(1, 1, cLastR, 1).getValues();
+      for (var cr = 2; cr <= cLastR; cr++) {
+        var existingLcd = String(cColA[cr - 1][0] || '').trim();
+        if (_matchProd(existingLcd, oldLcd) || _matchProd(existingLcd, cLcd)) {
+          cSheet.getRange(cr, 1, 1, 3).setValues([cRow]);
+          cFound = true;
+          break;
+        }
+      }
+    }
+    if (!cFound && cLcd) {
+      cSheet.appendRow(cRow);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, lcd: cLcd }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'delete_compat') {
+    var cSheet = ss.getSheetByName("Compatible LCDs") || ss.getSheetByName("Compatibility") || ss.getSheetByName("Fits");
+    if (cSheet && cSheet.getLastRow() >= 2) {
+      var delLcd = String(params.lcd || params.mainModel || '').trim();
+      var cLastR = cSheet.getLastRow();
+      var cColA = cSheet.getRange(1, 1, cLastR, 1).getValues();
+      for (var cr = cLastR; cr >= 2; cr--) {
+        if (_matchProd(String(cColA[cr - 1][0] || '').trim(), delLcd)) {
+          cSheet.deleteRow(cr);
+        }
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'delete_compat' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // REGISTERED COMPANIES ACTIONS (add_company, update_company, delete_company, sync_all_companies)
+  if (action === 'add_company' || action === 'update_company') {
+    var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+    if (!compSheet) {
+      compSheet = ss.insertSheet("REGISTERED COMPANIES");
+      compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+      compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      compSheet.setFrozenRows(1);
+    }
+    var oldCompName = String(params.oldName || params.oldCompanyName || params.name || '').trim();
+    var compName = String(params.name || params.companyName || '').trim();
+    var compPhone = String(params.phone || '').trim();
+    var compWa = String(params.whatsapp || '').trim();
+    var compLoc = String(params.location || '').trim();
+    var compCat = String(params.category || 'All LCD Screens').trim();
+    var compContact = String(params.contactPerson || '').trim();
+    var compStatus = String(params.status || 'active').trim();
+    var compNote = String(params.note || '').trim();
+    var compDate = String(params.createdAt || new Date().toISOString().split('T')[0]).trim();
+    var compRow = [compName, compPhone, compWa, compLoc, compCat, compContact, compStatus, compNote, compDate];
+
+    var compFound = false;
+    var compLastR = compSheet.getLastRow();
+    if (compLastR >= 2) {
+      var compColA = compSheet.getRange(1, 1, compLastR, 1).getValues();
+      for (var cr = 2; cr <= compLastR; cr++) {
+        var existingName = String(compColA[cr - 1][0] || '').trim();
+        if (_matchProd(existingName, oldCompName) || _matchProd(existingName, compName)) {
+          compSheet.getRange(cr, 1, 1, 9).setValues([compRow]);
+          compFound = true;
+          break;
+        }
+      }
+    }
+    if (!compFound && compName) {
+      compSheet.appendRow(compRow);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, company: compName }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'delete_company') {
+    var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+    if (compSheet && compSheet.getLastRow() >= 2) {
+      var delCompName = String(params.name || params.companyName || '').trim();
+      var compLastR = compSheet.getLastRow();
+      var compColA = compSheet.getRange(1, 1, compLastR, 1).getValues();
+      for (var cr = compLastR; cr >= 2; cr--) {
+        if (_matchProd(String(compColA[cr - 1][0] || '').trim(), delCompName)) {
+          compSheet.deleteRow(cr);
+        }
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'delete_company' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'create_registered_companies_tab' || action === 'create_company_sheet') {
+    var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+    if (!compSheet) {
+      compSheet = ss.insertSheet("REGISTERED COMPANIES");
+    }
+    if (compSheet.getLastRow() < 1) {
+      compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+      compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      compSheet.setFrozenRows(1);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'create_registered_companies_tab', created: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'sync_all_companies') {
+    var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+    if (!compSheet) {
+      compSheet = ss.insertSheet("REGISTERED COMPANIES");
+    } else {
+      compSheet.clear();
+    }
+    compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+    compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+    compSheet.setFrozenRows(1);
+    var inRows = params.rows || [];
+    if (inRows.length > 0) {
+      compSheet.getRange(2, 1, inRows.length, 9).setValues(inRows);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'sync_all_companies', count: inRows.length }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var sheets = ss.getSheets();
+  var allParts = [];
+  var allPhotos = [];
+  var allCompat = [];
+  var sheetsFound = [];
+
+  // 1. FIRST PRIORITY: Check for single consolidated "ALL PRODUCT" or "ALL PRODUCTS" sheet
+  var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+  if (allProdSheet && allProdSheet.getLastRow() >= 2) {
+    sheetsFound.push(allProdSheet.getName());
+    var lastRow = allProdSheet.getLastRow();
+    var lastCol = allProdSheet.getLastColumn();
+    var values = allProdSheet.getRange(1, 1, lastRow, lastCol).getValues();
+    var headers = values[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+
+    var idIdx = -1, nameIdx = -1, catIdx = -1, dIdx = -1, yuanIdx = -1, usdIdx = -1, salesIdx = -1;
+    var compIdx = -1, shipIdx = -1, originIdx = -1;
+    for (var h = 0; h < headers.length; h++) {
+      var head = headers[h];
+      if (idIdx === -1 && (head === 'id' || head.indexOf('sku') !== -1 || head === 'product id' || head === 'part id')) idIdx = h;
+      if (nameIdx === -1 && (head.indexOf('name') !== -1 || head.indexOf('product') !== -1 || head.indexOf('model') !== -1) && head !== 'id' && head !== 'product id') nameIdx = h;
+      if (catIdx === -1 && (head.indexOf('category') !== -1 || head.indexOf('brand') !== -1 || head.indexOf('part') !== -1)) catIdx = h;
+      if (dIdx === -1 && (head === 'price d' || head === 'd' || head.indexOf('dirham') !== -1 || (head.indexOf('price') !== -1 && head.indexOf('sale') === -1))) dIdx = h;
+      if (yuanIdx === -1 && (head.indexOf('yuan') !== -1 || head.indexOf('¥') !== -1 || head.indexOf('rmb') !== -1)) yuanIdx = h;
+      if (usdIdx === -1 && (head.indexOf('usd') !== -1 && head.indexOf('sale') === -1)) usdIdx = h;
+      if (salesIdx === -1 && (head.indexOf('sales') !== -1 || head.indexOf('sale') !== -1 || head.indexOf('retail') !== -1)) salesIdx = h;
+      if (compIdx === -1 && (head.indexOf('company') !== -1 || head.indexOf('supplier') !== -1 || head.indexOf('vendor') !== -1)) compIdx = h;
+      if (shipIdx === -1 && (head.indexOf('ship') !== -1 || head.indexOf('cargo') !== -1)) shipIdx = h;
+      if (originIdx === -1 && (head.indexOf('origin') !== -1 || head.indexOf('country') !== -1 || head.indexOf('from') !== -1)) originIdx = h;
+    }
+
+    if (idIdx === 0 && nameIdx === -1 && headers.length > 1) nameIdx = 1;
+    else if (nameIdx === -1) nameIdx = 0;
+    if (catIdx === -1) catIdx = idIdx !== -1 ? 2 : 1;
+    if (dIdx === -1) dIdx = idIdx !== -1 ? 3 : 2;
+    if (yuanIdx === -1) yuanIdx = idIdx !== -1 ? 4 : 3;
+    if (usdIdx === -1) usdIdx = idIdx !== -1 ? 5 : 4;
+    if (salesIdx === -1) salesIdx = idIdx !== -1 ? 6 : 5;
+
+    for (var r = 1; r < values.length; r++) {
+      var row = values[r];
+      var name = String(row[nameIdx] || '').trim();
+      if (!name || name.toLowerCase() === 'product name') continue;
+
+      var rawCat = catIdx < row.length ? String(row[catIdx] || '').trim() : '';
+      var cat = rawCat || "General Spare Parts";
+      var rawD = dIdx < row.length ? String(row[dIdx] || '0').replace(/[^0-9.]/g, '') : '0';
+      var d = parseFloat(rawD) || 0;
+
+      var rawYuan = yuanIdx < row.length && row[yuanIdx] ? parseFloat(String(row[yuanIdx]).replace(/[^0-9.]/g, '')) : NaN;
+      var rawUsd = usdIdx < row.length && row[usdIdx] ? parseFloat(String(row[usdIdx]).replace(/[^0-9.]/g, '')) : NaN;
+      var rawSales = salesIdx < row.length && row[salesIdx] ? parseFloat(String(row[salesIdx]).replace(/[^0-9.]/g, '')) : NaN;
+
+      var baseUsd = d > 0 ? (d / 3.67) : 0;
+      var usd = !isNaN(rawUsd) && rawUsd > 0 ? rawUsd : Number(baseUsd.toFixed(2));
+      var yuan = !isNaN(rawYuan) && rawYuan > 0 ? rawYuan : Number((baseUsd * 7.23).toFixed(2));
+      var salesPrice = !isNaN(rawSales) && rawSales > 0 ? rawSales : usd;
+
+      var companyName = compIdx !== -1 && compIdx < row.length ? String(row[compIdx] || '').trim() : (row.length > 6 ? String(row[6] || '').trim() : '');
+      var rawShip = shipIdx !== -1 && shipIdx < row.length ? String(row[shipIdx] || '').trim().toLowerCase() : (row.length > 7 ? String(row[7] || '').trim().toLowerCase() : '');
+      var rawOrigin = originIdx !== -1 && originIdx < row.length ? String(row[originIdx] || '').trim() : (row.length > 8 ? String(row[8] || '').trim() : '');
+      var shippingMethod = rawShip.indexOf('sea') !== -1 ? 'sea' : 'air';
+      var origin = rawOrigin ? (rawOrigin.toLowerCase().indexOf('china') !== -1 ? 'China' : (rawOrigin.toLowerCase().indexOf('dubai') !== -1 ? 'Dubai' : rawOrigin)) : (cat.indexOf('LCD') !== -1 ? 'China' : 'Dubai');
+      var rawId = idIdx !== -1 && idIdx < row.length ? String(row[idIdx] || '').trim() : '';
+
+      allParts.push({
+        id: rawId || ('part-' + r),
+        name: name,
+        cat: cat,
+        d: d,
+        yuan: yuan,
+        usd: usd,
+        salesPrice: salesPrice,
+        expense: 0,
+        companyName: companyName,
+        shippingMethod: shippingMethod,
+      });
+    }
+  }
+
+  // 2. FALLBACK: If no "ALL PRODUCT" sheet was found, scan individual category sheets
+  if (allParts.length === 0) {
+    for (var s = 0; s < sheets.length; s++) {
+      var sheet = sheets[s];
+      var sheetName = sheet.getName().trim();
+      var sLower = sheetName.toLowerCase();
+      
+      // Skip empty or cover tabs
+      var lastRow = sheet.getLastRow();
+      var lastCol = sheet.getLastColumn();
+      if (lastRow < 2 || lastCol < 2) continue;
+      if (sLower === 'photos' || sLower === 'photo' || sLower.indexOf('compat') !== -1 || sLower.indexOf('fits') !== -1) continue;
+
+      var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+      if (values.length < 2) continue;
+
+      sheetsFound.push(sheetName);
+      var headers = values[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+
+      var nameIdx = -1, catIdx = -1, dIdx = -1, yuanIdx = -1, usdIdx = -1, salesIdx = -1;
+      for (var h = 0; h < headers.length; h++) {
+        var head = headers[h];
+        if (nameIdx === -1 && (head.indexOf('name') !== -1 || head.indexOf('product') !== -1 || head.indexOf('model') !== -1)) nameIdx = h;
+        if (catIdx === -1 && (head.indexOf('category') !== -1 || head.indexOf('brand') !== -1 || head.indexOf('part') !== -1)) catIdx = h;
+        if (dIdx === -1 && (head === 'price d' || head === 'd' || head.indexOf('dirham') !== -1 || (head.indexOf('price') !== -1 && head.indexOf('sale') === -1))) dIdx = h;
+        if (yuanIdx === -1 && (head.indexOf('yuan') !== -1 || head.indexOf('¥') !== -1 || head.indexOf('rmb') !== -1)) yuanIdx = h;
+        if (usdIdx === -1 && (head.indexOf('usd') !== -1 && head.indexOf('sale') === -1)) usdIdx = h;
+        if (salesIdx === -1 && (head.indexOf('sales') !== -1 || head.indexOf('sale') !== -1 || head.indexOf('retail') !== -1)) salesIdx = h;
+      }
+
+      if (nameIdx === -1) nameIdx = 0;
+      if (catIdx === -1) catIdx = 1;
+      if (dIdx === -1) dIdx = 2;
+      if (yuanIdx === -1) yuanIdx = 3;
+      if (usdIdx === -1) usdIdx = 4;
+      if (salesIdx === -1) salesIdx = 5;
+
+      for (var r = 1; r < values.length; r++) {
+        var row = values[r];
+        var name = String(row[nameIdx] || '').trim();
+        if (!name || name.toLowerCase() === 'product name') continue;
+
+        var rawCat = catIdx < row.length ? String(row[catIdx] || '').trim() : '';
+        var cat = rawCat || sheetName;
+        var rawD = dIdx < row.length ? String(row[dIdx] || '0').replace(/[^0-9.]/g, '') : '0';
+        var d = parseFloat(rawD) || 0;
+
+        var rawYuan = yuanIdx < row.length && row[yuanIdx] ? parseFloat(String(row[yuanIdx]).replace(/[^0-9.]/g, '')) : NaN;
+        var rawUsd = usdIdx < row.length && row[usdIdx] ? parseFloat(String(row[usdIdx]).replace(/[^0-9.]/g, '')) : NaN;
+        var rawSales = salesIdx < row.length && row[salesIdx] ? parseFloat(String(row[salesIdx]).replace(/[^0-9.]/g, '')) : NaN;
+
+        var baseUsd = d > 0 ? (d / 3.67) : 0;
+        var usd = !isNaN(rawUsd) && rawUsd > 0 ? rawUsd : Number(baseUsd.toFixed(2));
+        var yuan = !isNaN(rawYuan) && rawYuan > 0 ? rawYuan : Number((baseUsd * 7.23).toFixed(2));
+        var salesPrice = !isNaN(rawSales) && rawSales > 0 ? rawSales : usd;
+
+        allParts.push({
+          name: name,
+          cat: cat,
+          d: d,
+          yuan: yuan,
+          usd: usd,
+          salesPrice: salesPrice,
+          expense: 0
+        });
+      }
+    }
+  }
+
+  // 3. Scan Photos & Compatible LCDs tabs
+  for (var s = 0; s < sheets.length; s++) {
+    var sheet = sheets[s];
+    var sLower = sheet.getName().trim().toLowerCase();
+    var lastRow = sheet.getLastRow();
+    var lastCol = sheet.getLastColumn();
+    if (lastRow < 2 || lastCol < 2) continue;
+
+    var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+    if (values.length < 2) continue;
+
+    if (sLower === 'photos' || sLower === 'photo' || sLower === 'sawiro') {
+      for (var r = 1; r < values.length; r++) {
+        var pRow = values[r];
+        var pName = String(pRow[0] || '').trim();
+        var pUrl = String(pRow[1] || '').trim();
+        if (pName && pName.toLowerCase() !== 'photo name' && pName.toLowerCase() !== 'name') {
+          allPhotos.push({
+            name: pName,
+            url: pUrl,
+            description: String(pRow[2] || '').trim(),
+            brand: String(pRow[3] || '').trim(),
+            createdAt: String(pRow[4] || '').trim()
+          });
+        }
+      }
+    }
+
+    if (sLower.indexOf('compat') !== -1 || sLower.indexOf('fits') !== -1) {
+      for (var r = 1; r < values.length; r++) {
+        var cRow = values[r];
+        var cLcd = String(cRow[0] || '').trim();
+        var cFits = String(cRow[1] || '').trim();
+        if (cLcd && cLcd.toLowerCase() !== 'main model' && cLcd.toLowerCase() !== 'lcd') {
+          allCompat.push({
+            lcd: cLcd,
+            fits: cFits,
+            note: String(cRow[2] || '').trim()
+          });
+        }
+      }
+    }
+  }
+
+  // 4. Scan REGISTERED COMPANIES tab
+  var allCompanies = [];
+  var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Register Companies") || ss.getSheetByName("Shirkadaha");
+  if (compSheet && compSheet.getLastRow() >= 2) {
+    var compValues = compSheet.getRange(1, 1, compSheet.getLastRow(), Math.max(compSheet.getLastColumn(), 9)).getValues();
+    for (var cr = 1; cr < compValues.length; cr++) {
+      var compR = compValues[cr];
+      var cName = String(compR[0] || '').trim();
+      if (!cName || cName.toLowerCase() === 'company name') continue;
+      allCompanies.push({
+        id: 'comp-' + cr,
+        name: cName,
+        phoneNo: String(compR[1] || '').trim(),
+        whatsappNo: String(compR[2] || '').trim(),
+        location: String(compR[3] || '').trim(),
+        category: String(compR[4] || 'All LCD Screens').trim(),
+        contactPerson: String(compR[5] || '').trim(),
+        status: String(compR[6] || 'active').trim().toLowerCase() === 'blocked' ? 'blocked' : 'active',
+        note: String(compR[7] || '').trim(),
+        createdAt: String(compR[8] || '').trim()
+      });
+    }
+  }
+
+  // 5. Scan Price Tracker tab
+  var allPriceChanges = [];
+  var ptSheet = ss.getSheetByName("Price Tracker") || ss.getSheetByName("PRICE TRACKER") || ss.getSheetByName("Tracker");
+  if (ptSheet && ptSheet.getLastRow() >= 2) {
+    var ptValues = ptSheet.getRange(1, 1, ptSheet.getLastRow(), Math.max(ptSheet.getLastColumn(), 9)).getValues();
+    for (var ptr = 1; ptr < ptValues.length; ptr++) {
+      var ptR = ptValues[ptr];
+      var ptName = String(ptR[1] || '').trim();
+      if (!ptName || ptName.toLowerCase() === 'product name') continue;
+      var rawType = String(ptR[3] || '').toLowerCase();
+      var movementType = rawType.indexOf('increase') !== -1 ? 'increase' : (rawType.indexOf('decrease') !== -1 ? 'decrease' : 'new');
+      allPriceChanges.push({
+        id: 'pc-' + ptr,
+        date: String(ptR[0] || '').trim(),
+        name: ptName,
+        cat: String(ptR[2] || '').trim(),
+        type: movementType,
+        oldD: parseFloat(String(ptR[4] || '0').replace(/[^0-9.]/g, '')) || 0,
+        newD: parseFloat(String(ptR[5] || '0').replace(/[^0-9.]/g, '')) || 0,
+        deltaD: parseFloat(String(ptR[6] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        percentage: parseFloat(String(ptR[7] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        note: String(ptR[8] || '').trim()
+      });
+    }
+  }
+
+  var output = {
+    success: true,
+    parts: allParts,
+    companies: allCompanies,
+    priceChanges: allPriceChanges,
+    photos: allPhotos,
+    compat: allCompat,
+    sheetsFound: sheetsFound,
+    partsCount: allParts.length,
+    companiesCount: allCompanies.length,
+    priceChangesCount: allPriceChanges.length,
+    photosCount: allPhotos.length,
+    compatCount: allCompat.length,
+    timestamp: new Date().toISOString()
+  };
+
+  return ContentService.createTextOutput(JSON.stringify(output))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    var ss = _getSpreadsheet();
+    var payload = {};
+    if (e && e.postData && e.postData.contents) {
+      try {
+        payload = JSON.parse(e.postData.contents);
+      } catch (jsonErr) {
+        payload = (e && e.parameter) ? e.parameter : {};
+      }
+    } else if (e && e.parameter) {
+      payload = e.parameter;
+    }
+    var action = payload ? payload.action : null;
+
+    // 0. ADD NEW PRODUCT DIRECTLY TO GOOGLE SHEETS (ALWAYS appendRow 11 Columns, never overwrite)
+    if (action === 'add_product' || action === 'create_sheet_and_add_row') {
+      var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+      if (!allProdSheet) {
+        allProdSheet = ss.insertSheet("ALL PRODUCT");
+        allProdSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+        allProdSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        allProdSheet.setFrozenRows(1);
+      }
+      var newRow = payload.row || [
+        payload.id || payload.sku || ('p-' + Date.now()),
+        payload.name || payload.productName || '',
+        payload.cat || payload.category || 'General Spare Parts',
+        parseFloat(payload.d || '0') || 0,
+        parseFloat(payload.yuan || '0') || 0,
+        parseFloat(payload.usd || '0') || 0,
+        parseFloat(payload.salesPrice || payload.sales || '0') || 0,
+        payload.company || payload.companyName || '',
+        payload.shipping || payload.shippingMethod || 'By Air',
+        payload.origin || 'Dubai',
+        payload.date || new Date().toISOString().split('T')[0]
+      ];
+      // ALWAYS append new row - never overwrite existing rows!
+      if (newRow[1]) {
+        allProdSheet.appendRow(newRow);
+      }
+      // Also append to category tab if different and exists
+      var catSheetName = payload.sheetName || payload.cat || payload.category;
+      if (catSheetName && catSheetName !== "ALL PRODUCT" && catSheetName !== "ALL PRODUCTS") {
+        var catSheet = ss.getSheetByName(catSheetName);
+        if (catSheet && newRow[1]) {
+          catSheet.appendRow(newRow);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        added: true,
+        action: 'add_product',
+        productName: newRow[1]
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // FORMAT ALL PRODUCTS FROM GOOGLE SHEETS
+    if (action === 'format_all') {
+      var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+      if (allProdSheet) {
+        var lastR = allProdSheet.getLastRow();
+        if (lastR >= 2) {
+          allProdSheet.getRange(2, 1, lastR - 1, Math.max(allProdSheet.getLastColumn(), 11)).clearContent();
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        action: 'format_all',
+        message: 'All products formatted in Google Sheets'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 1. UPDATE PRODUCT DIRECTLY IN GOOGLE SHEETS (Searches ALL PRODUCT first, then all tabs)
+    if (action === 'update_product') {
+      var oldTarget = String(payload.oldName || payload.productName || payload.name || '').trim();
+      var newTarget = String(payload.productName || payload.name || payload.oldName || '').trim();
+      var rowData = {
+        id: payload.id || payload.sku || '',
+        name: newTarget,
+        cat: payload.cat || payload.category || 'General Spare Parts',
+        d: parseFloat(payload.d || '0') || 0,
+        yuan: parseFloat(payload.yuan || '0') || 0,
+        usd: parseFloat(payload.usd || '0') || 0,
+        salesPrice: parseFloat(payload.salesPrice || payload.sales || '0') || 0,
+        company: payload.company || payload.companyName || '',
+        shippingMethod: payload.shipping || payload.shippingMethod || '',
+        origin: payload.origin || ''
+      };
+      var updated = false;
+
+      // 1. Primary target: "ALL PRODUCT" tab (11 Columns)
+      var allProdSheet = ss.getSheetByName("ALL PRODUCT") || ss.getSheetByName("ALL PRODUCTS");
+      if (!allProdSheet) {
+        allProdSheet = ss.insertSheet("ALL PRODUCT");
+        allProdSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+        allProdSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        allProdSheet.setFrozenRows(1);
+      }
+
+      updated = _updateSheetRow(allProdSheet, oldTarget, newTarget, rowData);
+
+      // Also update any other category tabs
+      var allSheets = ss.getSheets();
+      for (var s = 0; s < allSheets.length; s++) {
+        var sh = allSheets[s];
+        if (sh.getName() !== allProdSheet.getName()) {
+          _updateSheetRow(sh, oldTarget, newTarget, rowData);
+        }
+      }
+
+      // If product wasn't found in any row, append directly to "ALL PRODUCT"
+      if (!updated && rowData.name) {
+        allProdSheet.appendRow([
+          rowData.id || ('p-' + Date.now()),
+          rowData.name,
+          rowData.cat,
+          rowData.d,
+          rowData.yuan,
+          rowData.usd,
+          rowData.salesPrice,
+          rowData.company || '',
+          rowData.shippingMethod || 'By Air',
+          rowData.origin || 'Dubai',
+          new Date().toISOString().split('T')[0]
+        ]);
+        updated = true;
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        updated: updated,
+        message: updated ? "Updated " + rowData.name + " (" + rowData.d + " D)" : "Appended new product to ALL PRODUCT",
+        productName: rowData.name,
+        d: rowData.d,
+        salesPrice: rowData.salesPrice
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. DELETE SINGLE PRODUCT FROM GOOGLE SHEETS (Searches ALL PRODUCT and all other tabs)
+    if (action === 'delete_product') {
+      var targetName = String(payload.productName || payload.name || '').trim();
+      var deleted = false;
+      var sheets = ss.getSheets();
+
+      for (var s = 0; s < sheets.length; s++) {
+        var sh = sheets[s];
+        var lastR = sh.getLastRow();
+        if (lastR < 2) continue;
+        var colA = sh.getRange(1, 1, lastR, 1).getValues();
+        for (var r = lastR; r >= 2; r--) {
+          var val = String(colA[r - 1][0] || '').trim();
+          if (_matchProd(val, targetName)) {
+            sh.deleteRow(r);
+            deleted = true;
+          }
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        deleted: deleted,
+        message: deleted ? "Deleted " + payload.productName : "Product not found"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. BULK DELETE MULTIPLE PRODUCTS FROM GOOGLE SHEETS
+    if (action === 'bulk_delete_products' && payload.productNames) {
+      var nameSet = {};
+      for (var i = 0; i < payload.productNames.length; i++) {
+        nameSet[String(payload.productNames[i]).trim().toLowerCase()] = true;
+      }
+      var count = 0;
+      var sheets = ss.getSheets();
+      for (var s = 0; s < sheets.length; s++) {
+        var sh = sheets[s];
+        var lastR = sh.getLastRow();
+        if (lastR < 2) continue;
+        var colA = sh.getRange(1, 1, lastR, 1).getValues();
+        for (var r = lastR; r >= 2; r--) {
+          var val = String(colA[r - 1][0] || '').trim().toLowerCase();
+          if (nameSet[val]) {
+            sh.deleteRow(r);
+            count++;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        count: count,
+        message: "Deleted " + count + " rows"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // PHOTOS ACTIONS (add_photo, update_photo, delete_photo)
+    if (action === 'add_photo' || action === 'update_photo') {
+      var pSheet = ss.getSheetByName("Photos") || ss.getSheetByName("Photo") || ss.getSheetByName("Sawiro");
+      if (!pSheet) {
+        pSheet = ss.insertSheet("Photos");
+        pSheet.appendRow(["Photo Name", "Image URL / Link", "Description", "Brand / Category", "Date Added"]);
+        pSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0b1324").setFontColor("#34d399");
+        pSheet.setFrozenRows(1);
+      }
+      var oldPName = String(payload.oldName || payload.name || '').trim();
+      var pName = String(payload.name || payload.photoName || '').trim();
+      var pUrl = String(payload.url || payload.link || '').trim();
+      var pDesc = String(payload.description || payload.desc || '').trim();
+      var pBrand = String(payload.brand || payload.cat || '').trim();
+      var pDate = String(payload.createdAt || payload.date || new Date().toISOString().split('T')[0]).trim();
+      var pRow = [pName, pUrl, pDesc, pBrand, pDate];
+
+      var pFound = false;
+      var pLastR = pSheet.getLastRow();
+      if (pLastR >= 2) {
+        var pColA = pSheet.getRange(1, 1, pLastR, 1).getValues();
+        for (var pr = 2; pr <= pLastR; pr++) {
+          var existingPName = String(pColA[pr - 1][0] || '').trim();
+          if (_matchProd(existingPName, oldPName) || _matchProd(existingPName, pName)) {
+            pSheet.getRange(pr, 1, 1, 5).setValues([pRow]);
+            pFound = true;
+            break;
+          }
+        }
+      }
+      if (!pFound && pName) {
+        pSheet.appendRow(pRow);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, name: pName }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'delete_photo') {
+      var pSheet = ss.getSheetByName("Photos") || ss.getSheetByName("Photo") || ss.getSheetByName("Sawiro");
+      if (pSheet && pSheet.getLastRow() >= 2) {
+        var delPName = String(payload.name || payload.photoName || '').trim();
+        var pLastR = pSheet.getLastRow();
+        var pColA = pSheet.getRange(1, 1, pLastR, 1).getValues();
+        for (var pr = pLastR; pr >= 2; pr--) {
+          if (_matchProd(String(pColA[pr - 1][0] || '').trim(), delPName)) {
+            pSheet.deleteRow(pr);
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'delete_photo' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // COMPATIBLE LCDS ACTIONS (add_compat, update_compat, delete_compat)
+    if (action === 'add_compat' || action === 'update_compat') {
+      var cSheet = ss.getSheetByName("Compatible LCDs") || ss.getSheetByName("Compatibility") || ss.getSheetByName("Fits");
+      if (!cSheet) {
+        cSheet = ss.insertSheet("Compatible LCDs");
+        cSheet.appendRow(["Main Model (LCD)", "Compatible Models (Fits)", "Notes"]);
+        cSheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#0b1324").setFontColor("#f59e0b");
+        cSheet.setFrozenRows(1);
+      }
+      var oldLcd = String(payload.oldLcd || payload.lcd || '').trim();
+      var cLcd = String(payload.lcd || payload.mainModel || '').trim();
+      var cFits = String(payload.fits || payload.compatibleModels || '').trim();
+      var cNote = String(payload.note || '').trim();
+      var cRow = [cLcd, cFits, cNote];
+
+      var cFound = false;
+      var cLastR = cSheet.getLastRow();
+      if (cLastR >= 2) {
+        var cColA = cSheet.getRange(1, 1, cLastR, 1).getValues();
+        for (var cr = 2; cr <= cLastR; cr++) {
+          var existingLcd = String(cColA[cr - 1][0] || '').trim();
+          if (_matchProd(existingLcd, oldLcd) || _matchProd(existingLcd, cLcd)) {
+            cSheet.getRange(cr, 1, 1, 3).setValues([cRow]);
+            cFound = true;
+            break;
+          }
+        }
+      }
+      if (!cFound && cLcd) {
+        cSheet.appendRow(cRow);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, lcd: cLcd }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'delete_compat') {
+      var cSheet = ss.getSheetByName("Compatible LCDs") || ss.getSheetByName("Compatibility") || ss.getSheetByName("Fits");
+      if (cSheet && cSheet.getLastRow() >= 2) {
+        var delLcd = String(payload.lcd || payload.mainModel || '').trim();
+        var cLastR = cSheet.getLastRow();
+        var cColA = cSheet.getRange(1, 1, cLastR, 1).getValues();
+        for (var cr = cLastR; cr >= 2; cr--) {
+          if (_matchProd(String(cColA[cr - 1][0] || '').trim(), delLcd)) {
+            cSheet.deleteRow(cr);
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'delete_compat' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // REGISTERED COMPANIES ACTIONS (add_company, update_company, delete_company)
+    if (action === 'add_company' || action === 'update_company') {
+      var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+      if (!compSheet) {
+        compSheet = ss.insertSheet("REGISTERED COMPANIES");
+        compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+        compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        compSheet.setFrozenRows(1);
+      }
+      var oldCompName = String(payload.oldName || payload.oldCompanyName || payload.name || '').trim();
+      var compName = String(payload.name || payload.companyName || '').trim();
+      var compPhone = String(payload.phone || '').trim();
+      var compWa = String(payload.whatsapp || '').trim();
+      var compLoc = String(payload.location || '').trim();
+      var compCat = String(payload.category || 'All LCD Screens (Multi-Brand)').trim();
+      var compContact = String(payload.contactPerson || '').trim();
+      var compStatus = String(payload.status || 'preferred').trim();
+      var compNote = String(payload.note || '').trim();
+      var compDate = String(payload.createdAt || new Date().toISOString().split('T')[0]).trim();
+      var compRow = [compName, compPhone, compWa, compLoc, compCat, compContact, compStatus, compNote, compDate];
+
+      var compFound = false;
+      var compLastR = compSheet.getLastRow();
+      if (compLastR >= 2) {
+        var compColA = compSheet.getRange(1, 1, compLastR, 1).getValues();
+        for (var cr = 2; cr <= compLastR; cr++) {
+          var existingName = String(compColA[cr - 1][0] || '').trim();
+          if (_matchProd(existingName, oldCompName) || _matchProd(existingName, compName)) {
+            compSheet.getRange(cr, 1, 1, 9).setValues([compRow]);
+            compFound = true;
+            break;
+          }
+        }
+      }
+      if (!compFound && compName) {
+        compSheet.appendRow(compRow);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, company: compName }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'delete_company') {
+      var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+      if (compSheet && compSheet.getLastRow() >= 2) {
+        var delCompName = String(payload.name || payload.companyName || '').trim();
+        var compLastR = compSheet.getLastRow();
+        var compColA = compSheet.getRange(1, 1, compLastR, 1).getValues();
+        for (var cr = compLastR; cr >= 2; cr--) {
+          if (_matchProd(String(compColA[cr - 1][0] || '').trim(), delCompName)) {
+            compSheet.deleteRow(cr);
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: 'delete_company' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3A. COMPLETE SUITE BACKUP: Backs up ALL 5 collections into dedicated tabs
+    if (action === 'backup_complete') {
+      var partRows = payload.partRows || [];
+      var companyRows = payload.companyRows || [];
+      var trackerRows = payload.trackerRows || [];
+      var photoRows = payload.photoRows || [];
+      var compatRows = payload.compatRows || [];
+
+      // 1. ALL PRODUCT Tab (11 Columns with ID in Col A)
+      var sh = ss.getSheetByName("ALL PRODUCT");
+      if (!sh) {
+        sh = ss.insertSheet("ALL PRODUCT");
+      } else {
+        sh.clearContents();
+      }
+      sh.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      sh.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      sh.setFrozenRows(1);
+      if (partRows.length > 0) {
+        sh.getRange(2, 1, partRows.length, partRows[0].length).setValues(partRows);
+      }
+
+      // 2. REGISTERED COMPANIES Tab (9 Columns)
+      var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Register Companies");
+      if (!compSheet) {
+        compSheet = ss.insertSheet("REGISTERED COMPANIES");
+      } else {
+        compSheet.clearContents();
+      }
+      compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+      compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      compSheet.setFrozenRows(1);
+      if (companyRows.length > 0) {
+        compSheet.getRange(2, 1, companyRows.length, companyRows[0].length).setValues(companyRows);
+      }
+
+      // 3. Price Tracker Tab (9 Columns)
+      var ptSheet = ss.getSheetByName("Price Tracker") || ss.getSheetByName("PRICE TRACKER");
+      if (!ptSheet) {
+        ptSheet = ss.insertSheet("Price Tracker");
+      } else {
+        ptSheet.clearContents();
+      }
+      ptSheet.appendRow(["Date", "Product Name", "Category", "Movement Type", "Old Price D", "New Price D", "Price Delta (D)", "Change %", "Notes / Supplier"]);
+      ptSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      ptSheet.setFrozenRows(1);
+      if (trackerRows.length > 0) {
+        ptSheet.getRange(2, 1, trackerRows.length, trackerRows[0].length).setValues(trackerRows);
+      }
+
+      // 4. Photos Tab (5 Columns)
+      var photoSheet = ss.getSheetByName("Photos");
+      if (!photoSheet) {
+        photoSheet = ss.insertSheet("Photos");
+      } else {
+        photoSheet.clearContents();
+      }
+      photoSheet.appendRow(["Photo Name", "Image URL / Link", "Description", "Brand / Category", "Date Added"]);
+      photoSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0b1324").setFontColor("#34d399");
+      photoSheet.setFrozenRows(1);
+      if (photoRows.length > 0) {
+        photoSheet.getRange(2, 1, photoRows.length, photoRows[0].length).setValues(photoRows);
+      }
+
+      // 5. Compatible LCDs Tab (3 Columns)
+      var compatSheet = ss.getSheetByName("Compatible LCDs");
+      if (!compatSheet) {
+        compatSheet = ss.insertSheet("Compatible LCDs");
+      } else {
+        compatSheet.clearContents();
+      }
+      compatSheet.appendRow(["Main Model (LCD)", "Compatible Models (Fits)", "Notes"]);
+      compatSheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#0b1324").setFontColor("#f59e0b");
+      compatSheet.setFrozenRows(1);
+      if (compatRows.length > 0) {
+        compatSheet.getRange(2, 1, compatRows.length, compatRows[0].length).setValues(compatRows);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        action: 'backup_complete',
+        counts: {
+          parts: partRows.length,
+          companies: companyRows.length,
+          priceChanges: trackerRows.length,
+          photos: photoRows.length,
+          compat: compatRows.length
+        },
+        message: "Successfully backed up Complete Suite (" + partRows.length + " products, " + companyRows.length + " companies, " + trackerRows.length + " price movements) to Google Sheets!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3B. 1-SHEET ALL-IN-ONE BACKUP: Consolidates ALL categories into 1 sheet named "ALL PRODUCT"
+    if (action === 'backup_all_in_one') {
+      var partsList = payload.parts || payload.items || [];
+      var sh = ss.getSheetByName("ALL PRODUCT");
+      if (!sh) {
+        sh = ss.insertSheet("ALL PRODUCT");
+      } else {
+        sh.clearContents();
+      }
+
+      // Add bold header (Strict 11 Columns matching Row 3 format)
+      sh.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      sh.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      sh.setFrozenRows(1);
+
+      var rowsToAdd = [];
+      for (var i = 0; i < partsList.length; i++) {
+        if (partsList[i].row) {
+          rowsToAdd.push(partsList[i].row);
+        }
+      }
+
+      if (rowsToAdd.length > 0) {
+        var numCols = rowsToAdd[0].length;
+        sh.getRange(2, 1, rowsToAdd.length, numCols).setValues(rowsToAdd);
+      }
+
+      // Photos Tab Backup
+      if (payload.photos && payload.photos.length > 0) {
+        var photoSheet = ss.getSheetByName("Photos");
+        if (!photoSheet) {
+          photoSheet = ss.insertSheet("Photos");
+        } else {
+          photoSheet.clearContents();
+        }
+        photoSheet.appendRow(["Photo Name", "Image URL / Link", "Description", "Brand / Category", "Date Added"]);
+        photoSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0b1324").setFontColor("#34d399");
+        photoSheet.setFrozenRows(1);
+        var photoRows = payload.photos.map(function(ph) {
+          return [ph.name || '', ph.url || '', ph.description || '', ph.brand || ph.category || '', ph.createdAt || ''];
+        });
+        if (photoRows.length > 0) {
+          photoSheet.getRange(2, 1, photoRows.length, 5).setValues(photoRows);
+        }
+      }
+
+      // Compatible LCDs Tab Backup
+      if (payload.compat && payload.compat.length > 0) {
+        var compatSheet = ss.getSheetByName("Compatible LCDs");
+        if (!compatSheet) {
+          compatSheet = ss.insertSheet("Compatible LCDs");
+        } else {
+          compatSheet.clearContents();
+        }
+        compatSheet.appendRow(["Main Model (LCD)", "Compatible Models (Fits)", "Notes"]);
+        compatSheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#0b1324").setFontColor("#f59e0b");
+        compatSheet.setFrozenRows(1);
+        var compatRows = payload.compat.map(function(c) {
+          return [c.lcd || '', c.fits || '', c.note || ''];
+        });
+        if (compatRows.length > 0) {
+          compatSheet.getRange(2, 1, compatRows.length, 3).setValues(compatRows);
+        }
+      }
+
+      // REGISTERED COMPANIES Tab Backup in All-In-One Mode
+      var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+      if (!compSheet) {
+        compSheet = ss.insertSheet("REGISTERED COMPANIES");
+      } else {
+        compSheet.clearContents();
+      }
+      compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+      compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      compSheet.setFrozenRows(1);
+      if (payload.companies && payload.companies.length > 0) {
+        var compRows = payload.companies.map(function(c) {
+          return [
+            c.name || '',
+            c.phoneNo || c.phone || '',
+            c.whatsappNo || c.whatsapp || '',
+            c.location || '',
+            c.category || 'All LCD Screens',
+            c.contactPerson || '',
+            c.status || 'active',
+            c.note || '',
+            c.createdAt || ''
+          ];
+        });
+        if (compRows.length > 0) {
+          compSheet.getRange(2, 1, compRows.length, 9).setValues(compRows);
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        count: rowsToAdd.length,
+        message: "Successfully backed up " + rowsToAdd.length + " products into 1 sheet named 'ALL PRODUCT' and created 'REGISTERED COMPANIES' tab!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 4. MULTI-TAB BATCH BACKUP: Splits into individual category sheets (Every Category is its own Spreadsheet tab)
+    if (action === 'batch_backup_all') {
+      var partsList = payload.parts || payload.items || [];
+      var bySheet = payload.byCategory || {};
+
+      // If byCategory wasn't provided directly, group items by category name
+      if (Object.keys(bySheet).length === 0) {
+        for (var i = 0; i < partsList.length; i++) {
+          var item = partsList[i];
+          var sName = item.category || (item.row ? item.row[1] : null) || item.sheetName || "General Spare Parts";
+          sName = String(sName).trim();
+          if (!bySheet[sName]) bySheet[sName] = [];
+          if (item.row) {
+            bySheet[sName].push(item.row);
+          }
+        }
+      }
+
+      // Also create or refresh master "ALL PRODUCT" tab
+      var masterSheet = ss.getSheetByName("ALL PRODUCT");
+      if (!masterSheet) {
+        masterSheet = ss.insertSheet("ALL PRODUCT");
+      } else {
+        masterSheet.clearContents();
+      }
+      masterSheet.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+      masterSheet.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      masterSheet.setFrozenRows(1);
+      var allMasterRows = [];
+      for (var i = 0; i < partsList.length; i++) {
+        if (partsList[i].row) allMasterRows.push(partsList[i].row);
+      }
+      if (allMasterRows.length > 0) {
+        var numMasterCols = allMasterRows[0].length;
+        masterSheet.getRange(2, 1, allMasterRows.length, numMasterCols).setValues(allMasterRows);
+      }
+
+      // Process EVERY category tab: clear contents and overwrite cleanly (prevents row duplication)
+      var allExistingSheets = ss.getSheets();
+      for (var catName in bySheet) {
+        var cleanTabName = String(catName).replace(/[/\?*[]:]/g, " - ").replace(/s+/g, " ").trim();
+        if (cleanTabName.startsWith("'")) cleanTabName = cleanTabName.substring(1);
+        if (cleanTabName.endsWith("'")) cleanTabName = cleanTabName.substring(0, cleanTabName.length - 1);
+        if (!cleanTabName) cleanTabName = "General Spare Parts";
+        if (cleanTabName.length > 85) cleanTabName = cleanTabName.substring(0, 85);
+
+        var sh = ss.getSheetByName(cleanTabName);
+        if (!sh) {
+          for (var sIdx = 0; sIdx < allExistingSheets.length; sIdx++) {
+            var esName = allExistingSheets[sIdx].getName().trim().toLowerCase();
+            if (esName === cleanTabName.toLowerCase() || esName === String(catName).trim().toLowerCase()) {
+              sh = allExistingSheets[sIdx];
+              break;
+            }
+          }
+        }
+        if (!sh) {
+          sh = ss.insertSheet(cleanTabName);
+        } else {
+          sh.clearContents();
+        }
+        sh.appendRow(["ID", "Product Name", "Category (Brand _Part Type)", "Price D", "Yuan ¥", "USD+", "Sales $", "Company / Supplier", "Shipment", "Origin", "Date Added"]);
+        sh.getRange(1, 1, 1, 11).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+        sh.setFrozenRows(1);
+
+        var rowsToAdd = bySheet[catName];
+        if (rowsToAdd && rowsToAdd.length > 0) {
+          var numCatCols = rowsToAdd[0].length;
+          sh.getRange(2, 1, rowsToAdd.length, numCatCols).setValues(rowsToAdd);
+        }
+      }
+
+      // Photos Tab Backup
+      if (payload.photos && payload.photos.length > 0) {
+        var photoSheet = ss.getSheetByName("Photos");
+        if (!photoSheet) {
+          photoSheet = ss.insertSheet("Photos");
+        } else {
+          photoSheet.clearContents();
+        }
+        photoSheet.appendRow(["Photo Name", "Image URL / Link", "Description", "Brand / Category", "Date Added"]);
+        photoSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#0b1324").setFontColor("#34d399");
+        photoSheet.setFrozenRows(1);
+        var photoRows = payload.photos.map(function(ph) {
+          return [ph.name || '', ph.url || '', ph.description || '', ph.brand || ph.category || '', ph.createdAt || ''];
+        });
+        if (photoRows.length > 0) {
+          photoSheet.getRange(2, 1, photoRows.length, 5).setValues(photoRows);
+        }
+      }
+
+      // Compatible LCDs Tab Backup
+      if (payload.compat && payload.compat.length > 0) {
+        var compatSheet = ss.getSheetByName("Compatible LCDs");
+        if (!compatSheet) {
+          compatSheet = ss.insertSheet("Compatible LCDs");
+        } else {
+          compatSheet.clearContents();
+        }
+        compatSheet.appendRow(["Main Model (LCD)", "Compatible Models (Fits)", "Notes"]);
+        compatSheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#0b1324").setFontColor("#f59e0b");
+        compatSheet.setFrozenRows(1);
+        var compatRows = payload.compat.map(function(c) {
+          return [c.lcd || '', c.fits || '', c.note || ''];
+        });
+        if (compatRows.length > 0) {
+          compatSheet.getRange(2, 1, compatRows.length, 3).setValues(compatRows);
+        }
+      }
+
+      // 4. REGISTERED COMPANIES Tab Backup (Guarantees REGISTERED COMPANIES tab is created in NAJI HASSAN Sheet)
+      var compSheet = ss.getSheetByName("REGISTERED COMPANIES") || ss.getSheetByName("Companies") || ss.getSheetByName("Shirkadaha");
+      if (!compSheet) {
+        compSheet = ss.insertSheet("REGISTERED COMPANIES");
+      } else {
+        compSheet.clearContents();
+      }
+      compSheet.appendRow(["Company Name", "Phone No", "WhatsApp", "Location", "Category / Specialty", "Contact Person", "Status", "Notes", "Date Registered"]);
+      compSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#0b1324").setFontColor("#38bdf8");
+      compSheet.setFrozenRows(1);
+      if (payload.companies && payload.companies.length > 0) {
+        var compRows = payload.companies.map(function(c) {
+          return [
+            c.name || '',
+            c.phoneNo || c.phone || '',
+            c.whatsappNo || c.whatsapp || '',
+            c.location || '',
+            c.category || 'All LCD Screens',
+            c.contactPerson || '',
+            c.status || 'active',
+            c.note || '',
+            c.createdAt || ''
+          ];
+        });
+        if (compRows.length > 0) {
+          compSheet.getRange(2, 1, compRows.length, 9).setValues(compRows);
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        categoriesCount: Object.keys(bySheet).length,
+        productsCount: partsList.length,
+        message: "Successfully backed up " + partsList.length + " products into " + Object.keys(bySheet).length + " category spreadsheet tabs + Photos & Compatibility!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      message: "Action " + (action || 'none') + " processed successfully."
+    })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}

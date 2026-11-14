@@ -152,7 +152,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     const catCount = Array.from(new Set(catalog.map(p => p.cat))).length;
     setStatusMessage({
       type: 'success',
-      text: `Guul! Dhammaan 584 alaabood iyo ${catCount} category pages (SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, iwm.) ee NAJI HASSAN si buuxda ayaa loo soo roray!`
+      text: `Success! Loaded all 584 products and ${catCount} category pages (SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, etc.) for NAJI HASSAN!`
     });
   };
 
@@ -162,7 +162,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan marka hore geli Google Apps Script Web App URL-kaaga (link-ga ku dhamaanaya /exec).'
+        text: 'Please enter your Google Apps Script Web App URL first (link ending with /exec).'
       });
       return;
     }
@@ -175,7 +175,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       setShowAppsScript(true);
       setStatusMessage({
         type: 'error',
-        text: 'Kaydinta tooska ah waxay u baahan tahay Google Apps Script Web App URL (oo ku dhamaanaya /exec). Eeg tab-ka hoose ee Script-ka.'
+        text: 'Direct backup requires a Google Apps Script Web App URL (ending with /exec). See the Script tab below.'
       });
       return;
     }
@@ -183,7 +183,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     setIsBackingUpSuite(true);
     setStatusMessage({
       type: 'success',
-      text: `Waxaa Google Sheet-ka lagu kaydinayaa Complete Suite: ${parts.length} Spare Parts, ${companies.length} Companies, ${priceChanges.length} Price Movements, ${photosList.length} Photos, ${compatList.length} LCD Sets...`
+      text: `Saving Complete Suite to Google Sheet: ${parts.length} Spare Parts, ${companies.length} Companies, ${priceChanges.length} Price Movements, ${photosList.length} Photos, ${compatList.length} LCD Sets...`
     });
 
     try {
@@ -199,7 +199,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
         sound.playVictory();
         setStatusMessage({
           type: 'success',
-          text: `Guul! Dhammaan Complete Suite (585+ Parts, Shirkadaha, Price Tracker, Sawirrada, & LCD-yada) si buuxda ayaa loogu kaydiyay Google Sheet-kaaga!`
+          text: `Success! Complete Suite (Parts, Companies, Price Tracker, Photos, & Compatible LCDs) has been saved to your Google Sheet!`
         });
       } else {
         throw new Error(res.message);
@@ -208,7 +208,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Khalad ayaa dhacay xilligii kaydinta Complete Suite: ' + (err as Error).message
+        text: 'Error backing up Complete Suite: ' + (err as Error).message
       });
     } finally {
       setIsBackingUpSuite(false);
@@ -221,7 +221,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan marka hore geli Google Apps Script Web App URL-kaaga (link-ga ku dhamaanaya /exec).'
+        text: 'Please enter your Google Apps Script Web App URL first (link ending with /exec).'
       });
       return;
     }
@@ -233,7 +233,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Soo celinta tooska ah waxay u baahan tahay Google Apps Script Web App URL (oo ku dhamaanaya /exec).'
+        text: 'Direct restore requires a Google Apps Script Web App URL (ending with /exec).'
       });
       return;
     }
@@ -241,7 +241,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     setIsRestoringSuite(true);
     setStatusMessage({
       type: 'success',
-      text: 'Waxaa Google Sheet-kaaga laga soo aqrinayaa dhammaan 5-ta tab...'
+      text: 'Reading all 5 sheets from your Google Sheet...'
     });
 
     try {
@@ -250,13 +250,13 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       setRestorePreview(result);
       setStatusMessage({
         type: 'success',
-        text: `Waxaa Google Sheet-ka laga helay: ${result.partsCount} Spare Parts, ${result.companiesCount} Shirkadood, ${result.priceChangesCount} Price Tracker records, ${result.photosCount} Sawirro, iyo ${result.compatCount} Compatible LCD sets. Guji "Confirm Restore" si aad app-ka ugu shubto!`
+        text: `Found in Google Sheet: ${result.partsCount} Spare Parts, ${result.companiesCount} Companies, ${result.priceChangesCount} Price Tracker records, ${result.photosCount} Photos, and ${result.compatCount} Compatible LCD sets. Click "Confirm Restore" to load into the app!`
       });
     } catch (err) {
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Khalad ayaa dhacay xilligii xogta laga soo aqrinayay Google Sheet: ' + (err as Error).message
+        text: 'Error reading data from Google Sheet: ' + (err as Error).message
       });
     } finally {
       setIsRestoringSuite(false);
@@ -273,7 +273,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     }
     setStatusMessage({
       type: 'success',
-      text: `Guul! Dhammaan xogtii Complete Suite ee Google Sheet-ka si guul leh ayaa loogu soo celiyay app-kaaga!`
+      text: `Success! All Complete Suite data from Google Sheet has been restored into your app!`
     });
     setRestorePreview(null);
   };
@@ -283,7 +283,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Your catalog currently has 0 products. Please add products or click "Soo Ror 584 Alaabood" before creating a backup.'
+        text: 'Your catalog currently has 0 products. Please add products or click "Load 584 Products" before creating a backup.'
       });
       return;
     }
@@ -294,7 +294,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan geli link-ga Google Sheets ama Google Apps Script Web App ee kore si aad ugu backup garayso.'
+        text: 'Please enter a Google Sheets link or Google Apps Script Web App URL above to create a backup.'
       });
       return;
     }
@@ -312,25 +312,25 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       setStatusMessage({
         type: 'success',
         text: mode === 'multi_tab' 
-          ? `Waxaa toos loogu dirayaa Google Sheet-kaaga: ${parts.length} alaabood oo loo kala saarayo ${categories.length} category spreadsheet tabs (pages: SAMSUNG - LCD, IPhone - LCD, TECNO - LCD, iwm.)...`
-          : `Waxaa toos loogu dirayaa Google Sheet-kaaga: ${parts.length} alaabood tab-ka 'ALL PRODUCT'...`
+          ? `Uploading directly to your Google Sheet: ${parts.length} products organized into ${categories.length} category spreadsheet tabs (SAMSUNG - LCD, IPhone - LCD, TECNO - LCD, etc.)...`
+          : `Uploading directly to your Google Sheet: ${parts.length} products to 'ALL PRODUCT'...`
       });
 
       try {
         await GoogleSheetsService.backupAllToGoogleSheet(targetEndpoint, parts, photosList, compatList, mode, companies);
         sound.playVictory();
         const modeDesc = mode === 'multi_tab' 
-          ? `Dhammaan ${parts.length} alaabood waxaa si toos ah loogu dhex sameeyay ${categories.length} category spreadsheet tabs (pages) ee Google Sheet-kaaga NAJI HASSAN!` 
-          : `Dhammaan ${parts.length} alaabood waxaa toos loogu backup gareeyay tab-ka 'ALL PRODUCT' ee Google Sheet-kaaga NAJI HASSAN!`;
+          ? `All ${parts.length} products have been written directly into ${categories.length} category spreadsheet tabs (pages) in your NAJI HASSAN Google Sheet!` 
+          : `All ${parts.length} products have been backed up directly to 'ALL PRODUCT' in your NAJI HASSAN Google Sheet!`;
         setStatusMessage({
           type: 'success',
-          text: `Guul! ${modeDesc}`
+          text: `Success! ${modeDesc}`
         });
       } catch (err) {
         sound.playWrong();
         setStatusMessage({
           type: 'error',
-          text: `Khalad ayaa dhacay xilligii loo dirayay Google Sheets: ${(err as Error).message || 'Hubi xiriirka internet-kaaga ama Web App-ka.'}`
+          text: `Error sending data to Google Sheets: ${(err as Error).message || 'Please check your internet connection or Web App URL.'}`
         });
       } finally {
         setIsBackingUp(false);
@@ -345,7 +345,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     setShowAppsScript(true);
     setStatusMessage({
       type: 'success',
-      text: `Link-ga Google Sheet-ka NAJI HASSAN waa la helay (Sheet ID: ${sheetId || 'link-gaaga'}). Si uu toos ugu dhex abuuro dhammaan ${categories.length}-ka qaybood Google Sheet-kaaga: nuqul ka qaado script-ka hoose (oo leh Sheet ID-gaaga), ku dar Google Sheet-kaaga (Extensions > Apps Script > Deploy > Web App: Anyone), kadibna Web App URL-ka ku dar sanduuqa kore!`
+      text: `NAJI HASSAN Google Sheet link detected (Sheet ID: ${sheetId || 'your link'}). To create all ${categories.length} category tabs directly in your Google Sheet: copy the script below (pre-configured with your Sheet ID), paste it into Extensions > Apps Script > Deploy > Web App (Anyone), then paste the Web App URL above!`
     });
   };
 
@@ -354,7 +354,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
     GoogleSheetsService.exportToMultiTabWorkbook(parts, photosList, compatList);
     setStatusMessage({
       type: 'success',
-      text: `Faylka offline-ka ah (.xls) ee dhammaan ${categories.length} category tabs ayaa laguu soo dejiyay kumbuyuutarkaaga.`
+      text: `Downloaded offline workbook (.xls) containing all ${categories.length} category tabs to your computer.`
     });
   };
 
@@ -400,7 +400,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       sound.playWrong();
       setStatusMessage({
         type: 'error',
-        text: 'Fadlan marka hore gali Google Apps Script Web App URL (/exec) si aad u tijaabiso xiriirka!'
+        text: 'Please enter a Google Apps Script Web App URL (/exec) first to test the connection!'
       });
       return;
     }
@@ -414,14 +414,14 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
         setConnectionResult({ verified: true, sheetName: res.sheetName });
         setStatusMessage({
           type: 'success',
-          text: `🟢 Xiriirka wuu guuleystay! Connected to Google Sheet "${res.sheetName || 'NAJI HASSAN'}" (Spreadsheet is active & responding)!`
+          text: `🟢 Connection successful! Connected to Google Sheet "${res.sheetName || 'NAJI HASSAN'}" (Spreadsheet is active & responding)!`
         });
       } else {
         sound.playWrong();
         setConnectionResult({ verified: false, error: res.message });
         setStatusMessage({
           type: 'error',
-          text: `❌ Xiriirka Google Sheet wuu fashilmay: ${res.message || 'Deployment error'}. Hubi in Apps Script deployment-kaagu yahay "Execute as: Me" iyo "Who has access: Anyone".`
+          text: `❌ Google Sheet connection failed: ${res.message || 'Deployment error'}. Check that your Apps Script deployment has "Execute as: Me" and "Who has access: Anyone".`
         });
       }
     } catch (err: any) {
@@ -429,7 +429,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
       setConnectionResult({ verified: false, error: err?.message || 'Connection failed' });
       setStatusMessage({
         type: 'error',
-        text: `❌ Xiriirka Google Sheet wuu fashilmay: ${err?.message || 'Connection error'}`
+        text: `❌ Google Sheet connection failed: ${err?.message || 'Connection error'}`
       });
     } finally {
       setIsTestingConnection(false);
@@ -783,7 +783,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                       <div className="flex-1 leading-normal">
                         {connectionResult.verified ? (
                           <span>
-                            <strong>🟢 Xiriirka wuu toosan yahay:</strong> Connected to spreadsheet <span className="underline font-bold text-white">"{connectionResult.sheetName || 'NAJI HASSAN'}"</span>. Backup and Restore are completely ready to use!
+                            <strong>🟢 Connection Active:</strong> Connected to spreadsheet <span className="underline font-bold text-white">"{connectionResult.sheetName || 'NAJI HASSAN'}"</span>. Backup and Restore are completely ready to use!
                           </span>
                         ) : (
                           <span>
@@ -1148,7 +1148,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                   </div>
 
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Tracks newly added items, price increases (Price Up / Kor u kacay), and price drops (Price Down / Hoos u dhacay) with delta calculations.
+                    Tracks newly added items, price increases (Price Up), and price drops (Price Down) with delta calculations.
                   </p>
 
                   <div className="overflow-x-auto">
@@ -1435,10 +1435,10 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                     </div>
                     <div>
                       <span className="font-bold text-white text-xs block">
-                        Katalog-ga Buuxa ee NAJI HASSAN (584 Alaabood &amp; 38 Qaybood)
+                        Full NAJI HASSAN Catalog (584 Products &amp; 38 Categories)
                       </span>
                       <span className="text-[11px] text-slate-400">
-                        Dhammaan category pages: SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, iwm.
+                        All category pages: SAMSUNG / LCD, IPhone / LCD, TECNO / LCD, etc.
                       </span>
                     </div>
                   </div>
@@ -1448,14 +1448,14 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                     className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Soo Ror 584 Alaabood (NAJI HASSAN Pages)</span>
+                    <span>Load 584 Products (NAJI HASSAN Pages)</span>
                   </button>
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
-                      Live Google Sheet Link ama Apps Script Web App URL
+                      Live Google Sheet Link or Apps Script Web App URL
                     </label>
                     <span className="text-[11px] text-cyan-400 font-mono">
                       {parts.length} Products Active
@@ -1472,7 +1472,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                         GoogleSheetsService.saveConfig({ sheetUrl: val.trim() });
                       }}
                       onBlur={() => GoogleSheetsService.saveConfig({ sheetUrl: sheetUrl.trim() })}
-                      placeholder="https://script.google.com/macros/s/AKfy.../exec ama https://docs.google.com/spreadsheets/d/..."
+                      placeholder="https://script.google.com/macros/s/AKfy.../exec or https://docs.google.com/spreadsheets/d/..."
                       className="flex-1 bg-slate-950 border border-slate-700/80 focus:border-cyan-500 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 font-mono outline-none"
                     />
                     <div className="flex flex-wrap items-center gap-2">
@@ -1503,10 +1503,10 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                         onClick={() => handleBackupToSheet('multi_tab')}
                         disabled={isLoading || isBackingUp}
                         className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 cursor-pointer"
-                        title="Toos ugu dhex samee category kasta (38 qaybood) Google Sheet-kaaga NAJI HASSAN adigoon waxba soo dejisan"
+                        title="Create each category (38 categories) directly in your NAJI HASSAN Google Sheet without downloading any files"
                       >
                         <FileSpreadsheet className={`w-4 h-4 ${isBackingUp ? 'animate-spin' : ''}`} />
-                        <span>{isBackingUp ? 'Ku qoraya Google Sheet...' : '📂 Multi-Tab Backup (Toos ugu qor Google Sheet)'}</span>
+                        <span>{isBackingUp ? 'Writing to Google Sheet...' : '📂 Multi-Tab Backup (Write Direct to Google Sheet)'}</span>
                       </button>
                     </div>
                   </div>
@@ -1538,12 +1538,12 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                           className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1 font-semibold"
                         >
                           <Copy className="w-3 h-3" />
-                          <span>{copiedScript ? 'Copied Pre-Configured Script!' : 'Nuqul Script (Pre-configured ID)'}</span>
+                          <span>{copiedScript ? 'Copied Pre-Configured Script!' : 'Copy Script (Pre-configured ID)'}</span>
                         </button>
                       </div>
                       <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1 border-t border-slate-800">
                         <span className="text-slate-400 text-[11px] shrink-0 font-medium">
-                          Web App URL (ikhtiyaari haddii la deploy gareeyay):
+                          Web App URL (optional if deployed):
                         </span>
                         <input
                           type="url"
@@ -1572,7 +1572,7 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                   <div className="p-3 rounded-xl bg-blue-950/30 border border-blue-500/30 text-blue-200 flex items-start gap-2">
                     <FileSpreadsheet className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                     <span>
-                      <strong>📂 Multi-Tab Backup:</strong> Waxay <strong>category kasta ka dhigaysaa spreadsheet tab u gaar ah</strong> ({categories.length} tabs) oo toos loogu dhex abuurayo Google Sheet-kaaga NAJI HASSAN (ma soo dejinayo fayl).
+                      <strong>📂 Multi-Tab Backup:</strong> Turns <strong>each category into its own spreadsheet tab</strong> ({categories.length} tabs) directly inside your NAJI HASSAN Google Sheet (no file download needed).
                     </span>
                   </div>
                 </div>
@@ -1594,10 +1594,10 @@ export const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({
                       type="button"
                       onClick={handleDownloadOfflineWorkbook}
                       className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-700 shrink-0"
-                      title="Haddii aad rabto inaad fayl offline ah (.xls) ku keydiso kumbuyuutarkaaga"
+                      title="Download an offline Excel (.xls) workbook to your computer"
                     >
                       <Download className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Soo Dajiso Faylka Offline (.xls)</span>
+                      <span>Download Offline Workbook (.xls)</span>
                     </button>
                   </div>
 
